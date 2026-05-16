@@ -3,15 +3,19 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.pycache
 
 # Virtual environment
 venv/
 .venv/
 env/
+.env
 
 # IDE
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
 
 # Claude Code memory
 .claude/
@@ -19,8 +23,15 @@ env/
 # Output / generated files
 *.xlsx
 *.html
+*.csv
+*.log
+*.tmp
+
+# Office lock files (Word/Excel open temp files)
+~$*
 
 # OS
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
