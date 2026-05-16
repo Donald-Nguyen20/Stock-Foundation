@@ -315,6 +315,18 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
 
     _msg("Loading quarterly data…")
     q_fin = tk.quarterly_income_stmt
+
+    # Vietnam stocks on yfinance need a ".VN" suffix (e.g. VIC → VIC.VN)
+    if (q_fin is None or q_fin.empty) and not ticker.upper().endswith(".VN"):
+        _msg(f"Trying {ticker}.VN (Vietnam market)…")
+        tk_vn = yf.Ticker(ticker + ".VN")
+        q_fin_vn = tk_vn.quarterly_income_stmt
+        if q_fin_vn is not None and not q_fin_vn.empty:
+            tk    = tk_vn
+            info  = tk_vn.info
+            name  = info.get("longName", ticker)
+            q_fin = q_fin_vn
+
     if q_fin is None or q_fin.empty:
         raise ValueError(f"No data for '{ticker}' — check the ticker symbol.")
     q_fin = q_fin.T.sort_index()

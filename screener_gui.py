@@ -604,10 +604,10 @@ class HelpDialog(QDialog):
                 <td style="color:#3D8EF0;font-weight:700;font-family:Consolas,monospace;
                            font-size:14px;padding:8px 12px;width:28px;">{key}</td>
                 <td style="color:#DCE4EE;padding:8px 12px;width:110px;">{name}</td>
-                <td style="color:#7A8899;font-family:Consolas,monospace;font-size:10px;
+                <td style="color:#B8C4D0;font-family:Consolas,monospace;font-size:10px;
                            padding:8px 12px;width:105px;">{cfg['field']}</td>
                 <td style="color:#34C472;font-weight:600;padding:8px 12px;width:60px;">{thr}</td>
-                <td style="color:#7A8899;font-size:10px;padding:8px 12px;">{full_desc[key]}</td>
+                <td style="color:#DCE4EE;font-size:10px;padding:8px 12px;">{full_desc[key]}</td>
               </tr>"""
 
         signal_rows = "".join([
@@ -652,7 +652,7 @@ class HelpDialog(QDialog):
             proxy_sector_rows += (
                 f'<tr style="background-color:{bg};">'
                 f'<td style="color:#DCE4EE;padding:6px 12px;">{sector}</td>'
-                f'<td style="color:#7A8899;font-size:10px;padding:6px 12px;">{proxy}</td>'
+                f'<td style="color:#DCE4EE;font-size:10px;padding:6px 12px;">{proxy}</td>'
                 f'</tr>'
             )
 
@@ -692,7 +692,7 @@ class HelpDialog(QDialog):
             proxy_type_rows += (
                 f'<tr style="background-color:{bg};">'
                 f'<td style="color:#3D8EF0;font-weight:600;padding:7px 12px;">{ptype}</td>'
-                f'<td style="color:#7A8899;font-size:10px;padding:7px 12px;">{pdesc}</td>'
+                f'<td style="color:#DCE4EE;font-size:10px;padding:7px 12px;">{pdesc}</td>'
                 f'</tr>'
             )
 
@@ -702,19 +702,19 @@ class HelpDialog(QDialog):
            margin:0; padding:0; }}
   h1    {{ color:#3D8EF0; font-size:16px; letter-spacing:4px;
            font-weight:700; margin:0 0 3px 0; }}
-  .sub  {{ color:#3D4D60; font-size:9px; letter-spacing:2px;
+  .sub  {{ color:#7A8899; font-size:9px; letter-spacing:2px;
            margin:0 0 18px 0; }}
-  h2    {{ color:#7A8899; font-size:9px; letter-spacing:3px;
-           font-weight:600; margin:22px 0 7px 0;
+  h2    {{ color:#B8C4D0; font-size:9px; letter-spacing:3px;
+           font-weight:700; margin:22px 0 7px 0;
            border-bottom:1px solid #1A2133; padding-bottom:4px; }}
   table {{ border-collapse:collapse; width:100%; margin-bottom:8px; }}
-  th    {{ background-color:#0E1220; color:#7A8899; text-align:left;
+  th    {{ background-color:#0E1220; color:#B8C4D0; text-align:left;
            padding:6px 12px; font-size:9px; letter-spacing:1px;
            font-weight:600; border-bottom:1px solid #1A2133; }}
-  .tip  {{ color:#3D4D60; font-size:9px; font-style:italic;
+  .tip  {{ color:#7A8899; font-size:9px; font-style:italic;
            margin:4px 0 0 0; }}
-  li    {{ margin:5px 0; color:#7A8899; font-size:10px; }}
-  b     {{ color:#DCE4EE; font-weight:600; }}
+  li    {{ margin:5px 0; color:#DCE4EE; font-size:10px; }}
+  b     {{ color:#FFFFFF; font-weight:600; }}
 </style></head><body>
 <h1>FUNDAMENTAL SCREENER</h1>
 <p class="sub">HƯỚNG DẪN ĐỌC TÍN HIỆU  ·  CAN SLIM · MOAT · SIGNAL</p>
@@ -756,7 +756,7 @@ class HelpDialog(QDialog):
 Khi tắt "yfinance Moat", dùng TV TTM ROE &amp; GM thay thế (nhanh hơn nhưng kém chính xác hơn).</p>
 
 <h2>④ MOAT PROXY — LOẠI LỢI THẾ CẠNH TRANH</h2>
-<p style="color:#7A8899;font-size:10px;margin:0 0 8px 0;">Moat Proxy được gán tự động theo <b style="color:#DCE4EE;">ngành (Sector)</b> của cổ phiếu.</p>
+<p style="color:#DCE4EE;font-size:10px;margin:0 0 8px 0;">Moat Proxy được gán tự động theo <b>ngành (Sector)</b> của cổ phiếu.</p>
 <table>
   <tr>
     <th style="width:190px;">Sector</th>
@@ -765,7 +765,7 @@ Khi tắt "yfinance Moat", dùng TV TTM ROE &amp; GM thay thế (nhanh hơn như
   {proxy_sector_rows}
 </table>
 
-<p style="color:#7A8899;font-size:10px;margin:14px 0 7px 0;font-weight:600;letter-spacing:1px;">GIẢI THÍCH CÁC LOẠI LỢI THẾ</p>
+<p style="color:#B8C4D0;font-size:10px;margin:14px 0 7px 0;font-weight:700;letter-spacing:1px;">GIẢI THÍCH CÁC LOẠI LỢI THẾ</p>
 <table>
   <tr>
     <th style="width:210px;">Loại lợi thế</th>
@@ -913,7 +913,7 @@ class MainWindow(QMainWindow):
         lbl_market.setStyleSheet(
             f"color:{TEXT3}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._market = QComboBox()
-        self._market.addItems(["america", "nasdaq", "nyse", "euronext", "hong_kong"])
+        self._market.addItems(["america", "nasdaq", "nyse", "euronext", "hong_kong", "vietnam"])
         self._market.setFixedHeight(32)
         self._market.setStyleSheet(self._combo_style())
 
@@ -1362,5 +1362,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     win = MainWindow()
-    win.show()
+    win.showMaximized()
     sys.exit(app.exec())
