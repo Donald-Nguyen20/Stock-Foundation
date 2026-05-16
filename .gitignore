@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code memory
+.claude/
+
+# Output / generated files
+*.xlsx
+*.html
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
