@@ -527,7 +527,7 @@ class ScanWorker(QThread):
         try:
             from tradingview_screener import Query
             self.progress.emit(f"Querying TradingView — {self.market.upper()} top {self.top}…")
-            _, raw = (Query().set_markets(self.market)
+            _, raw = (Query().set_markets(self.market.lower())
                       .select(*FETCH_COLS)
                       .order_by("market_cap_basic", ascending=False)
                       .limit(self.top)
@@ -572,7 +572,7 @@ class TickerWorker(QThread):
     def run(self):
         try:
             from tradingview_screener import Query, Column
-            _, raw = (Query().set_markets(self.market)
+            _, raw = (Query().set_markets(self.market.lower())
                       .select(*FETCH_COLS)
                       .where(Column("name") == self.ticker)
                       .get_scanner_data())
