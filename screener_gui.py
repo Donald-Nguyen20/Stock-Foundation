@@ -13,8 +13,9 @@ from PySide6.QtWidgets import (
     QDialog, QTextBrowser,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSortFilterProxyModel
-from PySide6.QtGui import QFont, QColor, QKeySequence, QShortcut, QPixmap
-
+from PySide6.QtGui import QFont, QColor, QKeySequence, QShortcut, QPixmap, QPainter
+from PySide6.QtWidgets import QHeaderView
+#
 # ─────────────────────────────────────────────────────────────────────────────
 # Load python screen_top100.py via importlib (filename has a space)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,11 +25,12 @@ _spec = importlib.util.spec_from_file_location(
 _m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_m)
 
-fetch_data          = _m.fetch_data
-clean_df            = _m.clean_df
-score_canslim       = _m.score_canslim
-fetch_moat_yfinance = _m.fetch_moat_yfinance
-write_excel         = _m.write_excel
+fetch_data             = _m.fetch_data
+clean_df               = _m.clean_df
+score_canslim          = _m.score_canslim
+fetch_moat_yfinance    = _m.fetch_moat_yfinance
+fetch_market_direction = _m.fetch_market_direction
+write_excel            = _m.write_excel
 CANSLIM             = _m.CANSLIM
 CS_KEYS             = _m.CS_KEYS
 N_CS                = _m.N_CS
@@ -56,6 +58,21 @@ RED      = "#E8483D"
 AMBER    = "#E8A93D"
 SPINNER  = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
 
+DARK_THEME = dict(
+    BG="#06080F", SURFACE="#0B0E18", PANEL="#0E1220",
+    INPUT_BG="#131928", BORDER="#1A2133", BORDER2="#243044",
+    BLUE="#3D8EF0", BLUE_HV="#2463B4",
+    TEXT1="#DCE4EE", TEXT2="#7A8899", TEXT3="#3D4D60",
+    GREEN="#34C472", RED="#E8483D", AMBER="#E8A93D",
+)
+LIGHT_THEME = dict(
+    BG="#F0F4F9", SURFACE="#FFFFFF", PANEL="#E8EDF5",
+    INPUT_BG="#FFFFFF", BORDER="#D1D9E6", BORDER2="#A8B8CC",
+    BLUE="#2563EB", BLUE_HV="#1D4ED8",
+    TEXT1="#1A202C", TEXT2="#4A5568", TEXT3="#94A3B8",
+    GREEN="#276749", RED="#C53030", AMBER="#975A16",
+)
+
 # Signal badge colors  (text, background)
 SIGNAL_COLORS = {
     "🟢 STRONG BUY": ("#1A5C2B", "#C6EFCE"),
@@ -66,6 +83,7 @@ SIGNAL_COLORS = {
 
 # Table columns: (header, data-key, width, align)
 TABLE_COLS = [
+    ("No",          "_no_",         36,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Ticker",      "Ticker",       65,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("Company",     "Tên Công Ty", 175,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("Sector",      "Sector",      105,  Qt.AlignLeft   | Qt.AlignVCenter),
@@ -90,26 +108,87 @@ TABLE_COLS = [
     ("R",           "CS_R",         32,  Qt.AlignCenter | Qt.AlignVCenter),
     ("M",           "CS_M",         32,  Qt.AlignCenter | Qt.AlignVCenter),
     ("D",           "CS_D",         32,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("N",           "CS_N",         32,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("MKT",         "CS_MKT",       40,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Score",       "CS_Score",     52,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Signal",      "CS_Signal",   118,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
 
-from fundamental_chart import ChartWorkerPng
+from fundamental_chart import ChartWorkerPng, _RenderWorkerPng
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chart panel — Plotly rendered to PNG, displayed as a native QLabel pixmap
 # ─────────────────────────────────────────────────────────────────────────────
+class ColoredHeader(QHeaderView):
+    """Header tự vẽ để hỗ trợ màu nền khác nhau theo nhóm cột."""
+    _DEF_BG    = QColor("#0A1628")
+    _DEF_FG    = QColor("#7EB8D4")
+    _BORDER_B  = QColor("#3D8EF0")
+    _BORDER_R  = QColor("#1A2133")
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self.setHighlightSections(False)
+        self.setSectionsClickable(True)
+
+    def paintSection(self, painter, rect, idx):
+        painter.save()
+        painter.setClipRect(rect)
+
+        bg_raw = self.model().headerData(idx, Qt.Horizontal, Qt.BackgroundRole)
+        fg_raw = self.model().headerData(idx, Qt.Horizontal, Qt.ForegroundRole)
+        bg = bg_raw.color() if hasattr(bg_raw, "color") else (bg_raw if isinstance(bg_raw, QColor) else self._DEF_BG)
+        fg = fg_raw.color() if hasattr(fg_raw, "color") else (fg_raw if isinstance(fg_raw, QColor) else self._DEF_FG)
+
+        painter.fillRect(rect, bg)
+        painter.setPen(self._BORDER_B)
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        painter.setPen(self._BORDER_R)
+        painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom() - 2)
+
+        # draw sort arrow
+        sort_col = self.sortIndicatorSection()
+        sort_asc = self.sortIndicatorOrder() == Qt.AscendingOrder
+        arrow_w = 0
+        if sort_col == idx:
+            arrow_w = 10
+            ax = rect.right() - arrow_w - 3
+            ay = rect.center().y()
+            painter.setPen(fg)
+            painter.setBrush(fg)
+            if sort_asc:
+                pts = [(ax, ay + 3), (ax + arrow_w, ay + 3), (ax + arrow_w // 2, ay - 2)]
+            else:
+                pts = [(ax, ay - 3), (ax + arrow_w, ay - 3), (ax + arrow_w // 2, ay + 2)]
+            from PySide6.QtGui import QPolygon
+            from PySide6.QtCore import QPoint
+            poly = QPolygon([QPoint(x, y) for x, y in pts])
+            painter.drawPolygon(poly)
+
+        text = self.model().headerData(idx, Qt.Horizontal, Qt.DisplayRole) or ""
+        painter.setPen(fg)
+        f = QFont("Segoe UI", 9, QFont.Bold)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, 0.8)
+        painter.setFont(f)
+        text_rect = rect.adjusted(3, 0, -(3 + arrow_w + 4), -2)
+        painter.drawText(text_rect, Qt.AlignCenter | Qt.AlignVCenter, str(text))
+        painter.restore()
+
+
 class ChartPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._dark = True
         self.setStyleSheet(f"background:{BG};")
-        self._pix_q  = None   # QPixmap (quarterly)
-        self._pix_a  = None   # QPixmap (annual)
-        self._mode   = "quarterly"
-        self._worker = None
-        self._ticker = ""
+        self._pix_q        = None   # QPixmap (quarterly)
+        self._pix_a        = None   # QPixmap (annual)
+        self._mode         = "quarterly"
+        self._worker       = None
+        self._render_worker = None
+        self._chart_data   = None   # cached raw data dict from yfinance
+        self._ticker       = ""
         self._spin_idx = 0
         self._spin_msg = ""
         self._spin_tmr = QTimer(self)
@@ -118,8 +197,10 @@ class ChartPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._build_bar())
-        layout.addWidget(self._sep())
+        self._bar_w = self._build_bar()
+        self._sep_line = self._sep()
+        layout.addWidget(self._bar_w)
+        layout.addWidget(self._sep_line)
 
         self._img = QLabel()
         self._img.setAlignment(Qt.AlignCenter)
@@ -191,9 +272,11 @@ class ChartPanel(QWidget):
         if self._worker and self._worker.isRunning():
             self._worker.terminate(); self._worker.wait()
 
+        self._chart_data = None
         self._spin_msg = f"Loading {ticker}…"
         self._spin_tmr.start(80)
-        self._worker = ChartWorkerPng(ticker)
+        self._worker = ChartWorkerPng(ticker, dark_mode=self._dark)
+        self._worker.data_ready.connect(self._cache_data)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.msg.connect(lambda m: setattr(self, "_spin_msg", m))
@@ -218,6 +301,26 @@ class ChartPanel(QWidget):
         self._img.setStyleSheet(f"background:{BG}; color:{RED};"
                                 f" font-size:11px; letter-spacing:1px;")
         self._set_status(f"✕  {msg}", RED)
+
+    def _cache_data(self, d):
+        self._chart_data = d
+
+    def _fast_rerender(self):
+        if not self._chart_data or not self._ticker:
+            return
+        if self._render_worker and self._render_worker.isRunning():
+            self._render_worker.terminate()
+            self._render_worker.wait()
+        self._pix_q = None
+        self._pix_a = None
+        self._spin_msg = "Re-rendering…"
+        self._spin_tmr.start(80)
+        self._render_worker = _RenderWorkerPng(
+            self._ticker, self._chart_data, dark_mode=self._dark)
+        self._render_worker.done.connect(self._on_done)
+        self._render_worker.failed.connect(self._on_failed)
+        self._render_worker.msg.connect(lambda m: setattr(self, "_spin_msg", m))
+        self._render_worker.start()
 
     def _switch_mode(self, mode):
         if mode == self._mode: return
@@ -253,6 +356,25 @@ class ChartPanel(QWidget):
         self._btn_a.setEnabled(has_a)
         self._btn_q.setStyleSheet(act if (self._mode == "quarterly" and has_q) else off if has_q else dis)
         self._btn_a.setStyleSheet(act if (self._mode == "annual"    and has_a) else off if has_a else dis)
+
+    def set_theme(self, dark: bool):
+        self._dark = dark
+        self.setStyleSheet(f"background:{BG};")
+        self._bar_w.setStyleSheet(f"background:{SURFACE};")
+        self._sep_line.setStyleSheet(f"background:{BORDER}; border:none;")
+        self._chart_lbl.setStyleSheet(
+            f"color:{TEXT1}; font-size:13px; font-weight:700;"
+            f" font-family:'Consolas',monospace; letter-spacing:2px;")
+        self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        self._img.setStyleSheet(f"background:{BG}; color:{TEXT3}; font-size:11px; letter-spacing:1px;")
+        self._refresh_btns()
+        if self._ticker:
+            if self._chart_data:
+                self._fast_rerender()
+            else:
+                prev = self._ticker
+                self._ticker = ""
+                self.load_ticker(prev)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -322,13 +444,15 @@ class ScanWorker(QThread):
                         self.failed.emit("Cancelled.")
                         return
                     sector = sectors.get(ticker, "")
-                    proxy, score = fetch_moat_yfinance(ticker, sector)
-                    moat_cache[ticker] = (proxy, score)
+                    proxy, score, w52_pct = fetch_moat_yfinance(ticker, sector)
+                    moat_cache[ticker] = (proxy, score, w52_pct)
                     self.ticker_update.emit(i, total, ticker, score)
                     time.sleep(0.3)
 
+            self.progress.emit("Fetching market direction (^GSPC)…")
+            market_ok = fetch_market_direction()
             self.progress.emit("Applying CAN SLIM scoring…")
-            df = score_canslim(df, moat_cache)
+            df = score_canslim(df, moat_cache, market_ok=market_ok)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -354,10 +478,11 @@ class TickerWorker(QThread):
                 self.failed.emit(f"'{self.ticker}' not found on TradingView.")
                 return
             df = clean_df(raw)
-            proxy, score = fetch_moat_yfinance(self.ticker,
-                           df["Sector"].iloc[0] if "Sector" in df.columns else "")
-            moat_cache = {self.ticker: (proxy, score)}
-            df = score_canslim(df, moat_cache)
+            proxy, score, w52_pct = fetch_moat_yfinance(
+                self.ticker, df["Sector"].iloc[0] if "Sector" in df.columns else "")
+            moat_cache = {self.ticker: (proxy, score, w52_pct)}
+            market_ok = fetch_market_direction()
+            df = score_canslim(df, moat_cache, market_ok=market_ok)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -402,6 +527,7 @@ class DetailCard(QWidget):
 
         # CAN SLIM criteria row
         cs_widget = QWidget()
+        self._cs_widget = cs_widget
         cs_widget.setStyleSheet(f"background:{SURFACE}; border-radius:4px;")
         cs_layout = QHBoxLayout(cs_widget)
         cs_layout.setContentsMargins(12, 8, 12, 8)
@@ -525,6 +651,23 @@ class DetailCard(QWidget):
                 f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
         self._lbl_empty.show()
 
+    def apply_theme(self):
+        self.setStyleSheet(f"background:{PANEL};")
+        self._cs_widget.setStyleSheet(f"background:{SURFACE}; border-radius:4px;")
+        self._lbl_ticker.setStyleSheet(
+            f"color:{TEXT1}; font-size:20px; font-weight:700;"
+            f" font-family:'Consolas',monospace; letter-spacing:3px;")
+        self._lbl_info.setStyleSheet(
+            f"color:{TEXT1}; font-size:13px; font-family:'Segoe UI',sans-serif;")
+        self._lbl_empty.setStyleSheet(
+            f"color:{TEXT3}; font-size:12px; font-style:italic;"
+            f" font-family:'Segoe UI',sans-serif;")
+        for lbl in self._cs_labels.values():
+            if lbl.text() == "—":
+                lbl.setStyleSheet(
+                    f"color:{TEXT1}; font-size:13px; font-weight:700;"
+                    f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help dialog — F1
@@ -591,6 +734,8 @@ class HelpDialog(QDialog):
             "R": "ROE >17% — hiệu quả sử dụng vốn chủ sở hữu. Bao nhiêu lợi nhuận tạo ra trên mỗi đồng equity của cổ đông.",
             "M": "3-Month Performance >0% — giá đang trong xu hướng tăng ngắn hạn. Không mua cổ phiếu đang giảm (catching a falling knife).",
             "D": "D/E <2.0 — kiểm soát đòn bẩy tài chính. Tránh công ty overleveraged, đặc biệt nguy hiểm khi lãi suất tăng cao.",
+            "N": "Price ≥90% of 52-Week High — cổ phiếu đang ở vùng sức mạnh dài hạn, gần đỉnh 52 tuần. O'Neil: mua cổ phiếu phá đỉnh, không phải đang trong downtrend.",
+            "MKT": "S&P 500 trên MA50 & MA200 — thị trường chung đang uptrend. Ngay cả cổ phiếu tốt cũng khó tăng khi thị trường correction.",
         }
         canslim_rows = ""
         for i, key in enumerate(CS_KEYS):
@@ -617,14 +762,14 @@ class HelpDialog(QDialog):
                   <td style="color:{fg};padding:9px 14px;">{desc}</td>
                 </tr>"""
             for icon, label, score, fg, bg, desc in [
-                ("🟢", "STRONG BUY", "7 – 8 / 8", "#1A5C2B", "#C6EFCE",
-                 "Đạt ≥7 tiêu chí. Nền tảng cơ bản + kỹ thuật đều mạnh. Ưu tiên theo dõi và cân nhắc mua."),
-                ("🔵", "BUY",        "5 – 6 / 8", "#1B3A5C", "#DDEEFF",
-                 "Đạt 5–6 tiêu chí. Nền tảng tốt, đáng xem xét nhưng kiểm tra thêm tiêu chí còn thiếu."),
-                ("🟡", "WATCH",      "3 – 4 / 8", "#7D6608", "#FFF2CC",
-                 "Đạt 3–4 tiêu chí. Tiềm năng nhưng chưa đủ điều kiện. Đưa vào watchlist, chờ cải thiện."),
-                ("🔴", "SKIP",       "0 – 2 / 8", "#9C0006", "#FFC7CE",
-                 "Đạt ≤2 tiêu chí. Không đủ điều kiện theo CAN SLIM. Bỏ qua hoặc chờ fundamental xoay chiều."),
+                ("🟢", "STRONG BUY", f"≥{round(N_CS*0.875)} / {N_CS}", "#1A5C2B", "#C6EFCE",
+                 "Đạt ≥87.5% tiêu chí. Nền tảng cơ bản + kỹ thuật đều mạnh. Ưu tiên theo dõi và cân nhắc mua."),
+                ("🔵", "BUY",        f"≥{round(N_CS*0.625)} / {N_CS}", "#1B3A5C", "#DDEEFF",
+                 "Đạt ≥62.5% tiêu chí. Nền tảng tốt, đáng xem xét nhưng kiểm tra thêm tiêu chí còn thiếu."),
+                ("🟡", "WATCH",      f"≥{round(N_CS*0.375)} / {N_CS}", "#7D6608", "#FFF2CC",
+                 "Đạt ≥37.5% tiêu chí. Tiềm năng nhưng chưa đủ điều kiện. Đưa vào watchlist, chờ cải thiện."),
+                ("🔴", "SKIP",       f"< {round(N_CS*0.375)} / {N_CS}", "#9C0006", "#FFC7CE",
+                 "Không đủ điều kiện theo CAN SLIM. Bỏ qua hoặc chờ fundamental xoay chiều."),
             ]
         ])
 
@@ -798,6 +943,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Fundamental Screener")
         self.resize(1700, 960)
+        self._is_dark     = True
         self._df          = None
         self._worker      = None
         self._ticker_wkr  = None
@@ -820,13 +966,6 @@ class MainWindow(QMainWindow):
             QScrollBar::handle:horizontal {{ background:{BORDER2}; border-radius:4px; }}
             QTableWidget {{ gridline-color:{BORDER}; outline:none; }}
             QTableWidget::item:selected {{ background:{BORDER2}; }}
-            QHeaderView::section {{
-                background:{SURFACE}; color:{TEXT2}; font-size:9px;
-                font-weight:600; letter-spacing:1px;
-                border:none; border-right:1px solid {BORDER};
-                border-bottom:1px solid {BORDER};
-                padding:4px 6px;
-            }}
             QToolTip {{
                 background:{SURFACE}; color:{TEXT1};
                 border:1px solid {BORDER2}; font-size:10px; padding:4px;
@@ -870,39 +1009,42 @@ class MainWindow(QMainWindow):
     # ── Section builders ──────────────────────────────────────────────────────
 
     def _build_header(self):
-        w = QWidget(); w.setFixedHeight(50)
-        w.setStyleSheet(f"background:{SURFACE};")
-        h = QHBoxLayout(w); h.setContentsMargins(22, 0, 16, 0); h.setSpacing(0)
+        self._header_w = QWidget(); self._header_w.setFixedHeight(50)
+        self._header_w.setStyleSheet(f"background:{SURFACE};")
+        h = QHBoxLayout(self._header_w); h.setContentsMargins(22, 0, 16, 0); h.setSpacing(0)
         lbl = QLabel()
         lbl.setTextFormat(Qt.RichText)
         lbl.setText(
             f'<span style="color:{TEXT1};font-size:14px;font-weight:700;letter-spacing:4px">FUNDAMENTAL</span>'
             f'<span style="color:{BLUE};font-size:14px;font-weight:700;letter-spacing:4px"> SCREENER</span>'
         )
+        self._title_lbl = lbl
         h.addWidget(lbl); h.addStretch()
-        tag = QLabel("CAN SLIM · TradingView · yfinance")
-        tag.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:2px;")
-        h.addWidget(tag)
-        h.addSpacing(16)
-        btn_help = QPushButton("?")
-        btn_help.setFixedSize(28, 28)
-        btn_help.setToolTip("Help  (F1)")
-        btn_help.setCursor(Qt.PointingHandCursor)
-        btn_help.setStyleSheet(f"""
-            QPushButton {{
-                background:{BORDER2}; color:{TEXT2};
-                border:none; border-radius:14px;
-                font-size:13px; font-weight:700;
-                font-family:'Segoe UI',sans-serif;
-            }}
-            QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}
-        """)
-        btn_help.clicked.connect(self._show_help)
-        h.addWidget(btn_help)
-        return w
+        self._tag_lbl = QLabel("CAN SLIM · TradingView · yfinance")
+        self._tag_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:2px;")
+        h.addWidget(self._tag_lbl)
+        h.addSpacing(10)
+
+        self._btn_theme = QPushButton("☀")
+        self._btn_theme.setFixedSize(28, 28)
+        self._btn_theme.setToolTip("Switch Light / Dark")
+        self._btn_theme.setCursor(Qt.PointingHandCursor)
+        self._btn_theme.clicked.connect(self._toggle_theme)
+        h.addWidget(self._btn_theme)
+        h.addSpacing(6)
+
+        self._btn_help = QPushButton("?")
+        self._btn_help.setFixedSize(28, 28)
+        self._btn_help.setToolTip("Help  (F1)")
+        self._btn_help.setCursor(Qt.PointingHandCursor)
+        self._btn_help.clicked.connect(self._show_help)
+        h.addWidget(self._btn_help)
+        self._refresh_icon_btns()
+        return self._header_w
 
     def _build_controls(self):
         w = QWidget(); w.setFixedHeight(86)
+        self._controls_w = w
         w.setStyleSheet(f"background:{BG};")
         v = QVBoxLayout(w); v.setContentsMargins(22, 8, 22, 8); v.setSpacing(6)
 
@@ -910,16 +1052,18 @@ class MainWindow(QMainWindow):
         row1 = QHBoxLayout(); row1.setSpacing(10)
 
         lbl_market = QLabel("MARKET")
+        self._lbl_market = lbl_market
         lbl_market.setStyleSheet(
-            f"color:{TEXT3}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+            f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._market = QComboBox()
         self._market.addItems(["america", "nasdaq", "nyse", "euronext", "hong_kong", "vietnam"])
         self._market.setFixedHeight(32)
         self._market.setStyleSheet(self._combo_style())
 
         lbl_top = QLabel("TOP")
+        self._lbl_top = lbl_top
         lbl_top.setStyleSheet(
-            f"color:{TEXT3}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+            f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._top_spin = QSpinBox()
         self._top_spin.setRange(50, 1000); self._top_spin.setValue(300); self._top_spin.setSingleStep(50)
         self._top_spin.setFixedSize(80, 32)
@@ -928,7 +1072,7 @@ class MainWindow(QMainWindow):
         self._use_yf = QCheckBox("yfinance Moat")
         self._use_yf.setChecked(False)
         self._use_yf.setStyleSheet(
-            f"color:{TEXT2}; font-size:10px; font-family:'Segoe UI',sans-serif;")
+            f"color:{TEXT1}; font-size:10px; font-family:'Segoe UI',sans-serif;")
 
         self._btn_scan = QPushButton("▶  SCAN")
         self._btn_scan.setFixedSize(110, 32)
@@ -955,8 +1099,9 @@ class MainWindow(QMainWindow):
         row2 = QHBoxLayout(); row2.setSpacing(10)
 
         lbl_tk = QLabel("TICKER")
+        self._lbl_tk = lbl_tk
         lbl_tk.setStyleSheet(
-            f"color:{TEXT3}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+            f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._ticker_inp = QLineEdit()
         self._ticker_inp.setPlaceholderText("e.g. AAPL  · NVDA · MSFT")
         self._ticker_inp.setFixedHeight(28); self._ticker_inp.setMaxLength(12)
@@ -971,8 +1116,9 @@ class MainWindow(QMainWindow):
         self._btn_lookup.clicked.connect(self._do_lookup)
 
         lbl_filter = QLabel("FILTER")
+        self._lbl_filter = lbl_filter
         lbl_filter.setStyleSheet(
-            f"color:{TEXT3}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+            f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._filter_inp = QLineEdit()
         self._filter_inp.setPlaceholderText("Search ticker or company name…")
         self._filter_inp.setFixedHeight(28)
@@ -1014,12 +1160,15 @@ class MainWindow(QMainWindow):
         self._table.verticalHeader().setDefaultSectionSize(22)
         self._table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self._table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self._table.horizontalHeader().setHighlightSections(False)
+        _hdr = ColoredHeader(self._table)
+        self._table.setHorizontalHeader(_hdr)
 
         headers = [c[0] for c in TABLE_COLS]
         self._table.setHorizontalHeaderLabels(headers)
         for i, (_, _, w_px, _) in enumerate(TABLE_COLS):
             self._table.setColumnWidth(i, w_px)
+
+        self._color_header_cols()
 
         self._table.itemSelectionChanged.connect(self._on_row_selected)
         v.addWidget(self._table)
@@ -1031,6 +1180,7 @@ class MainWindow(QMainWindow):
 
     def _build_status(self):
         w = QWidget(); w.setFixedHeight(28)
+        self._status_w = w
         w.setStyleSheet(f"background:{SURFACE};")
         h = QHBoxLayout(w); h.setContentsMargins(22, 0, 22, 0)
         self._dot = QLabel("●"); self._dot.setFixedWidth(14)
@@ -1039,10 +1189,122 @@ class MainWindow(QMainWindow):
         self.status_lbl.setStyleSheet(
             f"color:{TEXT3}; font-size:10px; font-family:'Segoe UI',sans-serif;")
         h.addWidget(self._dot); h.addWidget(self.status_lbl); h.addStretch()
-        ver = QLabel("TradingView  ·  yfinance  ·  PySide6")
-        ver.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
-        h.addWidget(ver)
+        self._ver_lbl = QLabel("TradingView  ·  yfinance  ·  PySide6")
+        self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        h.addWidget(self._ver_lbl)
         return w
+
+    # ── Theme ─────────────────────────────────────────────────────────────────
+
+    def _refresh_icon_btns(self):
+        _s = f"""
+            QPushButton {{
+                background:{BORDER2}; color:{TEXT1};
+                border:none; border-radius:14px;
+                font-size:12px; font-weight:700;
+                font-family:'Segoe UI',sans-serif;
+            }}
+            QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}
+        """
+        self._btn_theme.setStyleSheet(_s)
+        self._btn_help.setStyleSheet(_s)
+
+    def _color_header_cols(self):
+        dark = self._is_dark
+        _cs_bg  = "#0D1F10" if dark else "#E8F5E9"
+        _cs_fg  = "#5EC472" if dark else "#276749"
+        _mo_bg  = "#1A0D2E" if dark else "#F3E8FF"
+        _mo_fg  = "#B07ED4" if dark else "#7C3AED"
+        _fu_bg  = "#0D1828" if dark else "#EEF2FB"
+        _fu_fg  = "#7EB8D4" if dark else "#1E40AF"
+        _keys = [c[1] for c in TABLE_COLS]
+        for i, key in enumerate(_keys):
+            item = self._table.horizontalHeaderItem(i)
+            if not item:
+                continue
+            if key.startswith("CS_") or key in ("CS_Score", "CS_Signal"):
+                item.setBackground(QColor(_cs_bg)); item.setForeground(QColor(_cs_fg))
+            elif key in ("Moat Score", "Moat Proxy"):
+                item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
+            elif key in ("EPS Qtr%", "EPS Annual%", "Rev Qtr%", "Gross Margin%",
+                         "ROE%", "D/E", "P/E", "3M%", "1Y%"):
+                item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
+        self._table.horizontalHeader().update()
+
+    def _toggle_theme(self):
+        self._is_dark = not self._is_dark
+        theme = DARK_THEME if self._is_dark else LIGHT_THEME
+        globals().update(theme)
+        self._btn_theme.setText("☀" if self._is_dark else "🌙")
+        self._apply_theme()
+
+    def _apply_theme(self):
+        dark = self._is_dark
+        # ── ColoredHeader ──
+        ColoredHeader._DEF_BG   = QColor("#0A1628" if dark else "#E2E8F0")
+        ColoredHeader._DEF_FG   = QColor("#7EB8D4" if dark else "#2D3748")
+        ColoredHeader._BORDER_B = QColor(BLUE)
+        ColoredHeader._BORDER_R = QColor(BORDER)
+        self._color_header_cols()
+
+        # ── Main window stylesheet (scrollbars, tooltip) ──
+        self.setStyleSheet(f"""
+            QMainWindow {{ background:{BG}; }}
+            * {{ background:transparent; color:{TEXT1}; }}
+            QScrollBar:vertical {{ background:{SURFACE}; width:8px; border-radius:4px; }}
+            QScrollBar::handle:vertical {{ background:{BORDER2}; border-radius:4px; }}
+            QScrollBar:horizontal {{ background:{SURFACE}; height:8px; border-radius:4px; }}
+            QScrollBar::handle:horizontal {{ background:{BORDER2}; border-radius:4px; }}
+            QTableWidget {{ gridline-color:{BORDER}; outline:none; }}
+            QTableWidget::item:selected {{ background:{BORDER2}; }}
+            QToolTip {{
+                background:{SURFACE}; color:{TEXT1};
+                border:1px solid {BORDER2}; font-size:10px; padding:4px;
+            }}
+        """)
+        # ── Header bar ──
+        self._header_w.setStyleSheet(f"background:{SURFACE};")
+        self._tag_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:2px;")
+        self._title_lbl.setText(
+            f'<span style="color:{TEXT1};font-size:14px;font-weight:700;letter-spacing:4px">FUNDAMENTAL</span>'
+            f'<span style="color:{BLUE};font-size:14px;font-weight:700;letter-spacing:4px"> SCREENER</span>'
+        )
+        self._refresh_icon_btns()
+
+        # ── Controls bar ──
+        _lbl_s = f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;"
+        self._controls_w.setStyleSheet(f"background:{BG};")
+        self._lbl_market.setStyleSheet(_lbl_s)
+        self._lbl_top.setStyleSheet(_lbl_s)
+        self._lbl_tk.setStyleSheet(_lbl_s)
+        self._lbl_filter.setStyleSheet(_lbl_s)
+        self._market.setStyleSheet(self._combo_style())
+        self._top_spin.setStyleSheet(self._spinbox_style())
+        self._use_yf.setStyleSheet(f"color:{TEXT1}; font-size:10px; font-family:'Segoe UI',sans-serif;")
+        self._btn_scan.setStyleSheet(self._btn_style(BLUE, BLUE_HV))
+        self._btn_export.setStyleSheet(self._btn_style("#2E5C2E", "#1A4C1A"))
+        self._ticker_inp.setStyleSheet(self._input_style(font="Consolas,monospace", size="13px", ls="3px"))
+        self._btn_lookup.setStyleSheet(self._btn_style(BLUE, BLUE_HV, size="9px"))
+        self._filter_inp.setStyleSheet(self._input_style())
+        self._lbl_count.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+
+        # ── Table ──
+        self._table.setStyleSheet(f"""
+            QTableWidget {{
+                background:{BG}; alternate-background-color:{PANEL};
+                font-size:11px; font-family:'Segoe UI',sans-serif;
+                selection-background-color:{BORDER2};
+                border:none;
+            }}
+        """)
+        self._recolor_table()
+        # ── Detail card ──
+        self._detail.apply_theme()
+        # ── Chart panel ──
+        self._chart_panel.set_theme(dark)
+        # ── Status bar ──
+        self._status_w.setStyleSheet(f"background:{SURFACE};")
+        self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
 
     # ── Style helpers ─────────────────────────────────────────────────────────
 
@@ -1185,7 +1447,11 @@ class MainWindow(QMainWindow):
                 val = row.get(key)
                 cell = None
 
-                if key == "Ticker":
+                if key == "_no_":
+                    cell = NumItem(ri + 1, "int")
+                    cell.setForeground(QColor(TEXT1))
+
+                elif key == "Ticker":
                     cell = QTableWidgetItem(str(val) if val else "")
                     cell.setFont(QFont("Consolas", 9, QFont.Bold))
                     cell.setForeground(QColor("#00BFFF"))
@@ -1256,6 +1522,26 @@ class MainWindow(QMainWindow):
         self._table.setSortingEnabled(True)
         self._apply_filter()
 
+    def _recolor_table(self):
+        """Re-apply theme-sensitive foreground colors to existing cells."""
+        PCT_KEYS = {"EPS Qtr%","EPS Annual%","Rev Annual%","Rev Qtr%",
+                    "Gross Margin%","Net Margin%","ROE%",
+                    "1W%","1M%","3M%","6M%","1Y%"}
+        _keys = [c[1] for c in TABLE_COLS]
+        for ri in range(self._table.rowCount()):
+            for ci, key in enumerate(_keys):
+                item = self._table.item(ri, ci)
+                if not item:
+                    continue
+                if key in ("_no_", "Tên Công Ty", "Sector", "Moat Proxy"):
+                    item.setForeground(QColor(TEXT1))
+                elif key in PCT_KEYS and hasattr(item, "_num"):
+                    v = item._num
+                    if v != float("-inf"):
+                        item.setForeground(QColor(GREEN) if v > 0 else
+                                           QColor(RED)   if v < 0 else
+                                           QColor(TEXT3))
+
     def _apply_filter(self):
         text = self._filter_inp.text().strip().lower()
         visible = 0
@@ -1263,8 +1549,8 @@ class MainWindow(QMainWindow):
         for ri in range(total):
             show = True
             if text:
-                t_item = self._table.item(ri, 0)   # Ticker col
-                n_item = self._table.item(ri, 1)   # Name col
+                t_item = self._table.item(ri, 1)   # Ticker col
+                n_item = self._table.item(ri, 2)   # Name col
                 t_txt  = (t_item.text() if t_item else "").lower()
                 n_txt  = (n_item.text() if n_item else "").lower()
                 show   = (text in t_txt) or (text in n_txt)
@@ -1278,7 +1564,7 @@ class MainWindow(QMainWindow):
         rows = self._table.selectedItems()
         if not rows or self._df is None: return
         ri = self._table.currentRow()
-        ticker_item = self._table.item(ri, 0)
+        ticker_item = self._table.item(ri, 1)
         if not ticker_item: return
         ticker = ticker_item.text()
         match = self._df[self._df["Ticker"] == ticker]
@@ -1305,7 +1591,7 @@ class MainWindow(QMainWindow):
                 self._detail.show_row(match.iloc[0].to_dict())
                 # Highlight the row in table
                 for ri in range(self._table.rowCount()):
-                    item = self._table.item(ri, 0)
+                    item = self._table.item(ri, 1)
                     if item and item.text() == ticker:
                         self._table.selectRow(ri)
                         self._table.scrollToItem(item)
@@ -1344,13 +1630,15 @@ class MainWindow(QMainWindow):
 
     def _on_export(self):
         if self._df is None: return
+        from datetime import datetime
+        market  = self._market.currentText()
+        top     = self._top_spin.value()
+        default = f"tv_top{top}_{market}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Excel", "", "Excel (*.xlsx)")
+            self, "Export Excel", default, "Excel (*.xlsx)")
         if not path: return
         if not path.endswith(".xlsx"): path += ".xlsx"
         try:
-            market = self._market.currentText()
-            top    = self._top_spin.value()
             write_excel(self._df, path, market, top)
             self._set_status(f"✓  Exported → {path}", GREEN)
         except Exception as e:

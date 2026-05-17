@@ -20,6 +20,11 @@ env/
 # Claude Code memory
 .claude/
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
 # Output / generated files
 *.xlsx
 *.html

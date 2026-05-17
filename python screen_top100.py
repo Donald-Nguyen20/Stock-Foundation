@@ -27,16 +27,18 @@ except ImportError as e:
 # CAN SLIM CRITERIA
 # ═══════════════════════════════════════════════════════════════
 CANSLIM = {
-    "C": dict(label="C — EPS Qtr",   field="EPS Qtr%",      thr=25,  op="gt", desc="EPS Quarterly YoY > 25%"),
-    "A": dict(label="A — EPS Ann",   field="EPS Annual%",   thr=20,  op="gt", desc="EPS Annual YoY > 20%"),
-    "S": dict(label="S — Sales",     field="Rev Qtr%",      thr=20,  op="gt", desc="Revenue Quarterly YoY > 20%"),
-    "L": dict(label="L — RS (1Y)",   field="1Y%",           thr=20,  op="gt", desc="1-Year Perf > 20% (RS proxy)"),
-    "Q": dict(label="Quality GM",    field="Gross Margin%", thr=40,  op="gt", desc="Gross Margin > 40%"),
-    "R": dict(label="ROE",           field="ROE%",          thr=17,  op="gt", desc="ROE > 17%"),
-    "M": dict(label="Momentum 3M",   field="3M%",           thr=0,   op="gt", desc="3-Month Perf > 0%"),
-    "D": dict(label="Debt OK",       field="D/E",           thr=2.0, op="lt", desc="D/E < 2.0"),
+    "C":   dict(label="C — EPS Qtr",   field="EPS Qtr%",      thr=25,  op="gt", desc="EPS Quarterly YoY > 25%"),
+    "A":   dict(label="A — EPS Ann",   field="EPS Annual%",   thr=20,  op="gt", desc="EPS Annual YoY > 20%"),
+    "S":   dict(label="S — Sales",     field="Rev Qtr%",      thr=20,  op="gt", desc="Revenue Quarterly YoY > 20%"),
+    "L":   dict(label="L — RS (1Y)",   field="1Y%",           thr=20,  op="gt", desc="1-Year Perf > 20% (RS proxy)"),
+    "Q":   dict(label="Quality GM",    field="Gross Margin%", thr=40,  op="gt", desc="Gross Margin > 40%"),
+    "R":   dict(label="ROE",           field="ROE%",          thr=17,  op="gt", desc="ROE > 17%"),
+    "M":   dict(label="Momentum 3M",   field="3M%",           thr=0,   op="gt", desc="3-Month Perf > 0%"),
+    "D":   dict(label="Debt OK",       field="D/E",           thr=2.0, op="lt", desc="D/E < 2.0"),
+    "N":   dict(label="N — 52W High",  field="52W_High%",     thr=90,  op="gt", desc="Price ≥ 90% of 52-Week High"),
+    "MKT": dict(label="Market",        field="Market_OK",     thr=0.5, op="gt", desc="S&P 500 above MA50 & MA200"),
 }
-CS_KEYS = ["C", "A", "S", "L", "Q", "R", "M", "D"]
+CS_KEYS = ["C", "A", "S", "L", "Q", "R", "M", "D", "N", "MKT"]
 N_CS    = len(CS_KEYS)
 
 FETCH_COLS = [
@@ -188,12 +190,19 @@ def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
             gm_avg  or gm_ttm,
             yf_sector
         )
-        return proxy, score
+
+        # 52-week high proximity
+        w52_high  = info.get("fiftyTwoWeekHigh")
+        cur_price = (info.get("currentPrice") or info.get("regularMarketPrice")
+                     or info.get("previousClose"))
+        w52_pct = (round(cur_price / w52_high * 100, 1)
+                   if w52_high and cur_price and w52_high > 0 else None)
+        return proxy, score, w52_pct
 
     except Exception as e:
         # Fallback: sector hardcode + UNCERTAIN
         proxy = MOAT_PROXY_MAP.get(sector, "Cost Advantage")
-        return proxy, "UNCERTAIN ★"
+        return proxy, "UNCERTAIN ★", None
 
 
 def build_moat_cache(tickers: list, sectors: dict) -> dict:
@@ -207,12 +216,27 @@ def build_moat_cache(tickers: list, sectors: dict) -> dict:
     for i, ticker in enumerate(tickers, 1):
         sector = sectors.get(ticker, "")
         print(f"  [{i:>3}/{total}] {ticker:<8}", end="", flush=True)
-        proxy, score = fetch_moat_yfinance(ticker, sector)
-        cache[ticker] = (proxy, score)
+        proxy, score, w52_pct = fetch_moat_yfinance(ticker, sector)
+        cache[ticker] = (proxy, score, w52_pct)
         print(f" {score}")
         time.sleep(0.4)   # tránh rate limit
     print()
     return cache
+
+
+def fetch_market_direction():
+    """True nếu S&P 500 đang trên MA50 và MA200 (uptrend), False nếu không, None nếu lỗi."""
+    try:
+        import yfinance as yf
+        spx = yf.Ticker("^GSPC").history(period="1y")["Close"]
+        if len(spx) < 200:
+            return None
+        price = float(spx.iloc[-1])
+        ma50  = float(spx.rolling(50).mean().iloc[-1])
+        ma200 = float(spx.rolling(200).mean().iloc[-1])
+        return price > ma50 and price > ma200
+    except Exception:
+        return None
 
 
 # ─── Colors ─────────────────────────────────────────────────────────────────
@@ -241,7 +265,19 @@ def CL(i): return get_column_letter(i)
 # ═══════════════════════════════════════════════════════════════
 # SCORING
 # ═══════════════════════════════════════════════════════════════
-def score_canslim(df, moat_cache: dict = None):
+def score_canslim(df, moat_cache: dict = None, market_ok=None):
+    # Populate 52W_High% from moat_cache (3rd element of tuple)
+    if moat_cache:
+        def _get_w52(ticker):
+            t = moat_cache.get(ticker)
+            return t[2] if t and len(t) >= 3 else None
+        df["52W_High%"] = df["Ticker"].apply(_get_w52)
+    else:
+        df["52W_High%"] = None
+
+    # Market direction — same value for all rows
+    df["Market_OK"] = market_ok
+
     def chk(row, key):
         cfg = CANSLIM[key]
         v = row.get(cfg["field"])
@@ -255,9 +291,9 @@ def score_canslim(df, moat_cache: dict = None):
         lambda r: sum(1 for v in r if v is True), axis=1)
 
     def sig(s):
-        if s >= 7: return "🟢 STRONG BUY"
-        if s >= 5: return "🔵 BUY"
-        if s >= 3: return "🟡 WATCH"
+        if s >= round(N_CS * 0.875): return "🟢 STRONG BUY"
+        if s >= round(N_CS * 0.625): return "🔵 BUY"
+        if s >= round(N_CS * 0.375): return "🟡 WATCH"
         return "🔴 SKIP"
     df["CS_Signal"] = df["CS_Score"].apply(sig)
 
@@ -266,7 +302,8 @@ def score_canslim(df, moat_cache: dict = None):
         ticker = row.get("Ticker", "")
         sector = row.get("Sector", "")
         if moat_cache and ticker in moat_cache:
-            return moat_cache[ticker]   # (proxy, score) từ yfinance
+            t = moat_cache[ticker]
+            return t[0], t[1]   # proxy, score (bỏ qua w52_pct)
         # Fallback: tính từ TV TTM data (giống cũ)
         gm  = row.get("Gross Margin%"); gm  = gm  if (gm  is not None and not (isinstance(gm,  float) and pd.isna(gm)))  else None
         roe = row.get("ROE%");          roe = roe if (roe is not None and not (isinstance(roe, float) and pd.isna(roe))) else None
@@ -306,8 +343,156 @@ def write_excel(df, path, market, top):
     _main_sheet(wb, df, market, top)
     _legend_sheet(wb)
     _summary_sheet(wb, df)
+    _dashboard_sheet(wb, df)
     wb.save(path)
     print(f"  💾 {path}")
+
+
+def _dashboard_sheet(wb, df):
+    from openpyxl.chart import PieChart, BarChart, ScatterChart, Reference, Series
+    from openpyxl.chart.series import DataPoint
+
+    ws = wb.create_sheet("Dashboard")
+    ws.sheet_view.showGridLines = False
+    ws.sheet_tab_color = "1F3864"
+
+    SIGNALS  = ["🟢 STRONG BUY", "🔵 BUY", "🟡 WATCH", "🔴 SKIP"]
+    SIG_COLS = ["00AA44", "0070C0", "FFC000", "FF0000"]
+    SIG_LBLS = ["STRONG BUY", "BUY", "WATCH", "SKIP"]
+
+    HF = Font(name="Calibri", bold=True, size=9,  color="FFFFFF")
+    HB = BG("1F3864")
+    HA = AL()
+
+    # ── Title ──────────────────────────────────────────────────────
+    ws.merge_cells("A1:W2")
+    c = ws["A1"]
+    c.value     = "STOCK SCREENER  ·  DASHBOARD"
+    c.font      = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    c.fill      = BG("1F3864")
+    c.alignment = AL()
+    ws.row_dimensions[1].height = 32
+
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["I"].width = 12
+    ws.column_dimensions["O"].width = 8
+    ws.column_dimensions["P"].width = 10
+
+    DR = 55   # data tables start below all charts
+
+    def hdr(row, col, text):
+        c = ws.cell(row, col, text)
+        c.font = HF; c.fill = HB; c.alignment = HA
+
+    # ── Table 1: Signal counts (A:B) — Pie ─────────────────────────
+    hdr(DR, 1, "Signal"); hdr(DR, 2, "Count")
+    sig_counts = df["CS_Signal"].value_counts()
+    for i, sig in enumerate(SIGNALS, 1):
+        ws.cell(DR+i, 1, sig)
+        ws.cell(DR+i, 2, int(sig_counts.get(sig, 0)))
+
+    # ── Table 2: Top 20 Score (I:J) — Horizontal Bar ───────────────
+    hdr(DR, 9, "Ticker"); hdr(DR, 10, f"Score/{N_CS}")
+    top20 = (df[["Ticker", "CS_Score", "1Y%"]]
+             .sort_values(["CS_Score", "1Y%"], ascending=[False, False])
+             .head(20)
+             .sort_values(["CS_Score", "1Y%"], ascending=[True, True]))
+    for i, (_, row) in enumerate(top20.iterrows(), 1):
+        ws.cell(DR+i, 9,  str(row.get("Ticker",   "")))
+        ws.cell(DR+i, 10, int(row.get("CS_Score", 0)))
+
+    # ── Table 3: Score vs 1Y% (O:P) — Scatter ──────────────────────
+    hdr(DR, 15, "Score"); hdr(DR, 16, "1Y%")
+    sc_df = df[["CS_Score", "1Y%"]].dropna(subset=["1Y%"])
+    for i, (_, row) in enumerate(sc_df.iterrows(), 1):
+        ws.cell(DR+i, 15, int(row["CS_Score"]))
+        ws.cell(DR+i, 16, round(float(row["1Y%"]), 2))
+    n_sc = len(sc_df)
+
+    # ── Table 4: Sector × Signal (D:H) — Stacked Bar ───────────────
+    hdr(DR, 4, "Sector")
+    for j, lbl in enumerate(SIG_LBLS, 1):
+        hdr(DR, 4+j, lbl)
+
+    grp = (df.assign(Sector=df["Sector"].fillna("Unknown"))
+             .groupby(["Sector", "CS_Signal"])
+             .size()
+             .unstack(fill_value=0)
+             .reindex(columns=SIGNALS, fill_value=0)
+             .sort_values("🟢 STRONG BUY", ascending=True))
+    n_sec = len(grp)
+
+    for i, (sector, row) in enumerate(grp.iterrows(), 1):
+        ws.cell(DR+i, 4, str(sector))
+        for j, sig in enumerate(SIGNALS, 1):
+            ws.cell(DR+i, 4+j, int(row.get(sig, 0)))
+
+    # ── Chart 1: Pie — Signal Distribution  A8:G28 ─────────────────
+    pie = PieChart()
+    pie.title = "Signal Distribution"
+    pie.style = 10
+    pie.add_data(Reference(ws, min_col=2, min_row=DR, max_row=DR+4),
+                 titles_from_data=True)
+    pie.set_categories(Reference(ws, min_col=1, min_row=DR+1, max_row=DR+4))
+    for idx, color in enumerate(SIG_COLS):
+        pt = DataPoint(idx=idx)
+        pt.graphicalProperties.solidFill = color
+        pie.series[0].dPt.append(pt)
+    pie.width = 14; pie.height = 10
+    ws.add_chart(pie, "A8")
+
+    # ── Chart 2: Horizontal Bar — Top 20  H8:N28 ───────────────────
+    bar = BarChart()
+    bar.type  = "bar"
+    bar.title = f"Top 20  ·  CAN SLIM Score / {N_CS}"
+    bar.style = 10
+    bar.x_axis.title = "Score"
+    bar.y_axis.title = "Ticker"
+    bar.x_axis.scaling.min = 0
+    bar.x_axis.scaling.max = N_CS
+    bar.add_data(Reference(ws, min_col=10, min_row=DR, max_row=DR+20),
+                 titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=9, min_row=DR+1, max_row=DR+20))
+    bar.series[0].graphicalProperties.solidFill = "0070C0"
+    bar.width = 14; bar.height = 10
+    ws.add_chart(bar, "H8")
+
+    # ── Chart 3: Scatter — Score vs 1Y Return  O8:W28 ──────────────
+    sct = ScatterChart()
+    sct.title = "Score  vs  1Y Return %"
+    sct.style = 10
+    sct.x_axis.title = "Score"
+    sct.y_axis.title = "1Y Return %"
+    xv  = Reference(ws, min_col=15, min_row=DR+1, max_row=DR+n_sc)
+    yv  = Reference(ws, min_col=16, min_row=DR+1, max_row=DR+n_sc)
+    ser = Series(yv, xv, title="Stocks")
+    ser.marker.symbol = "circle"
+    ser.marker.size   = 4
+    ser.graphicalProperties.line.noFill           = True
+    ser.marker.graphicalProperties.solidFill      = "0070C0"
+    ser.marker.graphicalProperties.line.solidFill = "0070C0"
+    sct.series.append(ser)
+    sct.width = 18; sct.height = 10
+    ws.add_chart(sct, "O8")
+
+    # ── Chart 4: Stacked Bar — Sector × Signal  A30:N52 ────────────
+    stk = BarChart()
+    stk.type     = "bar"
+    stk.grouping = "stacked"
+    stk.title    = "Signal Distribution by Sector"
+    stk.style    = 10
+    stk.x_axis.title = "Count"
+    stk.y_axis.title = "Sector"
+    for j, (lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
+        stk.add_data(
+            Reference(ws, min_col=5+j, min_row=DR, max_row=DR+n_sec),
+            titles_from_data=True)
+        stk.series[-1].graphicalProperties.solidFill = color
+    stk.set_categories(Reference(ws, min_col=4, min_row=DR+1, max_row=DR+n_sec))
+    stk.legend.position = "b"
+    stk.width = 28; stk.height = 12
+    ws.add_chart(stk, "A30")
 
 
 def _main_sheet(wb, df, market, top):
@@ -437,14 +622,16 @@ def _legend_sheet(wb):
         c=ws.cell(2,ci,h); c.font=F(True,9,C_WHITE); c.fill=BG(C_NAVY); c.alignment=AL(); c.border=bdr
     ws.row_dimensions[2].height=20
     meanings={
-        "C":"Current Earnings — lợi nhuận hiện tại phải tăng mạnh (≥25% YoY)",
-        "A":"Annual Earnings — EPS tăng trưởng ổn định nhiều năm liên tiếp",
-        "S":"Sales — doanh thu tăng, xác nhận EPS growth không phải từ cắt chi phí",
-        "L":"Leader — cổ phiếu dẫn đầu ngành, 1Y Perf > 20% là RS proxy",
-        "Q":"Quality — Gross Margin cao = lợi thế cạnh tranh / pricing power",
-        "R":"ROE — hiệu quả sử dụng vốn, công ty tạo ra lợi nhuận tốt trên equity",
-        "M":"Momentum — giá đang trong xu hướng tăng, không mua cổ phiếu đang giảm",
-        "D":"Debt — nợ kiểm soát được, tránh công ty overleveraged",
+        "C":  "Current Earnings — lợi nhuận hiện tại phải tăng mạnh (≥25% YoY)",
+        "A":  "Annual Earnings — EPS tăng trưởng ổn định nhiều năm liên tiếp",
+        "S":  "Sales — doanh thu tăng, xác nhận EPS growth không phải từ cắt chi phí",
+        "L":  "Leader — cổ phiếu dẫn đầu ngành, 1Y Perf > 20% là RS proxy",
+        "Q":  "Quality — Gross Margin cao = lợi thế cạnh tranh / pricing power",
+        "R":  "ROE — hiệu quả sử dụng vốn, công ty tạo ra lợi nhuận tốt trên equity",
+        "M":  "Momentum — giá đang trong xu hướng tăng, không mua cổ phiếu đang giảm",
+        "D":  "Debt — nợ kiểm soát được, tránh công ty overleveraged",
+        "N":  "New 52W High — giá ≥ 90% đỉnh 52 tuần, cổ phiếu đang ở vùng sức mạnh",
+        "MKT":"Market — S&P 500 trên MA50 & MA200, thị trường chung đang uptrend",
     }
     ops={"gt":">","lt":"<"}
     for ri,key in enumerate(CS_KEYS,3):

@@ -152,10 +152,16 @@ def _compute(fin, cf, bal, info, ttm=False):
 
 
 def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
-                  mode="quarterly", height=860):
+                  mode="quarterly", height=860, dark_mode=True):
     """Build and return a go.Figure (2×2 grid). Shared by HTML and PNG paths."""
-    C_BG    = "#06080F"; C_PANEL = "#0B0E18"; C_GRID = "#151E2E"
-    C_ZERO  = "#1F2D40"; C_TEXT  = "#B8C4D0"; C_DIM  = "#3D4D60"
+    if dark_mode:
+        C_BG    = "#06080F"; C_PANEL = "#0B0E18"; C_GRID = "#151E2E"
+        C_ZERO  = "#1F2D40"; C_TEXT  = "#B8C4D0"; C_DIM  = "#3D4D60"
+        _hover_bg = "#0F1622"; _hover_border = "#1F2D40"
+    else:
+        C_BG    = "#FFFFFF"; C_PANEL = "#F8FAFC"; C_GRID = "#E2E8F0"
+        C_ZERO  = "#CBD5E0"; C_TEXT  = "#1A202C"; C_DIM  = "#64748B"
+        _hover_bg = "#FFFFFF"; _hover_border = "#CBD5E0"
     C_BLUE  = "#4A9EFF"; C_GOLD  = "#E8A93D"; C_GREEN = "#34C472"
     C_ORG   = "#E87C3D"; C_RED   = "#E8483D"; C_TEAL  = "#2EBFA5"
 
@@ -246,7 +252,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
         showlegend=False, height=height,
         margin=dict(l=56, r=56, t=52, b=40),
         hovermode="x unified",
-        hoverlabel=dict(bgcolor="#0F1622", bordercolor=C_ZERO,
+        hoverlabel=dict(bgcolor=_hover_bg, bordercolor=_hover_border,
                         font=dict(family="Segoe UI", size=12, color=C_TEXT)),
         bargap=0.28,
     )
@@ -289,10 +295,10 @@ def _build_chart(ticker, name, labels, eps, gm, roe, cfps,
 
 
 def _build_chart_png(ticker, name, labels, eps, gm, roe, cfps,
-                     mode="quarterly", height=680, width=920):
+                     mode="quarterly", height=680, width=920, dark_mode=True):
     """Return PNG bytes (used by screener side panel via kaleido)."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, cfps,
-                        mode=mode, height=height)
+                        mode=mode, height=height, dark_mode=dark_mode)
     return fig.to_image(format="png", width=width, height=height, scale=2)
 
 
@@ -460,28 +466,71 @@ class ChartWorker(QThread):
 
 class ChartWorkerPng(QThread):
     """Emits PNG bytes — used by the screener side panel (no QWebEngineView)."""
-    done   = Signal(bytes, bytes, str)   # png_annual, png_quarterly, summary
-    failed = Signal(str)
-    msg    = Signal(str)
+    done       = Signal(bytes, bytes, str)   # png_annual, png_quarterly, summary
+    data_ready = Signal(object)              # raw data dict (for caching)
+    failed     = Signal(str)
+    msg        = Signal(str)
 
-    def __init__(self, ticker: str, width: int = 920, height: int = 680):
+    def __init__(self, ticker: str, width: int = 920, height: int = 680,
+                 dark_mode: bool = True):
         super().__init__()
-        self.ticker  = ticker.upper()
-        self._width  = width
-        self._height = height
+        self.ticker     = ticker.upper()
+        self._width     = width
+        self._height    = height
+        self._dark_mode = dark_mode
 
     def run(self):
         try:
             d = _fetch_data_for_chart(self.ticker, self.msg.emit)
+            self.data_ready.emit(d)
             self.msg.emit("Rendering chart…")
             png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
                                      d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
                                      mode="quarterly",
-                                     height=self._height, width=self._width)
+                                     height=self._height, width=self._width,
+                                     dark_mode=self._dark_mode)
             png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
                                       d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
                                       mode="annual",
-                                      height=self._height, width=self._width)
+                                      height=self._height, width=self._width,
+                                      dark_mode=self._dark_mode)
+                     if d["a_labels"] else b"")
+            summary = (f"{self.ticker}  ·  {d['name']}  ·  "
+                       f"{len(d['a_labels'])} annual  /  {len(d['q_labels'])} quarterly")
+            self.done.emit(png_a, png_q, summary)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class _RenderWorkerPng(QThread):
+    """Re-renders PNGs from a cached data dict — no yfinance fetch."""
+    done   = Signal(bytes, bytes, str)
+    failed = Signal(str)
+    msg    = Signal(str)
+
+    def __init__(self, ticker: str, d: dict, width: int = 920, height: int = 680,
+                 dark_mode: bool = True):
+        super().__init__()
+        self.ticker     = ticker
+        self._d         = d
+        self._width     = width
+        self._height    = height
+        self._dark_mode = dark_mode
+
+    def run(self):
+        try:
+            d = self._d
+            self.msg.emit("Rendering chart…")
+            png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
+                                     d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
+                                     mode="quarterly",
+                                     height=self._height, width=self._width,
+                                     dark_mode=self._dark_mode)
+            png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
+                                      d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
+                                      mode="annual",
+                                      height=self._height, width=self._width,
+                                      dark_mode=self._dark_mode)
                      if d["a_labels"] else b"")
             summary = (f"{self.ticker}  ·  {d['name']}  ·  "
                        f"{len(d['a_labels'])} annual  /  {len(d['q_labels'])} quarterly")
