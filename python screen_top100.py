@@ -410,523 +410,373 @@ def write_excel(df, path, market, top):
 
 
 def _dashboard_sheet(wb, df):
-    from openpyxl.chart import PieChart, BarChart, ScatterChart, Reference, Series
-    from openpyxl.chart.series import DataPoint
+    from openpyxl.chart import BarChart, ScatterChart, Reference, Series
+    from openpyxl.formatting.rule import DataBarRule
 
     ws = wb.create_sheet("Dashboard")
     ws.sheet_view.showGridLines = False
     ws.sheet_tab_color = "1F3864"
 
-    SIGNALS     = ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY", "\U0001f7e1 WATCH", "\U0001f534 SKIP"]
-    SIG_COLS    = ["00AA44", "0070C0", "FFC000", "FF0000"]
-    SIG_LBLS    = ["STRONG BUY", "BUY", "WATCH", "SKIP"]
-    EQ_LBLS     = ["\U0001f49a Cash Backed", "\U0001f7e1 Mixed", "\U0001f534 Accrual Heavy"]
-    EQ_PIE_COLS = ["1A5C2B", "FFC000", "FF0000"]
-    HAS_QC      = "QC_Score" in df.columns and "QC_Signal" in df.columns
-    N_QC_LOCAL  = 6  # ROIC, OpMgn, GM, FCF, D/E, Moat
+    HAS_QC   = "QC_Score" in df.columns and "QC_Signal" in df.columns
+    N_QC_LOC = 6
+    SIGNALS  = ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY", "\U0001f7e1 WATCH", "\U0001f534 SKIP"]
+    SIG_COLS = ["00AA44", "0070C0", "FFC000", "FF0000"]
+    SIG_LBLS = ["STRONG BUY", "BUY", "WATCH", "SKIP"]
 
-    # -- Column widths (24 cols, A-X)
     for ci in range(1, 25):
-        ws.column_dimensions[CL(ci)].width = 10
+        ws.column_dimensions[CL(ci)].width = 9
+    ws.column_dimensions["C"].width = 20
 
-    # -- Helpers
-    def sec_header(row, text, end_col=24):
-        ws.merge_cells(f"A{row}:{CL(end_col)}{row}")
+    def _sec(row, text, bg="2C4F7C"):
+        ws.merge_cells(f"A{row}:X{row}")
         c = ws.cell(row, 1, text)
-        c.font = F(True, 10, "FFFFFF"); c.fill = BG("2C4F7C"); c.alignment = AL()
+        c.font = F(True, 10, "FFFFFF"); c.fill = BG(bg); c.alignment = AL()
         ws.row_dimensions[row].height = 18
 
-    def kpi_card(sc, val_text, label, bg_hex, fg_hex="FFFFFF"):
+    def _kpi(r, sc, val, lbl, bg, fg="FFFFFF"):
         ec = sc + 3
-        ws.merge_cells(f"{CL(sc)}4:{CL(ec)}4")
-        c = ws.cell(4, sc, val_text)
-        c.font = F(True, 18, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
-        ws.merge_cells(f"{CL(sc)}5:{CL(ec)}5")
-        c = ws.cell(5, sc, label)
-        c.font = F(False, 9, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
-        ws.merge_cells(f"{CL(sc)}6:{CL(ec)}6")
-        ws.cell(6, sc).fill = BG("1B3A5C")
+        ws.merge_cells(f"{CL(sc)}{r}:{CL(ec)}{r}")
+        c = ws.cell(r, sc, val)
+        c.font = F(True, 18, fg); c.fill = BG(bg); c.alignment = AL()
+        ws.row_dimensions[r].height = 36
+        ws.merge_cells(f"{CL(sc)}{r+1}:{CL(ec)}{r+1}")
+        c2 = ws.cell(r+1, sc, lbl)
+        c2.font = F(False, 8, fg); c2.fill = BG(bg); c2.alignment = AL()
+        ws.row_dimensions[r+1].height = 16
 
-    def kpi_card_qc(sc, val_text, label, bg_hex, fg_hex="FFFFFF"):
-        ec = sc + 3
-        ws.merge_cells(f"{CL(sc)}9:{CL(ec)}9")
-        c = ws.cell(9, sc, val_text)
-        c.font = F(True, 18, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
-        ws.merge_cells(f"{CL(sc)}10:{CL(ec)}10")
-        c = ws.cell(10, sc, label)
-        c.font = F(False, 9, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
-        ws.merge_cells(f"{CL(sc)}11:{CL(ec)}11")
-        ws.cell(11, sc).fill = BG("0D2020")
-
-    # -- Title (rows 1-2)
-    ws.merge_cells("A1:X2")
+    # Row 1: Title + Timestamp
+    ws.merge_cells("A1:R1")
     c = ws["A1"]
-    c.value = "STOCK SCREENER  ·  DASHBOARD"
+    c.value = "STOCK SCREENER  ·  DECISION DASHBOARD"
     c.font = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
     c.fill = BG("0D2137"); c.alignment = AL()
     ws.row_dimensions[1].height = 36
-    ws.row_dimensions[2].height = 4
+    ws.merge_cells("S1:X1")
+    c2 = ws.cell(1, 19)
+    c2.value = f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    c2.font = F(False, 8, "88AACC", italic=True)
+    c2.fill = BG("0D2137"); c2.alignment = AL("right")
+    ws.freeze_panes = ws["A2"]
 
-    # -- [1] CAN SLIM KPI CARDS (rows 3-7)
-    sec_header(3, "❶  CAN SLIM  —  KEY METRICS")
-    ws.row_dimensions[4].height = 38
-    ws.row_dimensions[5].height = 18
-    ws.row_dimensions[6].height = 6
-    ws.row_dimensions[7].height = 8
+    # ❶ CAN SLIM KPIs (rows 2-4)
+    _sec(2, "❶  CAN SLIM  —  KEY METRICS")
+    total   = len(df)
+    sb_cnt  = int((df["CS_Signal"] == "\U0001f7e2 STRONG BUY").sum())
+    b_cnt   = int((df["CS_Signal"] == "\U0001f535 BUY").sum())
+    avg_cs  = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
+    _1y     = df["1Y%"].dropna()
+    avg_1y  = f"{_1y.mean():.1f}%" if len(_1y) else "—"
+    _roe    = df["ROE%"].dropna()
+    avg_roe = f"{_roe.mean():.1f}%" if len(_roe) else "—"
+    _kpi(3, 1,  str(total),                    "Total Stocks",            "1B3A5C")
+    _kpi(3, 5,  f"{sb_cnt/total*100:.1f}%",    f"Strong Buy  ({sb_cnt})", "00703A")
+    _kpi(3, 9,  f"{b_cnt/total*100:.1f}%",     f"Buy  ({b_cnt})",         "0070C0")
+    _kpi(3, 13, avg_cs,                         f"Avg CS Score / {N_CS}",  "5B2C6F")
+    _kpi(3, 17, avg_1y,                         "Avg 1Y Return",           "7D3C0A")
+    _kpi(3, 21, avg_roe,                        "Avg ROE%",                "0E6655")
+    ws.row_dimensions[5].height = 6
 
-    total        = len(df)
-    sb_cnt       = int((df["CS_Signal"] == "\U0001f7e2 STRONG BUY").sum())
-    b_cnt        = int((df["CS_Signal"] == "\U0001f535 BUY").sum())
-    sb_pct       = f"{sb_cnt/total*100:.1f}%" if total else "—"
-    b_pct        = f"{b_cnt/total*100:.1f}%"  if total else "—"
-    avg_cs_score = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
-    avg_1y_ser   = df["1Y%"].dropna()
-    avg_1y_val   = f"{avg_1y_ser.mean():.1f}%" if len(avg_1y_ser) else "—"
-    avg_roe_ser  = df["ROE%"].dropna()
-    avg_roe_val  = f"{avg_roe_ser.mean():.1f}%" if len(avg_roe_ser) else "—"
-
-    kpi_card(1,  str(total),     "Total Stocks",            "1B3A5C")
-    kpi_card(5,  sb_pct,         f"Strong Buy  ({sb_cnt})", "00703A")
-    kpi_card(9,  b_pct,          f"Buy  ({b_cnt})",         "0070C0")
-    kpi_card(13, avg_cs_score,   f"Avg CS Score / {N_CS}",  "5B2C6F")
-    kpi_card(17, avg_1y_val,     "Avg 1Y Return",           "7D3C0A")
-    kpi_card(21, avg_roe_val,    "Avg ROE%",                "0E6655")
-
-    # -- [2] QUALITY COMPOUNDER KPI CARDS (rows 8-13)
-    sec_header(8, "❷  QUALITY COMPOUNDER  —  KEY METRICS")
-    ws.row_dimensions[9].height  = 38
-    ws.row_dimensions[10].height = 18
-    ws.row_dimensions[11].height = 6
-    ws.row_dimensions[12].height = 8
-    ws.row_dimensions[13].height = 8
-
+    # ❷ QC KPIs (rows 6-8)
+    _sec(6, "❷  QUALITY COMPOUNDER  —  KEY METRICS")
     if HAS_QC:
-        comp_cnt     = int((df["QC_Signal"] == "\U0001f3c6 COMPOUNDER").sum())
-        qual_cnt     = int((df["QC_Signal"] == "⭐ QUALITY").sum())
-        avg_qc_v     = df["QC_Score"].mean()
-        avg_qc_s     = f"{avg_qc_v:.1f}" if pd.notna(avg_qc_v) else "—"
-        roic_ser     = df["ROIC%"].dropna() if "ROIC%" in df.columns else pd.Series(dtype=float)
-        avg_roic_val = f"{roic_ser.mean():.1f}%" if len(roic_ser) else "—"
-        dual_cnt     = int(((df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)).sum())
-        if "EQ_Badge" in df.columns:
-            eq_cb_txt = str(int((df["EQ_Badge"] == "\U0001f49a Cash Backed").sum()))
-            eq_cb_lbl = "\U0001f49a Cash Backed"
-        else:
-            eq_cb_txt = "—"; eq_cb_lbl = "EQ Badge (yfinance)"
+        comp_cnt  = int((df["QC_Signal"] == "\U0001f3c6 COMPOUNDER").sum())
+        qual_cnt  = int((df["QC_Signal"] == "⭐ QUALITY").sum())
+        avg_qc_v  = df["QC_Score"].mean()
+        avg_qc_s  = f"{avg_qc_v:.1f}" if pd.notna(avg_qc_v) else "—"
+        _roic     = df["ROIC%"].dropna() if "ROIC%" in df.columns else pd.Series(dtype=float)
+        avg_roic  = f"{_roic.mean():.1f}%" if len(_roic) else "—"
+        dual_cnt  = int(((df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)).sum())
+        _qc_mask  = df["QC_Signal"].isin(["\U0001f3c6 COMPOUNDER", "⭐ QUALITY"])
+        eq_cb_cnt = (int((df[_qc_mask]["EQ_Badge"] == "\U0001f49a Cash Backed").sum())
+                     if "EQ_Badge" in df.columns else 0)
     else:
-        comp_cnt = 0; qual_cnt = 0; avg_qc_s = "—"; avg_roic_val = "—"
-        dual_cnt = 0; eq_cb_txt = "—"; eq_cb_lbl = "EQ Badge (yfinance)"
+        comp_cnt = qual_cnt = dual_cnt = eq_cb_cnt = 0
+        avg_qc_s = avg_roic = "—"
+    _kpi(7, 1,  str(comp_cnt), "# COMPOUNDER",                "1A5C2B")
+    _kpi(7, 5,  str(qual_cnt), "# QUALITY",                   "1A3A5C")
+    _kpi(7, 9,  avg_roic,      "Avg ROIC%",                   "0E6655")
+    _kpi(7, 13, avg_qc_s,      f"Avg QC Score / {N_QC_LOC}", "5B2C6F")
+    _kpi(7, 17, str(dual_cnt), "Dual Leaders (CS≥7 & QC≥4)", "4A235A")
+    _kpi(7, 21, str(eq_cb_cnt), "\U0001f49a Cash Backed (QC stocks)", "155A28")
+    ws.row_dimensions[9].height = 6
 
-    kpi_card_qc(1,  str(comp_cnt), "# COMPOUNDER",                 "1A5C2B")
-    kpi_card_qc(5,  str(qual_cnt), "# QUALITY",                    "1A3A5C")
-    kpi_card_qc(9,  avg_roic_val,  "Avg ROIC%",                    "0E6655")
-    kpi_card_qc(13, avg_qc_s,      f"Avg QC Score / {N_QC_LOCAL}", "5B2C6F")
-    kpi_card_qc(17, str(dual_cnt), "Dual Leaders (CS≧7 & QC≧4)",  "4A235A")
-    kpi_card_qc(21, eq_cb_txt,     eq_cb_lbl,                      "155A28")
+    # RISK FLAGS (row 10)
+    risk_de = int((df["D/E"].fillna(0)  > 1).sum())  if "D/E"  in df.columns else 0
+    risk_pe = int((df["P/E"].fillna(0)  > 50).sum()) if "P/E"  in df.columns else 0
+    risk_1m = int((df["1M%"].fillna(0) < -10).sum()) if "1M%"  in df.columns else 0
+    ws.merge_cells("A10:X10")
+    c = ws.cell(10, 1,
+        f"⚠️  RISK FLAGS:   D/E > 1: {risk_de} m\xe3   |   P/E > 50: {risk_pe} m\xe3   |   1M% < −10%: {risk_1m} m\xe3")
+    c.font = F(True, 9, "9C6500"); c.fill = BG("FFF2CC"); c.alignment = AL()
+    ws.row_dimensions[10].height = 18
+    ws.row_dimensions[11].height = 8
 
-    # -- [3] CHART ANALYSIS (rows 14-60)
-    # Row 1 of charts: Signal Pie (A15) | CS x QC Scatter (I15) | EQ Badge Pie (Q15)
-    # Row 2 of charts: Top 20 Bar (A38) | Score x 1Y% Scatter (I38)
-    sec_header(14, "❸  CHART ANALYSIS")
-    for r in range(15, 61):
-        ws.row_dimensions[r].height = 16
-    ws.row_dimensions[37].height = 8   # spacer between chart rows
-    ws.row_dimensions[60].height = 10  # gap before [4]
-
-    # -- [4] SECTOR BREAKDOWN (rows 61-85)
-    sec_header(61, "❹  SECTOR BREAKDOWN")
-    for r in range(62, 86):
-        ws.row_dimensions[r].height = 17
-    ws.row_dimensions[85].height = 10  # gap before [5]
-
-    # -- [5] TOP 10 PERFORMERS (rows 90-101)
-    ws.row_dimensions[89].height = 6
-    sec_header(90, "❺  TOP 10 PERFORMERS")
-
-    T10_HDRS   = ["#", "Ticker", "Tên Công Ty", "Sector", "Signal",
-                  f"Score/{N_CS}", "Conv.", "1Y%", "52W Hi%", "Moat", "Price ($)"]
-    T10_WIDTHS = [4, 9, 22, 14, 14, 7, 7, 8, 9, 13, 9]
-    for ci, (h, w) in enumerate(zip(T10_HDRS, T10_WIDTHS), 1):
-        ws.column_dimensions[CL(ci)].width = w
-        c = ws.cell(91, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1B3A5C")
-        c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[91].height = 20
-
-    _t10_cols = ["Ticker", "Tên Công Ty", "Sector", "CS_Signal", "CS_Score",
-                 "Conviction", "1Y%", "52W_High%", "Moat Score", "Price ($)"]
-    _t10_safe = [col for col in _t10_cols if col in df.columns]
-    top10 = (df[_t10_safe]
-             .sort_values(["Conviction", "1Y%"] if "Conviction" in df.columns
-                          else ["CS_Score", "1Y%"], ascending=[False, False])
-             .head(10))
-
-    def _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m):
-        c.border = BD(); c.font = F(size=9)
-        c.alignment = AL("left" if ci in (3, 4) else "center")
-        if ci == 2:
-            c.font = F(True, 9, "1B3A5C")
-        elif ci == 5:
-            c.font = F(True, 9, fg_s); c.fill = BG(bg_s)
-        elif ci == 7 and val is not None:
-            fv = float(val); c.value = round(fv, 1)
-            c.font = F(True, 9, "276221" if fv >= 9 else "0070C0" if fv >= 7 else "7D6608" if fv >= 5 else "9C0006")
-        elif ci == 8 and val is not None and not (isinstance(val, float) and pd.isna(val)):
-            fv = float(val); c.value = fv / 100; c.number_format = '+0.0%;(0.0%);"-"'
-            c.font = F(size=9, color=("276221" if fv > 0 else ("9C0006" if fv < 0 else "000000")))
-        elif ci == 9 and val is not None and not (isinstance(val, float) and pd.isna(val)):
-            fv = float(val); c.value = fv / 100; c.number_format = '0.0%'
-            c.font = F(size=9, color=("276221" if fv >= 90 else ("9C0006" if fv < 70 else "000000")))
-        elif ci == 10:
-            c.font = F(True, 8, fg_m); c.fill = BG(bg_m)
-        elif ci == 11 and val is not None:
-            c.number_format = '"$"#,##0.00'
-
-    for ri, (_, row) in enumerate(top10.iterrows(), 1):
-        er  = 91 + ri
-        rbg = "F0F4FA" if ri % 2 == 0 else "FFFFFF"
-        ws.row_dimensions[er].height = 18
-        sig  = row.get("CS_Signal", "") or ""
-        moat = row.get("Moat Score", "") or ""
-        fg_s, bg_s = SIGNAL_STYLE.get(sig,  ("000000", "FFFFFF"))
-        fg_m, bg_m = MOAT_SCORE_STYLE.get(moat, ("000000", "FFFFFF"))
-        vals = [ri, row.get("Ticker",""), row.get("Tên Công Ty",""), row.get("Sector",""),
-                sig, int(row.get("CS_Score", 0) or 0), row.get("Conviction"),
-                row.get("1Y%"), row.get("52W_High%"), moat, row.get("Price ($)")]
-        for ci, val in enumerate(vals, 1):
-            c = ws.cell(er, ci, val); c.fill = BG(rbg)
-            _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m)
-
-    t10_end = 91 + len(top10)
-
-    # -- [6] CONVICTION SHORTLIST (dynamic rows after [5])
-    ws.row_dimensions[t10_end + 1].height = 10
-    sec_header(t10_end + 2, "❻  CONVICTION SHORTLIST  —  STRONG BUY  ×  WIDE / NARROW Moat  ×  1Y% > 0")
-    conv_hdr_row = t10_end + 3
-
-    for ci, h in enumerate(T10_HDRS, 1):
-        c = ws.cell(conv_hdr_row, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1A5C2B")
-        c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[conv_hdr_row].height = 20
-
-    _conv_filter = (
-        (df["CS_Signal"] == "\U0001f7e2 STRONG BUY") &
-        (df["Moat Score"].isin(["WIDE  ★★★", "NARROW ★★"])) &
-        (df["1Y%"].fillna(0) > 0)
-    )
-    conv_df = (df[_conv_filter][_t10_safe]
-               .sort_values(["Conviction", "1Y%"] if "Conviction" in df.columns
-                             else ["CS_Score", "1Y%"], ascending=[False, False]))
-
-    if conv_df.empty:
-        ws.merge_cells(f"A{conv_hdr_row+1}:{CL(len(T10_HDRS))}{conv_hdr_row+1}")
-        c = ws.cell(conv_hdr_row+1, 1, "— Không có mã nào đạt đồng thời cả 3 điều kiện —")
-        c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
-        ws.row_dimensions[conv_hdr_row+1].height = 18
-        conv_end = conv_hdr_row + 1
-    else:
-        for ri, (_, row) in enumerate(conv_df.iterrows(), 1):
-            er  = conv_hdr_row + ri
-            rbg = "EFFFEE" if ri % 2 == 0 else "F5FFF5"
-            ws.row_dimensions[er].height = 18
-            sig  = row.get("CS_Signal", "") or ""
-            moat = row.get("Moat Score", "") or ""
-            fg_s, bg_s = SIGNAL_STYLE.get(sig,  ("000000", "FFFFFF"))
-            fg_m, bg_m = MOAT_SCORE_STYLE.get(moat, ("000000", "FFFFFF"))
-            vals = [ri, row.get("Ticker",""), row.get("Tên Công Ty",""), row.get("Sector",""),
-                    sig, int(row.get("CS_Score", 0) or 0), row.get("Conviction"),
-                    row.get("1Y%"), row.get("52W_High%"), moat, row.get("Price ($)")]
-            for ci, val in enumerate(vals, 1):
-                c = ws.cell(er, ci, val); c.fill = BG(rbg)
-                _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m)
-        conv_end = conv_hdr_row + len(conv_df)
-
-    # -- [7] DUAL STRATEGY SHORTLIST (dynamic rows after [6])
-    ws.row_dimensions[conv_end + 1].height = 10
-    ds_sec_row = conv_end + 2
-    ds_hdr_row = conv_end + 3
-    sec_header(ds_sec_row, "❼  DUAL STRATEGY SHORTLIST  —  CS Score ≥ 7  AND  QC Score ≥ 4")
-    ws.row_dimensions[ds_sec_row].height = 18
-
-    DS_HDRS   = ["#", "Ticker", "Tên Công Ty", "Sector",
-                 "CS Signal", f"CS/{N_CS}", "QC Signal", "QC/6",
-                 "ROIC%", "EQ Badge", "1Y%"]
-    DS_WIDTHS = [4, 9, 22, 14, 14, 6, 16, 6, 9, 16, 8]
-    for ci, (h, w) in enumerate(zip(DS_HDRS, DS_WIDTHS), 1):
-        ws.column_dimensions[CL(ci)].width = w
-        c = ws.cell(ds_hdr_row, ci, h)
+    # ⭐ DUAL LEADERS (rows 12+)
+    _sec(12, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
+    DL_HDRS = ["#", "Ticker", "Company", "Sector", "Price", "CS", "QC",
+               "1Y%", "ROE%", "ROIC%", "D/E", "Signal"]
+    for ci, h in enumerate(DL_HDRS, 1):
+        c = ws.cell(13, ci, h)
         c.font = F(True, 9, "FFFFFF"); c.fill = BG("4A235A")
         c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[ds_hdr_row].height = 20
+    ws.row_dimensions[13].height = 18
 
-    if HAS_QC:
-        _ds_filter = (df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)
-        ds_df = df[_ds_filter].sort_values(
-            ["QC_Score", "CS_Score", "1Y%"], ascending=[False, False, False])
-    else:
-        ds_df = pd.DataFrame()
+    dl_df = (df[(df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)]
+             .sort_values(["CS_Score", "QC_Score"], ascending=[False, False])
+             if HAS_QC else pd.DataFrame())
 
-    if ds_df.empty:
-        ws.merge_cells(f"A{ds_hdr_row+1}:{CL(len(DS_HDRS))}{ds_hdr_row+1}")
-        c = ws.cell(ds_hdr_row+1, 1, "— Không có mã nào đạt cả 2 chiến lược (cần chạy QC scan) —")
+    dl_end = 13
+    if dl_df.empty:
+        ws.merge_cells("A14:L14")
+        c = ws.cell(14, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
         c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
-        ws.row_dimensions[ds_hdr_row+1].height = 18
+        ws.row_dimensions[14].height = 18; dl_end = 14
     else:
-        for ri, (_, row) in enumerate(ds_df.iterrows(), 1):
-            er  = ds_hdr_row + ri
+        for ri, (_, row) in enumerate(dl_df.iterrows(), 1):
+            er  = 13 + ri
             rbg = "F5F0FF" if ri % 2 == 0 else "FBF7FF"
-            ws.row_dimensions[er].height = 18
-            sig_cs = row.get("CS_Signal", "") or ""
-            sig_qc = row.get("QC_Signal", "") or ""
-            eq_b   = row.get("EQ_Badge",  "") or ""
-            roic_v = row.get("ROIC%")
-            perf_v = row.get("1Y%")
-            fg_s, bg_s = SIGNAL_STYLE.get(sig_cs,    ("000000", "FFFFFF"))
-            fg_q, bg_q = QC_SIGNAL_STYLE.get(sig_qc,  ("000000", "FFFFFF"))
-            fg_e, bg_e = EQ_BADGE_STYLE.get(eq_b,     ("444444", "EEEEEE"))
+            ws.row_dimensions[er].height = 17
+            sig      = row.get("CS_Signal", "") or ""
+            fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
 
-            col_defs = [
-                (1, ri,                               True,  "FFFFFF", "4A235A"),
-                (2, row.get("Ticker",""),              True,  "1B3A5C", None),
-                (3, row.get("Tên Công Ty",""), False, None,  None, "left"),
-                (4, row.get("Sector",""),              False, None,    None, "left"),
-                (5, sig_cs,                           True,  fg_s,    bg_s),
-                (6, int(row.get("CS_Score", 0) or 0), False, None,   None),
-                (7, sig_qc,                           True,  fg_q,    bg_q),
-                (8, int(row.get("QC_Score", 0) or 0), False, None,   None),
-            ]
-            for cd in col_defs:
-                ci_   = cd[0]; val_  = cd[1]; bold_ = cd[2]
-                fg_   = cd[3]; bg_c_ = cd[4]
-                align_ = cd[5] if len(cd) > 5 else "center"
-                c2 = ws.cell(er, ci_, val_)
-                c2.border = BD(); c2.alignment = AL(align_)
-                c2.font = F(bold_, 9, fg_ if fg_ else "000000")
-                c2.fill = BG(bg_c_) if bg_c_ else BG(rbg)
+            def _w(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
+                c = ws.cell(er, ci, val)
+                c.border = BD(); c.alignment = AL(align)
+                c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
+                if nfmt and val is not None: c.number_format = nfmt
 
-            c2 = ws.cell(er, 9); c2.border = BD(); c2.alignment = AL(); c2.fill = BG(rbg)
-            if roic_v is not None and not (isinstance(roic_v, float) and pd.isna(roic_v)):
-                fv = float(roic_v); c2.value = fv / 100; c2.number_format = '0.0%'
-                c2.font = F(True, 9, "276221" if fv >= 15 else "0070C0" if fv >= 10 else "7D6608" if fv >= 0 else "9C0006")
+            _w(1, ri,   True,  "FFFFFF", "4A235A")
+            _w(2, row.get("Ticker", ""),      True,  "1B3A5C")
+            _w(3, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
+            _w(4, row.get("Sector", ""),      False, "334466", align="left")
+            p = row.get("Price ($)")
+            if p is not None and not (isinstance(p, float) and pd.isna(p)):
+                _w(5, p, nfmt='"$"#,##0.00')
             else:
-                c2.value = "—"; c2.font = F(size=9, color="BBBBBB")
+                _w(5, "—", fg="BBBBBB")
+            _w(6, int(row.get("CS_Score", 0) or 0), True, CG_FG, CG_BG)
+            _w(7, int(row.get("QC_Score", 0) or 0), True, CB_FG, CB_BG)
+            for ci_n, key, mul, nfmt in [
+                (8,  "1Y%",   100, '+0.0%;(0.0%);"-"'),
+                (9,  "ROE%",  100, '0.0%'),
+                (10, "ROIC%", 100, '0.0%'),
+                (11, "D/E",     1, '0.0'),
+            ]:
+                v = row.get(key)
+                c = ws.cell(er, ci_n)
+                c.border = BD(); c.alignment = AL(); c.fill = BG(rbg)
+                if v is not None and not (isinstance(v, float) and pd.isna(v)):
+                    fv = float(v); c.value = fv / mul; c.number_format = nfmt
+                    if   ci_n == 8:  c.font = F(size=9, color="276221" if fv > 0 else "9C0006")
+                    elif ci_n == 9:  c.font = F(size=9, color="276221" if fv > 17 else "000000")
+                    elif ci_n == 10: c.font = F(True, 9, "276221" if fv >= 15 else "0070C0" if fv >= 10 else "7D6608")
+                    else:            c.font = F(size=9, color="9C0006" if fv > 2 else "7D6608" if fv > 1 else "276221")
+                else:
+                    c.value = "—"; c.font = F(size=9, color="BBBBBB")
+            _w(12, sig, True, fg_s, bg_s)
+            dl_end = er
+        ws.conditional_formatting.add(
+            f"H14:H{dl_end}",
+            DataBarRule(start_type="min", start_value=0, end_type="max", end_value=100, color="0070C0"))
 
-            c2 = ws.cell(er, 10, str(eq_b) if eq_b else "—")
-            c2.border = BD(); c2.alignment = AL()
-            c2.font = F(True, 8, fg_e)
-            c2.fill = BG(bg_e) if eq_b else BG(rbg)
+    # 🎯 TOP PICKS — 3 mini-tables
+    ws.row_dimensions[dl_end + 1].height = 10
+    tp_sec = dl_end + 2
+    _sec(tp_sec, "\U0001f3af  TOP PICKS", bg="1A3A5C")
+    tp_hdr = tp_sec + 1
+    TP_GRP = [
+        (1,  "\U0001f680 Momentum  (1Y% ↓)",              "1A5276"),
+        (9,  "\U0001f48e Quality  (ROIC% ↓, Compounder)", "1A5C2B"),
+        (17, "\U0001f4c9 Value  (P/E ↑, CS ≥ 6)",    "784212"),
+    ]
+    COL_HDRS = ["Ticker", "Metric", "Sector"]
 
-            c2 = ws.cell(er, 11); c2.border = BD(); c2.alignment = AL(); c2.fill = BG(rbg)
-            if perf_v is not None and not (isinstance(perf_v, float) and pd.isna(perf_v)):
-                fv2 = float(perf_v); c2.value = fv2 / 100; c2.number_format = '+0.0%;(0.0%);"-"'
-                c2.font = F(size=9, color=("276221" if fv2 > 0 else "9C0006" if fv2 < 0 else "000000"))
-            else:
-                c2.value = "—"; c2.font = F(size=9, color="BBBBBB")
+    def _tp_rows():
+        if "1Y%" in df.columns:
+            d = df[["Ticker","1Y%","Sector"]].dropna(subset=["1Y%"]).sort_values("1Y%", ascending=False).head(5)
+            mom = [(r["Ticker"], f"{r['1Y%']:+.1f}%", r.get("Sector","")) for _, r in d.iterrows()]
+        else:
+            mom = []
+        if HAS_QC and "ROIC%" in df.columns:
+            d = (df[df["QC_Signal"] == "\U0001f3c6 COMPOUNDER"][["Ticker","ROIC%","Sector"]]
+                 .dropna(subset=["ROIC%"]).sort_values("ROIC%", ascending=False).head(5))
+            qua = [(r["Ticker"], f"{r['ROIC%']:.1f}%", r.get("Sector","")) for _, r in d.iterrows()]
+        else:
+            qua = []
+        if "P/E" in df.columns and "CS_Score" in df.columns:
+            d = (df[(df["CS_Score"] >= 6) & (df["P/E"] > 0)][["Ticker","P/E","Sector"]]
+                 .dropna(subset=["P/E"]).sort_values("P/E", ascending=True).head(5))
+            val = [(r["Ticker"], f"P/E {r['P/E']:.1f}×", r.get("Sector","")) for _, r in d.iterrows()]
+        else:
+            val = []
+        return mom, qua, val
 
-    # ===================================================================
-    # DATA TABLES (row 200+, safely below all visible sections)
-    # ===================================================================
-    DR = 200
+    tp_data = _tp_rows()
+    TP_BG   = ["1A5276", "1A5C2B", "784212"]
+    for (sc, title, _), bg_h in zip(TP_GRP, TP_BG):
+        ws.merge_cells(f"{CL(sc)}{tp_hdr}:{CL(sc+2)}{tp_hdr}")
+        c = ws.cell(tp_hdr, sc, title)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG(bg_h); c.alignment = AL()
+        ws.row_dimensions[tp_hdr].height = 18
+        for i, h in enumerate(COL_HDRS):
+            c2 = ws.cell(tp_hdr + 1, sc + i, h)
+            c2.font = F(True, 8, "FFFFFF"); c2.fill = BG(bg_h)
+            c2.alignment = AL(); c2.border = BD()
+        ws.row_dimensions[tp_hdr + 1].height = 16
+    for (sc, _, _), bg_h, rows in zip(TP_GRP, TP_BG, tp_data):
+        for ri, (ticker, metric, sector) in enumerate(rows):
+            er2 = tp_hdr + 2 + ri
+            rbg2 = "F0F8FF" if ri % 2 == 0 else "FFFFFF"
+            ws.row_dimensions[er2].height = 16
+            for ci_off, val, bold, fg in [
+                (0, ticker, True,  "1B3A5C"),
+                (1, metric, True,  "000000"),
+                (2, sector, False, "334466"),
+            ]:
+                c = ws.cell(er2, sc + ci_off, val)
+                c.fill = BG(rbg2); c.border = BD()
+                c.font = F(bold, 9, fg)
+                c.alignment = AL("left" if ci_off == 2 else "center")
+        if not rows:
+            ws.merge_cells(f"{CL(sc)}{tp_hdr+2}:{CL(sc+2)}{tp_hdr+6}")
+            c = ws.cell(tp_hdr + 2, sc, "— No data —")
+            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
+    tp_end = tp_hdr + 7
+
+    # ❸ CHART ANALYSIS
+    ws.row_dimensions[tp_end].height = 10
+    ch_sec = tp_end + 1
+    _sec(ch_sec, "❸  CHART ANALYSIS")
+    ch_start = ch_sec + 1
+    for r in range(ch_start, ch_start + 20):
+        ws.row_dimensions[r].height = 16
+    ch_end = ch_start + 18
+
+    # ❹ SECTOR BREAKDOWN
+    ws.row_dimensions[ch_end].height = 10
+    s4_row = ch_end + 1
+    _sec(s4_row, "❹  SECTOR BREAKDOWN  —  Sort: # Strong Buy ↓")
+    S4_HDRS = ["Sector", "# Stocks", "# Str.Buy", "# Buy", "# Comp.", "Avg CS", "Avg QC", "Avg 1Y%"]
+    S4_WD   = [16, 8, 9, 7, 8, 7, 7, 8]
+    for ci, (h, w) in enumerate(zip(S4_HDRS, S4_WD), 1):
+        ws.column_dimensions[CL(ci)].width = w
+        c = ws.cell(s4_row + 1, ci, h)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG("2C4F7C")
+        c.alignment = AL(); c.border = BD()
+    ws.row_dimensions[s4_row + 1].height = 18
+
+    sec_pivot = []
+    for sec, g in df.assign(Sector=df["Sector"].fillna("Unknown")).groupby("Sector"):
+        sec_pivot.append({
+            "s":   sec,
+            "n":   len(g),
+            "sb":  int((g["CS_Signal"] == "\U0001f7e2 STRONG BUY").sum()),
+            "b":   int((g["CS_Signal"] == "\U0001f535 BUY").sum()),
+            "cp":  int((g["QC_Signal"] == "\U0001f3c6 COMPOUNDER").sum()) if HAS_QC else 0,
+            "acs": g["CS_Score"].mean() if "CS_Score" in g.columns else None,
+            "aqc": g["QC_Score"].mean() if HAS_QC else None,
+            "a1y": g["1Y%"].dropna().mean() if "1Y%" in g.columns else None,
+        })
+    sec_pivot.sort(key=lambda x: x["sb"], reverse=True)
+    TOP3_BG = ["FFF2CC", "E8F5E9", "E3F2FD"]
+    for ri, row in enumerate(sec_pivot):
+        er = s4_row + 2 + ri
+        rbg = TOP3_BG[ri] if ri < 3 else ("F0F4FA" if ri % 2 == 0 else "FFFFFF")
+        ws.row_dimensions[er].height = 17
+        c = ws.cell(er, 1, row["s"]); c.border=BD(); c.fill=BG(rbg); c.alignment=AL("left"); c.font=F(False,9,"1B3A5C")
+        for ci, key in [(2,"n"),(3,"sb"),(4,"b"),(5,"cp")]:
+            v = row[key]; is_sb = ci == 3 and v > 0
+            c = ws.cell(er, ci, v); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
+            c.font = F(True if is_sb else False, 9, "276221" if is_sb else "000000")
+        for ci, key in [(6,"acs"),(7,"aqc")]:
+            v = row[key]
+            c = ws.cell(er, ci); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
+            c.value = round(v, 1) if v is not None and not pd.isna(v) else "—"
+            c.font = F(False, 9, "000000" if v is not None and not pd.isna(v) else "BBBBBB")
+        v8 = row["a1y"]
+        c = ws.cell(er, 8); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
+        if v8 is not None and not pd.isna(v8):
+            c.value = v8 / 100; c.number_format = '+0.0%;(0.0%);"-"'
+            c.font = F(False, 9, "276221" if v8 > 0 else "9C0006")
+        else:
+            c.value = "—"; c.font = F(size=9, color="BBBBBB")
+
+    # DATA TABLES (row 300+, hidden)
+    DR = 300
 
     def _hdr(r, c_idx, text):
-        ws.cell(r, c_idx, text).font = F(True, 8, "FFFFFF")
-        ws.cell(r, c_idx).fill = BG("1F3864")
+        c = ws.cell(r, c_idx, text)
+        c.font = F(True, 8, "FFFFFF"); c.fill = BG("1F3864")
 
-    # Table 1 -- Signal Pie (cols 1:2)
-    _hdr(DR, 1, "Signal"); _hdr(DR, 2, "Count")
-    sig_counts = df["CS_Signal"].value_counts()
-    for i, sig in enumerate(SIGNALS, 1):
-        ws.cell(DR+i, 1, sig)
-        ws.cell(DR+i, 2, int(sig_counts.get(sig, 0)))
-
-    # Table 2 -- CS x QC Scatter (cols 3:7): col3=CS_Score_X, col4..7=QC_Score_Y split by signal
-    _hdr(DR, 3, "CS_Score_X")
+    _hdr(DR, 2, "CS_X"); _hdr(DR, 3, "QC_Y")
     for j, lbl in enumerate(SIG_LBLS, 1):
-        _hdr(DR, 3+j, lbl)
+        _hdr(DR, 3 + j, lbl)
+    n_sct = 0
     if HAS_QC:
-        cxq_df = df[["CS_Score", "QC_Score", "CS_Signal"]].dropna(subset=["CS_Score", "QC_Score"])
-        for i, (_, row) in enumerate(cxq_df.iterrows(), 1):
-            x_val = int(row["CS_Score"]); y_val = round(float(row["QC_Score"]), 2)
-            sig   = row["CS_Signal"]
-            ws.cell(DR+i, 3, x_val)
+        sct_df = df[["CS_Score", "QC_Score", "CS_Signal"]].dropna(subset=["CS_Score", "QC_Score"])
+        for i, (_, row) in enumerate(sct_df.iterrows(), 1):
+            x = int(row["CS_Score"]); y = round(float(row["QC_Score"]), 2)
+            ws.cell(DR+i, 2, x); ws.cell(DR+i, 3, y)
             for j, s in enumerate(SIGNALS, 1):
-                ws.cell(DR+i, 3+j, y_val if sig == s else None)
-        n_cxq = len(cxq_df)
-    else:
-        n_cxq = 0
+                ws.cell(DR+i, 3+j, y if row["CS_Signal"] == s else None)
+        n_sct = len(sct_df)
+    rl = DR + n_sct + 2
+    ws.cell(rl,   2, 7);    ws.cell(rl,   3, 0)
+    ws.cell(rl+1, 2, 7);    ws.cell(rl+1, 3, N_QC_LOC)
+    ws.cell(rl+3, 2, 0);    ws.cell(rl+3, 3, 4)
+    ws.cell(rl+4, 2, N_CS); ws.cell(rl+4, 3, 4)
 
-    # Table 3 -- Top 20 Bar (cols 8:9)
-    _hdr(DR, 8, "Ticker"); _hdr(DR, 9, f"Score/{N_CS}")
-    top20 = (df[["Ticker", "CS_Score", "1Y%"]]
-             .sort_values(["CS_Score", "1Y%"], ascending=[False, False])
-             .head(20)
-             .sort_values(["CS_Score", "1Y%"], ascending=[True, True]))
-    for i, (_, row) in enumerate(top20.iterrows(), 1):
-        ws.cell(DR+i, 8, str(row.get("Ticker", "")))
-        ws.cell(DR+i, 9, int(row.get("CS_Score", 0)))
+    _hdr(DR, 9, "Ticker"); _hdr(DR, 10, "1Y%")
+    bar10 = (df[["Ticker", "1Y%"]].dropna(subset=["1Y%"])
+             .sort_values("1Y%", ascending=False).head(10)
+             .sort_values("1Y%", ascending=True))
+    for i, (_, row) in enumerate(bar10.iterrows(), 1):
+        ws.cell(DR+i, 9, str(row.get("Ticker", "")))
+        v = row.get("1Y%")
+        ws.cell(DR+i, 10, round(float(v), 1) if v is not None else None)
 
-    # Table 4 -- Score x 1Y% Scatter (cols 10:14): col10=Score_X, col11..14=1Y%_Y split by signal
-    _hdr(DR, 10, "Score_X")
-    for j, lbl in enumerate(SIG_LBLS, 1):
-        _hdr(DR, 10+j, lbl)
-    sc_df = df[["CS_Score", "1Y%", "CS_Signal"]].dropna(subset=["1Y%"])
-    for i, (_, row) in enumerate(sc_df.iterrows(), 1):
-        x_val = int(row["CS_Score"]); y_val = round(float(row["1Y%"]), 2)
-        sig   = row["CS_Signal"]
-        ws.cell(DR+i, 10, x_val)
-        for j, s in enumerate(SIGNALS, 1):
-            ws.cell(DR+i, 10+j, y_val if sig == s else None)
-    n_sc = len(sc_df)
+    max_dr = DR + max(n_sct + 10, 15) + 2
+    for r in range(DR, max_dr + 1):
+        ws.row_dimensions[r].height = 1
 
-    # Table 5 -- Sector x Signal Stacked Bar (cols 15:19)
-    _hdr(DR, 15, "Sector")
-    for j, lbl in enumerate(SIG_LBLS, 1):
-        _hdr(DR, 15+j, lbl)
-    grp = (df.assign(Sector=df["Sector"].fillna("Unknown"))
-             .groupby(["Sector", "CS_Signal"])
-             .size()
-             .unstack(fill_value=0)
-             .reindex(columns=SIGNALS, fill_value=0))
-    grp["_tot"] = grp.sum(axis=1)
-    grp = grp.sort_values("_tot", ascending=True).drop(columns="_tot")
-    n_sec = len(grp)
-    for i, (sector, row) in enumerate(grp.iterrows(), 1):
-        ws.cell(DR+i, 15, str(sector))
-        for j, sig in enumerate(SIGNALS, 1):
-            ws.cell(DR+i, 15+j, int(row.get(sig, 0)))
-
-    # Table 6 -- ROIC% by Sector (cols 20:21, replaces ROE%/GM%)
-    _hdr(DR, 20, "Sector"); _hdr(DR, 21, "Avg ROIC%")
-    if "ROIC%" in df.columns:
-        sec_roic = (df.assign(Sector=df["Sector"].fillna("Unknown"))
-                      .groupby("Sector")["ROIC%"]
-                      .mean().round(1)
-                      .sort_values(ascending=True))
-        n_roic = len(sec_roic)
-        for i, (sector, val) in enumerate(sec_roic.items(), 1):
-            ws.cell(DR+i, 20, str(sector))
-            ws.cell(DR+i, 21, float(val) if not pd.isna(val) else None)
-    else:
-        n_roic = 0
-
-    # Table 7 -- EQ Badge Pie (cols 22:23)
-    _hdr(DR, 22, "EQ Badge"); _hdr(DR, 23, "Count")
-    if "EQ_Badge" in df.columns:
-        eq_counts = df["EQ_Badge"].value_counts()
-        for i, lbl in enumerate(EQ_LBLS, 1):
-            ws.cell(DR+i, 22, lbl)
-            ws.cell(DR+i, 23, int(eq_counts.get(lbl, 0)))
-        n_eq = len(EQ_LBLS)
-    else:
-        n_eq = 0
-
-    # ===================================================================
     # CHARTS
-    # ===================================================================
-
-    # Chart 1: Pie -- Signal Distribution (A15, [3] row-1 left)
-    pie1 = PieChart()
-    pie1.title = "Signal Distribution"; pie1.style = 10
-    pie1.add_data(Reference(ws, min_col=2, min_row=DR, max_row=DR+4), titles_from_data=True)
-    pie1.set_categories(Reference(ws, min_col=1, min_row=DR+1, max_row=DR+4))
-    for idx, color in enumerate(SIG_COLS):
-        pt = DataPoint(idx=idx); pt.graphicalProperties.solidFill = color
-        pie1.series[0].dPt.append(pt)
-    pie1.width = 12; pie1.height = 12
-    ws.add_chart(pie1, "A15")
-
-    # Chart 2: Scatter -- CAN SLIM Score x QC Score (I15, [3] row-1 center)
-    if HAS_QC and n_cxq > 0:
-        cxq_sct = ScatterChart()
-        cxq_sct.title = "CAN SLIM Score × QC Score"; cxq_sct.style = 10
-        cxq_sct.x_axis.title = f"CAN SLIM Score (0–{N_CS})"
-        cxq_sct.y_axis.title = "QC Score (0–6)"
-        cxq_sct.x_axis.scaling.min = 0; cxq_sct.x_axis.scaling.max = N_CS
-        cxq_sct.y_axis.scaling.min = 0; cxq_sct.y_axis.scaling.max = N_QC_LOCAL
-        for j, (sig_lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
-            xv  = Reference(ws, min_col=3,   min_row=DR+1, max_row=DR+n_cxq)
-            yv  = Reference(ws, min_col=4+j, min_row=DR+1, max_row=DR+n_cxq)
-            ser = Series(yv, xv, title=sig_lbl)
+    if HAS_QC and n_sct > 0:
+        sct = ScatterChart()
+        sct.title = "CS Score × QC Score  (Dual Leaders: top-right)"
+        sct.style = 10
+        sct.x_axis.title = f"CAN SLIM Score (0–{N_CS})"
+        sct.y_axis.title = "QC Score (0–6)"
+        sct.x_axis.scaling.min = 0; sct.x_axis.scaling.max = N_CS
+        sct.y_axis.scaling.min = 0; sct.y_axis.scaling.max = N_QC_LOC
+        for j, (lbl, col) in enumerate(zip(SIG_LBLS, SIG_COLS)):
+            xv  = Reference(ws, min_col=2,   min_row=DR+1, max_row=DR+n_sct)
+            yv  = Reference(ws, min_col=4+j, min_row=DR+1, max_row=DR+n_sct)
+            ser = Series(yv, xv, title=lbl)
             ser.marker.symbol = "circle"; ser.marker.size = 5
-            ser.graphicalProperties.line.noFill           = True
-            ser.marker.graphicalProperties.solidFill      = color
-            ser.marker.graphicalProperties.line.solidFill = color
-            cxq_sct.series.append(ser)
-        cxq_sct.width = 12; cxq_sct.height = 12
-        ws.add_chart(cxq_sct, "I15")
+            ser.graphicalProperties.line.noFill = True
+            ser.marker.graphicalProperties.solidFill      = col
+            ser.marker.graphicalProperties.line.solidFill = col
+            sct.series.append(ser)
+        sv = Series(Reference(ws, min_col=3, min_row=rl,   max_row=rl+1),
+                    Reference(ws, min_col=2, min_row=rl,   max_row=rl+1), title="CS≥7")
+        sv.graphicalProperties.line.solidFill = "FF6600"; sv.marker.symbol = "none"
+        sct.series.append(sv)
+        sh = Series(Reference(ws, min_col=3, min_row=rl+3, max_row=rl+4),
+                    Reference(ws, min_col=2, min_row=rl+3, max_row=rl+4), title="QC≥4")
+        sh.graphicalProperties.line.solidFill = "FF6600"; sh.marker.symbol = "none"
+        sct.series.append(sh)
+        sct.width = 14; sct.height = 14
+        ws.add_chart(sct, f"A{ch_start}")
 
-    # Chart 3: Pie -- EQ Badge Distribution (Q15, [3] row-1 right)
-    if n_eq > 0:
-        eq_pie = PieChart()
-        eq_pie.title = "Earnings Quality Badge"; eq_pie.style = 10
-        eq_pie.add_data(Reference(ws, min_col=23, min_row=DR, max_row=DR+n_eq), titles_from_data=True)
-        eq_pie.set_categories(Reference(ws, min_col=22, min_row=DR+1, max_row=DR+n_eq))
-        for idx, color in enumerate(EQ_PIE_COLS):
-            pt = DataPoint(idx=idx); pt.graphicalProperties.solidFill = color
-            eq_pie.series[0].dPt.append(pt)
-        eq_pie.width = 12; eq_pie.height = 12
-        ws.add_chart(eq_pie, "Q15")
-
-    # Chart 4: Horizontal Bar -- Top 20 Score (A38, [3] row-2 left)
     bar = BarChart()
     bar.type = "bar"; bar.style = 10
-    bar.title = f"Top 20  ·  CAN SLIM Score / {N_CS}"
-    bar.x_axis.title = "Score"; bar.y_axis.title = "Ticker"
-    bar.x_axis.scaling.min = 0; bar.x_axis.scaling.max = N_CS
-    bar.add_data(Reference(ws, min_col=9, min_row=DR, max_row=DR+20), titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=8, min_row=DR+1, max_row=DR+20))
+    bar.title = "Top 10 Stocks  ·  1Y% Return"
+    bar.x_axis.title = "1Y Return %"; bar.y_axis.title = "Ticker"
+    bar.add_data(Reference(ws, min_col=10, min_row=DR,   max_row=DR+10), titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=9,  min_row=DR+1, max_row=DR+10))
     bar.series[0].graphicalProperties.solidFill = "0070C0"
-    bar.width = 14; bar.height = 12
-    ws.add_chart(bar, "A38")
-
-    # Chart 5: Scatter -- Score vs 1Y% by signal (I38, [3] row-2 right)
-    sct = ScatterChart()
-    sct.title = "CAN SLIM Score  vs  1Y Return %"; sct.style = 10
-    sct.x_axis.title = "CAN SLIM Score"; sct.y_axis.title = "1Y Return %"
-    for j, (sig_lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
-        xv  = Reference(ws, min_col=10,   min_row=DR+1, max_row=DR+n_sc)
-        yv  = Reference(ws, min_col=11+j, min_row=DR+1, max_row=DR+n_sc)
-        ser = Series(yv, xv, title=sig_lbl)
-        ser.marker.symbol = "circle"; ser.marker.size = 5
-        ser.graphicalProperties.line.noFill           = True
-        ser.marker.graphicalProperties.solidFill      = color
-        ser.marker.graphicalProperties.line.solidFill = color
-        sct.series.append(ser)
-    sct.width = 14; sct.height = 12
-    ws.add_chart(sct, "I38")
-
-    # Chart 6: Stacked Bar -- Sector x Signal (A62, [4] left)
-    stk = BarChart()
-    stk.type = "bar"; stk.grouping = "stacked"; stk.style = 10
-    stk.title = "Signal Distribution by Sector"
-    stk.x_axis.title = "Count"; stk.y_axis.title = "Sector"
-    for j, (lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
-        stk.add_data(Reference(ws, min_col=16+j, min_row=DR, max_row=DR+n_sec), titles_from_data=True)
-        stk.series[-1].graphicalProperties.solidFill = color
-    stk.set_categories(Reference(ws, min_col=15, min_row=DR+1, max_row=DR+n_sec))
-    stk.legend.position = "b"
-    stk.width = 14; stk.height = 14
-    ws.add_chart(stk, "A62")
-
-    # Chart 7: Bar -- Avg ROIC% by Sector (I62, [4] right, replaces ROE%/GM%)
-    if n_roic > 0:
-        roic_bar = BarChart()
-        roic_bar.type = "bar"; roic_bar.style = 10
-        roic_bar.title = "Avg ROIC% by Sector"
-        roic_bar.x_axis.title = "Avg ROIC%"; roic_bar.y_axis.title = "Sector"
-        roic_bar.add_data(Reference(ws, min_col=21, min_row=DR, max_row=DR+n_roic), titles_from_data=True)
-        roic_bar.series[-1].graphicalProperties.solidFill = "1A5C2B"
-        roic_bar.set_categories(Reference(ws, min_col=20, min_row=DR+1, max_row=DR+n_roic))
-        roic_bar.legend.position = "b"
-        roic_bar.width = 14; roic_bar.height = 14
-        ws.add_chart(roic_bar, "I62")
-
-    # -- Minimize data rows so they're invisible but charts still read them
-    n_cxq_safe = n_cxq if HAS_QC else 1
-    max_data_row = DR + max(4, 20, n_sc, n_sec, max(n_roic, 1), max(n_eq, 1), n_cxq_safe) + 2
-    for r in range(DR, max_data_row + 1):
-        ws.row_dimensions[r].height = 1
+    bar.width = 14; bar.height = 14
+    ws.add_chart(bar, f"N{ch_start}")
 
 
 def _main_sheet(wb, df, market, top):
