@@ -514,7 +514,8 @@ def _dashboard_sheet(wb, df):
     # ⭐ DUAL LEADERS (rows 12+)
     _sec(12, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
     DL_HDRS = ["#", "Ticker", "Company", "Sector", "Price", "CS", "QC",
-               "1Y%", "ROE%", "ROIC%", "D/E", "Signal"]
+               "1Y%", "ROE%", "ROIC%", "D/E", "Signal", "⚠"]
+    ws.column_dimensions["M"].width = 11
     for ci, h in enumerate(DL_HDRS, 1):
         c = ws.cell(13, ci, h)
         c.font = F(True, 9, "FFFFFF"); c.fill = BG("4A235A")
@@ -527,7 +528,7 @@ def _dashboard_sheet(wb, df):
 
     dl_end = 13
     if dl_df.empty:
-        ws.merge_cells("A14:L14")
+        ws.merge_cells("A14:M14")
         c = ws.cell(14, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
         c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
         ws.row_dimensions[14].height = 18; dl_end = 14
@@ -574,6 +575,16 @@ def _dashboard_sheet(wb, df):
                 else:
                     c.value = "—"; c.font = F(size=9, color="BBBBBB")
             _w(12, sig, True, fg_s, bg_s)
+            de_v = row.get("D/E"); pe_v = row.get("P/E")
+            flags = []
+            if de_v is not None and not (isinstance(de_v, float) and pd.isna(de_v)) and float(de_v) > 1:
+                flags.append("D/E")
+            if pe_v is not None and not (isinstance(pe_v, float) and pd.isna(pe_v)) and float(pe_v) > 50:
+                flags.append("P/E")
+            if flags:
+                _w(13, "⚠️ " + " · ".join(flags), True, "9C6500", "FFF2CC")
+            else:
+                _w(13, "", bgc=rbg)
             dl_end = er
         ws.conditional_formatting.add(
             f"H14:H{dl_end}",
@@ -654,7 +665,7 @@ def _dashboard_sheet(wb, df):
 
     # ❹ SECTOR BREAKDOWN
     ws.row_dimensions[ch_end].height = 10
-    s4_row = ch_end + 1
+    s4_row = ch_end + 9
     _sec(s4_row, "❹  SECTOR BREAKDOWN  —  Sort: # Strong Buy ↓")
     S4_HDRS = ["Sector", "# Stocks", "# Str.Buy", "# Buy", "# Comp.", "Avg CS", "Avg QC", "Avg 1Y%"]
     S4_WD   = [16, 8, 9, 7, 8, 7, 7, 8]
