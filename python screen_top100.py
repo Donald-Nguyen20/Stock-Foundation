@@ -384,7 +384,7 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None):
 def fetch_data(market, top):
     print(f"  ⏳ Query TradingView ({market.upper()}, top {top} MCap)...", end="", flush=True)
     try:
-        _, df = (Query().set_markets(market).select(*FETCH_COLS)
+        _, df = (Query().set_markets(market.lower()).select(*FETCH_COLS)
                  .order_by("market_cap_basic", ascending=False).limit(top).get_scanner_data())
         print(f" ✅ {len(df)} mã"); return df
     except Exception as e:

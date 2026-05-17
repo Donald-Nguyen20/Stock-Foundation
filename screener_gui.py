@@ -1572,7 +1572,7 @@ class MainWindow(QMainWindow):
         lbl_market.setStyleSheet(
             f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._market = QComboBox()
-        self._market.addItems(["america", "nasdaq", "nyse", "euronext", "hong_kong", "vietnam"])
+        self._market.addItems(["AMERICA", "NASDAQ", "NYSE", "EURONEXT", "HONG_KONG", "VIETNAM"])
         self._market.setFixedHeight(32)
         self._market.setStyleSheet(self._combo_style())
 
