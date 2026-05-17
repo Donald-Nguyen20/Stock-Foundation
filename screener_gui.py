@@ -30,6 +30,7 @@ clean_df               = _m.clean_df
 score_canslim          = _m.score_canslim
 fetch_moat_yfinance    = _m.fetch_moat_yfinance
 fetch_market_direction = _m.fetch_market_direction
+_MKT_INDEX          = _m._MKT_INDEX
 write_excel            = _m.write_excel
 CANSLIM             = _m.CANSLIM
 CS_KEYS             = _m.CS_KEYS
@@ -550,8 +551,8 @@ class ScanWorker(QThread):
                     self.ticker_update.emit(i, total, ticker, score)
                     time.sleep(0.3)
 
-            self.progress.emit("Fetching market direction (^GSPC)…")
-            market_ok = fetch_market_direction()
+            self.progress.emit(f"Fetching market direction ({_MKT_INDEX.get(self.market.lower(), ('','SP:SPX'))[1]})…")
+            market_ok = fetch_market_direction(self.market)
             self.progress.emit("Applying CAN SLIM scoring…")
             df = score_canslim(df, moat_cache, market_ok=market_ok)
             self.done.emit(df)
@@ -582,7 +583,7 @@ class TickerWorker(QThread):
             proxy, score, w52_pct, eq_badge = fetch_moat_yfinance(
                 self.ticker, df["Sector"].iloc[0] if "Sector" in df.columns else "")
             moat_cache = {self.ticker: (proxy, score, w52_pct, eq_badge)}
-            market_ok = fetch_market_direction()
+            market_ok = fetch_market_direction(self.market)
             df = score_canslim(df, moat_cache, market_ok=market_ok)
             self.done.emit(df)
         except Exception as e:

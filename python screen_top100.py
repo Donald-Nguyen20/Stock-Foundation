@@ -36,7 +36,7 @@ CANSLIM = {
     "M":   dict(label="Momentum 3M",   field="3M%",           thr=0,   op="gt", desc="3-Month Perf > 0%"),
     "D":   dict(label="Debt OK",       field="D/E",           thr=2.0, op="lt", desc="D/E < 2.0"),
     "N":   dict(label="N — 52W High",  field="52W_High%",     thr=90,  op="gt", desc="Price ≥ 90% of 52-Week High"),
-    "MKT": dict(label="Market",        field="Market_OK",     thr=0.5, op="gt", desc="S&P 500 above MA50 & MA200"),
+    "MKT": dict(label="Market",        field="Market_OK",     thr=0.5, op="gt", desc="Market index above MA50 & MA200"),
 }
 CS_KEYS = ["C", "A", "S", "L", "Q", "R", "M", "D", "N", "MKT"]
 N_CS    = len(CS_KEYS)
@@ -271,17 +271,30 @@ def build_moat_cache(tickers: list, sectors: dict) -> dict:
     return cache
 
 
-def fetch_market_direction():
-    """True nếu S&P 500 đang trên MA50 và MA200 (uptrend), False nếu không, None nếu lỗi."""
+_MKT_INDEX = {
+    "america":   ("america",   "SP:SPX"),
+    "nasdaq":    ("america",   "NASDAQ:NDX"),
+    "nyse":      ("america",   "NYSE:NYA"),
+    "euronext":  ("global",    "TVC:CAC40"),
+    "hong_kong": ("hongkong",  "HSI:HSI"),
+    "vietnam":   ("vietnam",   "HOSE:VNINDEX"),
+}
+
+def fetch_market_direction(market="america"):
+    """True nếu index thị trường đang trên MA50 và MA200, False nếu không, None nếu lỗi."""
+    import requests
+    tv_market, ticker = _MKT_INDEX.get(market.lower(), ("america", "SP:SPX"))
     try:
-        import yfinance as yf
-        spx = yf.Ticker("^GSPC").history(period="1y")["Close"]
-        if len(spx) < 200:
+        r = requests.post(
+            f"https://scanner.tradingview.com/{tv_market}/scan",
+            json={"symbols": {"tickers": [ticker], "query": {"types": []}},
+                  "columns": ["close", "SMA50", "SMA200"]},
+            timeout=10)
+        d = r.json()["data"][0]["d"]
+        price, ma50, ma200 = d[0], d[1], d[2]
+        if price is None or ma50 is None or ma200 is None:
             return None
-        price = float(spx.iloc[-1])
-        ma50  = float(spx.rolling(50).mean().iloc[-1])
-        ma200 = float(spx.rolling(200).mean().iloc[-1])
-        return price > ma50 and price > ma200
+        return float(price) > float(ma50) and float(price) > float(ma200)
     except Exception:
         return None
 
