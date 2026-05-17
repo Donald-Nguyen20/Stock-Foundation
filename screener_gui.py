@@ -1370,9 +1370,88 @@ Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
   <li><b>Quick Filter chips</b> — Lọc nhanh STRONG BUY (hoặc COMPOUNDER ở tab QC), Moat, 1Y%, 52W High. Dùng nút ✕ để xóa tất cả.</li>
   <li><b>Click vào hàng</b> — Xem breakdown chi tiết (✓/✗ từng tiêu chí) ở panel phía dưới bảng. Chart tự động tải.</li>
   <li><b>Sort</b> — Click vào tiêu đề cột để sắp xếp. Cột số sắp xếp đúng theo giá trị số, không phải theo chữ.</li>
-  <li><b>Export</b> — Xuất Excel đầy đủ với màu sắc, 3 sheet: Data · CAN SLIM Legend · Summary.</li>
+  <li><b>Export</b> — Xuất Excel với 3 sheet: <b>Data</b> (toàn bộ cổ phiếu), <b>Quality Compounder</b> (nếu có), <b>Dashboard</b> (tóm tắt trực quan). Xem hướng dẫn đọc Dashboard ở phần ⑨.</li>
   <li><b>F1</b> — Mở màn hình hướng dẫn này bất cứ lúc nào.</li>
 </ul>
+
+<h2>⑨ DASHBOARD EXCEL — CÁCH ĐỌC</h2>
+<p style="color:#7A8899;font-size:12px;margin:0 0 12px 0;">
+  Sheet <b style="color:#3D8EF0;">Dashboard</b> trong file Excel là tóm tắt toàn bộ kết quả scan — đọc từ trên xuống theo thứ tự ưu tiên.
+</p>
+
+<table>
+  <tr>
+    <th style="width:200px;">Vùng</th>
+    <th>Nội dung &amp; Cách đọc</th>
+  </tr>
+  <tr style="background-color:#0E1220;">
+    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">❶ CAN SLIM KPIs</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      6 thẻ tóm tắt kết quả CAN SLIM: <b>Total Stocks</b> · <b># Strong Buy</b> · <b># Buy</b> · <b>Avg Score</b> · <b>Avg 1Y%</b> · <b># Near 52W High</b>.
+      Đây là bức tranh tổng quan — thị trường đang có bao nhiêu cổ phiếu đủ tiêu chuẩn.
+    </td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#34C472;font-weight:700;font-size:13px;padding:10px 14px;">❷ QC KPIs</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      6 thẻ Quality Compounder: <b># Compounder</b> · <b># Quality</b> · <b>Avg QC Score</b> · <b>Avg ROIC%</b> · <b># Dual Leaders</b> · <b># Cash Backed</b>.
+      <b style="color:#FFC000;">Cash Backed</b> chỉ đếm trong số cổ phiếu đạt QC signal — không tính tất cả 300 mã.
+      Hiển thị <b>—</b> nếu chưa bật yfinance Moat.
+    </td>
+  </tr>
+  <tr style="background-color:#0E1220;">
+    <td style="color:#FFC000;font-weight:700;font-size:13px;padding:10px 14px;">⚠ Risk Flags</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      3 cảnh báo rủi ro thị trường: <b>D/E &gt; 1</b> (đòn bẩy cao) · <b>P/E &gt; 50</b> (định giá cao) · <b>1M% &lt; −10%</b> (đang giảm mạnh).
+      Đọc dòng này trước khi quyết định — nếu có nhiều mã trong cảnh báo, thị trường đang rủi ro cao.
+    </td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#FFD700;font-weight:700;font-size:13px;padding:10px 14px;">⭐ Dual Leaders</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      Bảng vàng: cổ phiếu đạt <b>cả hai</b> tiêu chuẩn — <b style="color:#34C472;">CS Score ≥ 7</b> và <b style="color:#3D8EF0;">QC Score ≥ 4</b>.
+      Đây là danh sách ưu tiên cao nhất: vừa có momentum (CAN SLIM) vừa có chất lượng bền vững (QC).
+      Cột <b>1Y%</b> có thanh màu xanh — dài hơn = hiệu suất tốt hơn.
+      Sắp xếp: CS Score cao nhất trước, sau đó QC Score.
+    </td>
+  </tr>
+  <tr style="background-color:#0E1220;">
+    <td style="color:#E040FB;font-weight:700;font-size:13px;padding:10px 14px;">🎯 Top Picks</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      3 bảng nhỏ đặt cạnh nhau, mỗi bảng top 5:<br>
+      &nbsp;• <b style="color:#FF7043;">🚀 Momentum</b> — Top 5 theo 1Y% cao nhất (tất cả cổ phiếu).<br>
+      &nbsp;• <b style="color:#4DB6AC;">💎 Quality</b> — Top 5 theo ROIC% cao nhất, chỉ lọc COMPOUNDER.<br>
+      &nbsp;• <b style="color:#FFD54F;">💰 Value</b> — Top 5 P/E thấp nhất với CS Score ≥ 6 (tăng trưởng tốt, định giá hợp lý).
+    </td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❸ Chart Analysis</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Trái — Scatter CS × QC:</b> Mỗi chấm = 1 cổ phiếu. Góc trên phải (CS≥7, QC≥4) là vùng Dual Leaders lý tưởng.
+      Đường cam dọc x=7 và ngang y=4 là ngưỡng phân chia. Màu chấm = tín hiệu CAN SLIM.<br><br>
+      <b>Phải — Bar Top 10 1Y%:</b> 10 cổ phiếu có hiệu suất 1 năm tốt nhất. Đọc cùng Scatter để tìm cổ phiếu vừa momentum vừa chất lượng.
+    </td>
+  </tr>
+  <tr style="background-color:#0E1220;">
+    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❹ Sector Breakdown</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      Pivot theo ngành: <b># Stocks</b> · <b># Strong Buy</b> · <b># Buy</b> · <b># Compounder</b> · <b>Avg CS</b> · <b>Avg QC</b> · <b>Avg 1Y%</b>.
+      Sắp xếp theo # Strong Buy giảm dần — <b style="color:#FFD700;">Top 3 ngành</b> được highlight vàng/xanh lá/xanh dương.
+      Dùng bảng này để tìm <b>sector rotation</b>: ngành nào đang có nhiều cổ phiếu mạnh nhất.
+    </td>
+  </tr>
+</table>
+
+<p style="color:#B8C4D0;font-size:12px;margin:16px 0 6px 0;font-weight:700;letter-spacing:1px;">QUY TRÌNH ĐỌC DASHBOARD NHANH (30 giây)</p>
+<ol style="padding-left:20px;margin:0;">
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❶+❷ KPIs</b> — Thị trường đang tốt hay xấu? # Strong Buy &gt; 10% tổng là dấu hiệu tốt.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>⚠ Risk Flags</b> — Có nhiều cảnh báo không? Nếu có, tăng tiêu chuẩn lọc.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>⭐ Dual Leaders</b> — Đây là shortlist thực sự. Nghiên cứu kỹ từng mã trong bảng này.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>🎯 Top Picks</b> — Bổ sung từ 3 góc nhìn: momentum / chất lượng / định giá.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❸ Scatter</b> — Xác nhận trực quan: mã nào ở góc trên phải là ứng viên tốt nhất.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❹ Sector</b> — Sector nào dẫn đầu? Ưu tiên mã trong sector mạnh.</li>
+</ol>
+<p class="tip">⚠  Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b> từ app. Dữ liệu phản ánh thời điểm scan gần nhất — xem timestamp ở góc phải hàng đầu của sheet.</p>
 </body></html>"""
 
 
