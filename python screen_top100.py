@@ -314,6 +314,11 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None):
     moat = df.apply(apply_moat, axis=1)
     df["Moat Proxy"] = moat.apply(lambda x: x[0])
     df["Moat Score"] = moat.apply(lambda x: x[1])
+
+    _MW = {"WIDE  ★★★": 1.2, "NARROW ★★": 1.1, "UNCERTAIN ★": 1.0, "WEAK": 0.85}
+    df["Conviction"] = df.apply(
+        lambda r: round(r["CS_Score"] * _MW.get(r.get("Moat Score", ""), 1.0), 1),
+        axis=1)
     return df
 
 
@@ -359,140 +364,345 @@ def _dashboard_sheet(wb, df):
     SIGNALS  = ["🟢 STRONG BUY", "🔵 BUY", "🟡 WATCH", "🔴 SKIP"]
     SIG_COLS = ["00AA44", "0070C0", "FFC000", "FF0000"]
     SIG_LBLS = ["STRONG BUY", "BUY", "WATCH", "SKIP"]
+    MOAT_LBLS   = list(MOAT_SCORE_STYLE.keys())
+    MOAT_COLORS = [MOAT_SCORE_STYLE[m][1] for m in MOAT_LBLS]
 
-    HF = Font(name="Calibri", bold=True, size=9,  color="FFFFFF")
-    HB = BG("1F3864")
-    HA = AL()
+    # ── Column widths (24 cols, A-X) ────────────────────────────────
+    for ci in range(1, 25):
+        ws.column_dimensions[CL(ci)].width = 10
 
-    # ── Title ──────────────────────────────────────────────────────
-    ws.merge_cells("A1:W2")
+    # ── Helpers ─────────────────────────────────────────────────────
+    def sec_header(row, text, end_col=24):
+        ws.merge_cells(f"A{row}:{CL(end_col)}{row}")
+        c = ws.cell(row, 1, text)
+        c.font = F(True, 10, "FFFFFF")
+        c.fill = BG("2C4F7C")
+        c.alignment = AL()
+        ws.row_dimensions[row].height = 18
+
+    def kpi_card(sc, val_text, label, bg_hex, fg_hex="FFFFFF"):
+        ec = sc + 3
+        ws.merge_cells(f"{CL(sc)}4:{CL(ec)}4")
+        c = ws.cell(4, sc, val_text)
+        c.font = F(True, 18, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
+        ws.merge_cells(f"{CL(sc)}5:{CL(ec)}5")
+        c = ws.cell(5, sc, label)
+        c.font = F(False, 9, fg_hex); c.fill = BG(bg_hex); c.alignment = AL()
+        ws.merge_cells(f"{CL(sc)}6:{CL(ec)}6")
+        ws.cell(6, sc).fill = BG("1B3A5C")
+
+    # ── ❶ Title (rows 1-2) ──────────────────────────────────────────
+    ws.merge_cells("A1:X2")
     c = ws["A1"]
-    c.value     = "STOCK SCREENER  ·  DASHBOARD"
-    c.font      = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
-    c.fill      = BG("1F3864")
-    c.alignment = AL()
-    ws.row_dimensions[1].height = 32
+    c.value = "STOCK SCREENER  ·  DASHBOARD"
+    c.font = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
+    c.fill = BG("0D2137"); c.alignment = AL()
+    ws.row_dimensions[1].height = 36
+    ws.row_dimensions[2].height = 4
 
-    ws.column_dimensions["A"].width = 22
-    ws.column_dimensions["D"].width = 20
-    ws.column_dimensions["I"].width = 12
-    ws.column_dimensions["O"].width = 8
-    ws.column_dimensions["P"].width = 10
+    # ── ❶ KPI CARDS (rows 3-7) ──────────────────────────────────────
+    sec_header(3, "❶  KEY METRICS AT A GLANCE")
+    ws.row_dimensions[4].height = 38
+    ws.row_dimensions[5].height = 18
+    ws.row_dimensions[6].height = 6
+    ws.row_dimensions[7].height = 8
 
-    DR = 55   # data tables start below all charts
+    total  = len(df)
+    sb_cnt = int((df["CS_Signal"] == "🟢 STRONG BUY").sum())
+    b_cnt  = int((df["CS_Signal"] == "🔵 BUY").sum())
+    sb_pct = f"{sb_cnt/total*100:.1f}%" if total else "—"
+    b_pct  = f"{b_cnt/total*100:.1f}%"  if total else "—"
+    avg_score   = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
+    avg_1y_ser  = df["1Y%"].dropna()
+    avg_1y_val  = f"{avg_1y_ser.mean():.1f}%" if len(avg_1y_ser) else "—"
+    avg_roe_ser = df["ROE%"].dropna()
+    avg_roe_val = f"{avg_roe_ser.mean():.1f}%" if len(avg_roe_ser) else "—"
 
-    def hdr(row, col, text):
-        c = ws.cell(row, col, text)
-        c.font = HF; c.fill = HB; c.alignment = HA
+    kpi_card(1,  str(total),   "Total Stocks",              "1B3A5C")
+    kpi_card(5,  sb_pct,       f"Strong Buy  ({sb_cnt})",   "00703A")
+    kpi_card(9,  b_pct,        f"Buy  ({b_cnt})",           "0070C0")
+    kpi_card(13, avg_score,    f"Avg Score / {N_CS}",       "5B2C6F")
+    kpi_card(17, avg_1y_val,   "Avg 1Y Return",             "7D3C0A")
+    kpi_card(21, avg_roe_val,  "Avg ROE%",                  "0E6655")
 
-    # ── Table 1: Signal counts (A:B) — Pie ─────────────────────────
-    hdr(DR, 1, "Signal"); hdr(DR, 2, "Count")
+    # ── ❷ SIGNAL & SCORE ANALYSIS — 2×2 chart grid (rows 8-54) ────────
+    sec_header(8, "❷  SIGNAL & SCORE ANALYSIS")
+    for r in range(9, 55):
+        ws.row_dimensions[r].height = 16
+    ws.row_dimensions[31].height = 8   # spacer between the two chart rows
+    ws.row_dimensions[54].height = 10  # gap before ❸
+
+    # ── ❸ SECTOR BREAKDOWN (rows 55-79) ─────────────────────────────
+    sec_header(55, "❸  SECTOR BREAKDOWN")
+    for r in range(56, 80):
+        ws.row_dimensions[r].height = 17
+    ws.row_dimensions[79].height = 10  # gap before ❹
+
+    # ── ❹ TOP 10 PERFORMERS (rows 84+) ──────────────────────────────
+    sec_header(84, "❹  TOP 10 PERFORMERS")
+
+    T10_HDRS = ["#", "Ticker", "Tên Công Ty", "Sector", "Signal",
+                f"Score/{N_CS}", "Conv.", "1Y%", "52W Hi%", "Moat", "Price ($)"]
+    T10_WIDTHS = [4, 9, 22, 14, 14, 7, 7, 8, 9, 13, 9]
+    for ci, (h, w) in enumerate(zip(T10_HDRS, T10_WIDTHS), 1):
+        ws.column_dimensions[CL(ci)].width = w
+        c = ws.cell(85, ci, h)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1B3A5C")
+        c.alignment = AL(); c.border = BD()
+    ws.row_dimensions[85].height = 20
+
+    _t10_cols = ["Ticker", "Tên Công Ty", "Sector", "CS_Signal", "CS_Score",
+                 "Conviction", "1Y%", "52W_High%", "Moat Score", "Price ($)"]
+    _t10_safe = [c for c in _t10_cols if c in df.columns]
+    top10 = (df[_t10_safe]
+             .sort_values(["Conviction", "1Y%"] if "Conviction" in df.columns
+                          else ["CS_Score", "1Y%"], ascending=[False, False])
+             .head(10))
+
+    def _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m):
+        c.border = BD(); c.font = F(size=9)
+        c.alignment = AL("left" if ci in (3, 4) else "center")
+        if ci == 2:
+            c.font = F(True, 9, "1B3A5C")
+        elif ci == 5:   # Signal
+            c.font = F(True, 9, fg_s); c.fill = BG(bg_s)
+        elif ci == 7 and val is not None:  # Conv.
+            fv = float(val)
+            c.value = round(fv, 1)
+            col = "276221" if fv >= 9 else "0070C0" if fv >= 7 else "7D6608" if fv >= 5 else "9C0006"
+            c.font = F(True, 9, col)
+        elif ci == 8 and val is not None and not (isinstance(val, float) and pd.isna(val)):  # 1Y%
+            fv = float(val)
+            c.value = fv / 100; c.number_format = '+0.0%;(0.0%);"-"'
+            c.font = F(size=9, color=("276221" if fv > 0 else ("9C0006" if fv < 0 else "000000")))
+        elif ci == 9 and val is not None and not (isinstance(val, float) and pd.isna(val)):  # 52W Hi%
+            fv = float(val)
+            c.value = fv / 100; c.number_format = '0.0%'
+            c.font = F(size=9, color=("276221" if fv >= 90 else ("9C0006" if fv < 70 else "000000")))
+        elif ci == 10:  # Moat
+            c.font = F(True, 8, fg_m); c.fill = BG(bg_m)
+        elif ci == 11 and val is not None:  # Price
+            c.number_format = '"$"#,##0.00'
+
+    for ri, (_, row) in enumerate(top10.iterrows(), 1):
+        er  = 85 + ri
+        rbg = "F0F4FA" if ri % 2 == 0 else "FFFFFF"
+        ws.row_dimensions[er].height = 18
+        sig  = row.get("CS_Signal", "") or ""
+        moat = row.get("Moat Score", "") or ""
+        fg_s, bg_s = SIGNAL_STYLE.get(sig,  ("000000", "FFFFFF"))
+        fg_m, bg_m = MOAT_SCORE_STYLE.get(moat, ("000000", "FFFFFF"))
+        vals = [ri, row.get("Ticker",""), row.get("Tên Công Ty",""), row.get("Sector",""),
+                sig, int(row.get("CS_Score", 0) or 0), row.get("Conviction"),
+                row.get("1Y%"), row.get("52W_High%"), moat, row.get("Price ($)")]
+        for ci, val in enumerate(vals, 1):
+            c = ws.cell(er, ci, val); c.fill = BG(rbg)
+            _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m)
+
+    # ── ❺ CONVICTION SHORTLIST (rows 97+) ────────────────────────────
+    ws.row_dimensions[96].height = 10
+    sec_header(97, "❺  CONVICTION SHORTLIST  —  STRONG BUY  ×  WIDE / NARROW Moat  ×  1Y% > 0")
+    ws.row_dimensions[97].height = 18
+
+    for ci, h in enumerate(T10_HDRS, 1):   # reuse ❹ column layout
+        c = ws.cell(98, ci, h)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1A5C2B")
+        c.alignment = AL(); c.border = BD()
+    ws.row_dimensions[98].height = 20
+
+    _conv_filter = (
+        (df["CS_Signal"] == "🟢 STRONG BUY") &
+        (df["Moat Score"].isin(["WIDE  ★★★", "NARROW ★★"])) &
+        (df["1Y%"].fillna(0) > 0)
+    )
+    conv_df = (df[_conv_filter][_t10_safe]
+               .sort_values(["Conviction", "1Y%"] if "Conviction" in df.columns
+                             else ["CS_Score", "1Y%"], ascending=[False, False]))
+
+    if conv_df.empty:
+        ws.merge_cells(f"A99:{CL(len(T10_HDRS))}99")
+        c = ws.cell(99, 1, "— Không có mã nào đạt đồng thời cả 3 điều kiện —")
+        c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
+        ws.row_dimensions[99].height = 18
+    else:
+        for ri, (_, row) in enumerate(conv_df.iterrows(), 1):
+            er  = 98 + ri
+            rbg = "EFFFEE" if ri % 2 == 0 else "F5FFF5"
+            ws.row_dimensions[er].height = 18
+            sig  = row.get("CS_Signal", "") or ""
+            moat = row.get("Moat Score", "") or ""
+            fg_s, bg_s = SIGNAL_STYLE.get(sig,  ("000000", "FFFFFF"))
+            fg_m, bg_m = MOAT_SCORE_STYLE.get(moat, ("000000", "FFFFFF"))
+            vals = [ri, row.get("Ticker",""), row.get("Tên Công Ty",""), row.get("Sector",""),
+                    sig, int(row.get("CS_Score", 0) or 0), row.get("Conviction"),
+                    row.get("1Y%"), row.get("52W_High%"), moat, row.get("Price ($)")]
+            for ci, val in enumerate(vals, 1):
+                c = ws.cell(er, ci, val); c.fill = BG(rbg)
+                _fmt_t10_cell(c, ci, val, fg_s, bg_s, fg_m, bg_m)
+
+    # ═══════════════════════════════════════════════════════════════
+    # DATA TABLES (row 150+, safely below all visible sections)
+    # ═══════════════════════════════════════════════════════════════
+    DR = 150
+
+    def _hdr(r, c_idx, text):
+        ws.cell(r, c_idx, text).font = F(True, 8, "FFFFFF"); ws.cell(r, c_idx).fill = BG("1F3864")
+
+    # Table 1 — Signal Pie (cols A:B)
+    _hdr(DR, 1, "Signal"); _hdr(DR, 2, "Count")
     sig_counts = df["CS_Signal"].value_counts()
     for i, sig in enumerate(SIGNALS, 1):
         ws.cell(DR+i, 1, sig)
         ws.cell(DR+i, 2, int(sig_counts.get(sig, 0)))
 
-    # ── Table 2: Top 20 Score (I:J) — Horizontal Bar ───────────────
-    hdr(DR, 9, "Ticker"); hdr(DR, 10, f"Score/{N_CS}")
+    # Table 2 — Moat Pie (cols C:D)
+    _hdr(DR, 3, "Moat"); _hdr(DR, 4, "Count")
+    moat_counts = df["Moat Score"].value_counts()
+    for i, ml in enumerate(MOAT_LBLS, 1):
+        ws.cell(DR+i, 3, ml)
+        ws.cell(DR+i, 4, int(moat_counts.get(ml, 0)))
+
+    # Table 3 — Top 20 Bar (cols E:F)
+    _hdr(DR, 5, "Ticker"); _hdr(DR, 6, f"Score/{N_CS}")
     top20 = (df[["Ticker", "CS_Score", "1Y%"]]
              .sort_values(["CS_Score", "1Y%"], ascending=[False, False])
              .head(20)
              .sort_values(["CS_Score", "1Y%"], ascending=[True, True]))
     for i, (_, row) in enumerate(top20.iterrows(), 1):
-        ws.cell(DR+i, 9,  str(row.get("Ticker",   "")))
-        ws.cell(DR+i, 10, int(row.get("CS_Score", 0)))
+        ws.cell(DR+i, 5, str(row.get("Ticker", "")))
+        ws.cell(DR+i, 6, int(row.get("CS_Score", 0)))
 
-    # ── Table 3: Score vs 1Y% (O:P) — Scatter ──────────────────────
-    hdr(DR, 15, "Score"); hdr(DR, 16, "1Y%")
-    sc_df = df[["CS_Score", "1Y%"]].dropna(subset=["1Y%"])
+    # Table 4 — Scatter by signal (cols G:K): G=Score_X, H=SB_Y, I=BUY_Y, J=WATCH_Y, K=SKIP_Y
+    _hdr(DR, 7, "Score_X")
+    for j, lbl in enumerate(SIG_LBLS, 1):
+        _hdr(DR, 7+j, lbl)
+    sc_df = df[["CS_Score", "1Y%", "CS_Signal"]].dropna(subset=["1Y%"])
     for i, (_, row) in enumerate(sc_df.iterrows(), 1):
-        ws.cell(DR+i, 15, int(row["CS_Score"]))
-        ws.cell(DR+i, 16, round(float(row["1Y%"]), 2))
+        x_val = int(row["CS_Score"])
+        y_val = round(float(row["1Y%"]), 2)
+        sig   = row["CS_Signal"]
+        ws.cell(DR+i, 7, x_val)
+        for j, s in enumerate(SIGNALS, 1):
+            ws.cell(DR+i, 7+j, y_val if sig == s else None)
     n_sc = len(sc_df)
 
-    # ── Table 4: Sector × Signal (D:H) — Stacked Bar ───────────────
-    hdr(DR, 4, "Sector")
+    # Table 5 — Sector × Signal Stacked Bar (cols L:P)
+    _hdr(DR, 12, "Sector")
     for j, lbl in enumerate(SIG_LBLS, 1):
-        hdr(DR, 4+j, lbl)
-
+        _hdr(DR, 12+j, lbl)
     grp = (df.assign(Sector=df["Sector"].fillna("Unknown"))
              .groupby(["Sector", "CS_Signal"])
              .size()
              .unstack(fill_value=0)
-             .reindex(columns=SIGNALS, fill_value=0)
-             .sort_values("🟢 STRONG BUY", ascending=True))
+             .reindex(columns=SIGNALS, fill_value=0))
+    grp["_tot"] = grp.sum(axis=1)
+    grp = grp.sort_values("_tot", ascending=True).drop(columns="_tot")
     n_sec = len(grp)
-
     for i, (sector, row) in enumerate(grp.iterrows(), 1):
-        ws.cell(DR+i, 4, str(sector))
+        ws.cell(DR+i, 12, str(sector))
         for j, sig in enumerate(SIGNALS, 1):
-            ws.cell(DR+i, 4+j, int(row.get(sig, 0)))
+            ws.cell(DR+i, 12+j, int(row.get(sig, 0)))
 
-    # ── Chart 1: Pie — Signal Distribution  A8:G28 ─────────────────
-    pie = PieChart()
-    pie.title = "Signal Distribution"
-    pie.style = 10
-    pie.add_data(Reference(ws, min_col=2, min_row=DR, max_row=DR+4),
-                 titles_from_data=True)
-    pie.set_categories(Reference(ws, min_col=1, min_row=DR+1, max_row=DR+4))
+    # Table 6 — Sector Avg ROE% & GM% Grouped Bar (cols Q:S)
+    _hdr(DR, 17, "Sector"); _hdr(DR, 18, "Avg ROE%"); _hdr(DR, 19, "Avg GM%")
+    sec_metrics = (df.assign(Sector=df["Sector"].fillna("Unknown"))
+                     .groupby("Sector")[["ROE%", "Gross Margin%"]]
+                     .mean().round(1)
+                     .sort_values("ROE%", ascending=True))
+    n_sm = len(sec_metrics)
+    for i, (sector, row) in enumerate(sec_metrics.iterrows(), 1):
+        ws.cell(DR+i, 17, str(sector))
+        roe_v = row.get("ROE%");           gm_v = row.get("Gross Margin%")
+        ws.cell(DR+i, 18, float(roe_v) if roe_v is not None and not pd.isna(roe_v) else None)
+        ws.cell(DR+i, 19, float(gm_v)  if gm_v  is not None and not pd.isna(gm_v)  else None)
+
+    # ═══════════════════════════════════════════════════════════════
+    # CHARTS
+    # ═══════════════════════════════════════════════════════════════
+
+    # Chart 1: Pie — Signal Distribution  (anchor A9)
+    pie1 = PieChart()
+    pie1.title = "Signal Distribution"
+    pie1.style = 10
+    pie1.add_data(Reference(ws, min_col=2, min_row=DR, max_row=DR+4), titles_from_data=True)
+    pie1.set_categories(Reference(ws, min_col=1, min_row=DR+1, max_row=DR+4))
     for idx, color in enumerate(SIG_COLS):
-        pt = DataPoint(idx=idx)
-        pt.graphicalProperties.solidFill = color
-        pie.series[0].dPt.append(pt)
-    pie.width = 14; pie.height = 10
-    ws.add_chart(pie, "A8")
+        pt = DataPoint(idx=idx); pt.graphicalProperties.solidFill = color
+        pie1.series[0].dPt.append(pt)
+    pie1.width = 14; pie1.height = 12
+    ws.add_chart(pie1, "A9")           # ❷ row-1 left
 
-    # ── Chart 2: Horizontal Bar — Top 20  H8:N28 ───────────────────
+    # Chart 2: Pie — Moat Distribution  (anchor I9 — ❷ row-1 right)
+    pie2 = PieChart()
+    pie2.title = "Moat Distribution"
+    pie2.style = 10
+    pie2.add_data(Reference(ws, min_col=4, min_row=DR, max_row=DR+len(MOAT_LBLS)), titles_from_data=True)
+    pie2.set_categories(Reference(ws, min_col=3, min_row=DR+1, max_row=DR+len(MOAT_LBLS)))
+    for idx, color in enumerate(MOAT_COLORS):
+        pt = DataPoint(idx=idx); pt.graphicalProperties.solidFill = color
+        pie2.series[0].dPt.append(pt)
+    pie2.width = 14; pie2.height = 12
+    ws.add_chart(pie2, "I9")           # ❷ row-1 right
+
+    # Chart 3: Horizontal Bar — Top 20 Score  (anchor A32 — ❷ row-2 left)
     bar = BarChart()
-    bar.type  = "bar"
+    bar.type = "bar"; bar.style = 10
     bar.title = f"Top 20  ·  CAN SLIM Score / {N_CS}"
-    bar.style = 10
-    bar.x_axis.title = "Score"
-    bar.y_axis.title = "Ticker"
-    bar.x_axis.scaling.min = 0
-    bar.x_axis.scaling.max = N_CS
-    bar.add_data(Reference(ws, min_col=10, min_row=DR, max_row=DR+20),
-                 titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=9, min_row=DR+1, max_row=DR+20))
+    bar.x_axis.title = "Score"; bar.y_axis.title = "Ticker"
+    bar.x_axis.scaling.min = 0; bar.x_axis.scaling.max = N_CS
+    bar.add_data(Reference(ws, min_col=6, min_row=DR, max_row=DR+20), titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=5, min_row=DR+1, max_row=DR+20))
     bar.series[0].graphicalProperties.solidFill = "0070C0"
-    bar.width = 14; bar.height = 10
-    ws.add_chart(bar, "H8")
+    bar.width = 14; bar.height = 12
+    ws.add_chart(bar, "A32")           # ❷ row-2 left
 
-    # ── Chart 3: Scatter — Score vs 1Y Return  O8:W28 ──────────────
+    # Chart 4: Scatter — Score vs 1Y% colored by signal  (anchor I32 — ❷ row-2 right)
     sct = ScatterChart()
-    sct.title = "Score  vs  1Y Return %"
-    sct.style = 10
-    sct.x_axis.title = "Score"
-    sct.y_axis.title = "1Y Return %"
-    xv  = Reference(ws, min_col=15, min_row=DR+1, max_row=DR+n_sc)
-    yv  = Reference(ws, min_col=16, min_row=DR+1, max_row=DR+n_sc)
-    ser = Series(yv, xv, title="Stocks")
-    ser.marker.symbol = "circle"
-    ser.marker.size   = 4
-    ser.graphicalProperties.line.noFill           = True
-    ser.marker.graphicalProperties.solidFill      = "0070C0"
-    ser.marker.graphicalProperties.line.solidFill = "0070C0"
-    sct.series.append(ser)
-    sct.width = 18; sct.height = 10
-    ws.add_chart(sct, "O8")
+    sct.title = "Score  vs  1Y Return %"; sct.style = 10
+    sct.x_axis.title = "CAN SLIM Score"; sct.y_axis.title = "1Y Return %"
+    for j, (sig_lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
+        xv  = Reference(ws, min_col=7,   min_row=DR+1, max_row=DR+n_sc)
+        yv  = Reference(ws, min_col=8+j, min_row=DR+1, max_row=DR+n_sc)
+        ser = Series(yv, xv, title=sig_lbl)
+        ser.marker.symbol = "circle"; ser.marker.size = 5
+        ser.graphicalProperties.line.noFill           = True
+        ser.marker.graphicalProperties.solidFill      = color
+        ser.marker.graphicalProperties.line.solidFill = color
+        sct.series.append(ser)
+    sct.width = 14; sct.height = 12
+    ws.add_chart(sct, "I32")           # ❷ row-2 right
 
-    # ── Chart 4: Stacked Bar — Sector × Signal  A30:N52 ────────────
+    # Chart 5: Stacked Bar — Sector × Signal sorted by total  (anchor A56 — ❸ left)
     stk = BarChart()
-    stk.type     = "bar"
-    stk.grouping = "stacked"
-    stk.title    = "Signal Distribution by Sector"
-    stk.style    = 10
-    stk.x_axis.title = "Count"
-    stk.y_axis.title = "Sector"
+    stk.type = "bar"; stk.grouping = "stacked"; stk.style = 10
+    stk.title = "Signal Distribution by Sector"
+    stk.x_axis.title = "Count"; stk.y_axis.title = "Sector"
     for j, (lbl, color) in enumerate(zip(SIG_LBLS, SIG_COLS)):
-        stk.add_data(
-            Reference(ws, min_col=5+j, min_row=DR, max_row=DR+n_sec),
-            titles_from_data=True)
+        stk.add_data(Reference(ws, min_col=13+j, min_row=DR, max_row=DR+n_sec), titles_from_data=True)
         stk.series[-1].graphicalProperties.solidFill = color
-    stk.set_categories(Reference(ws, min_col=4, min_row=DR+1, max_row=DR+n_sec))
+    stk.set_categories(Reference(ws, min_col=12, min_row=DR+1, max_row=DR+n_sec))
     stk.legend.position = "b"
-    stk.width = 28; stk.height = 12
-    ws.add_chart(stk, "A30")
+    stk.width = 14; stk.height = 14
+    ws.add_chart(stk, "A56")           # ❸ left
+
+    # Chart 6: Clustered Bar — Avg ROE% & GM% by Sector  (anchor I56 — ❸ right)
+    grpbar = BarChart()
+    grpbar.type = "bar"; grpbar.grouping = "clustered"; grpbar.style = 10
+    grpbar.title = "Avg Quality by Sector  (ROE%  vs  Gross Margin%)"
+    grpbar.x_axis.title = "%"; grpbar.y_axis.title = "Sector"
+    grpbar.add_data(Reference(ws, min_col=18, min_row=DR, max_row=DR+n_sm), titles_from_data=True)
+    grpbar.series[-1].graphicalProperties.solidFill = "0070C0"
+    grpbar.add_data(Reference(ws, min_col=19, min_row=DR, max_row=DR+n_sm), titles_from_data=True)
+    grpbar.series[-1].graphicalProperties.solidFill = "00AA44"
+    grpbar.set_categories(Reference(ws, min_col=17, min_row=DR+1, max_row=DR+n_sm))
+    grpbar.legend.position = "b"
+    grpbar.width = 14; grpbar.height = 14
+    ws.add_chart(grpbar, "I56")        # ❸ right
+
+    # ── Minimize data rows so they're invisible but charts still read them ──
+    max_data_row = DR + max(4, len(MOAT_LBLS), 20, n_sc, n_sec, n_sm) + 2
+    for r in range(DR, max_data_row + 1):
+        ws.row_dimensions[r].height = 1
 
 
 def _main_sheet(wb, df, market, top):

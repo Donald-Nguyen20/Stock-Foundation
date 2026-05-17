@@ -1043,10 +1043,10 @@ class MainWindow(QMainWindow):
         return self._header_w
 
     def _build_controls(self):
-        w = QWidget(); w.setFixedHeight(86)
+        w = QWidget(); w.setFixedHeight(118)
         self._controls_w = w
         w.setStyleSheet(f"background:{BG};")
-        v = QVBoxLayout(w); v.setContentsMargins(22, 8, 22, 8); v.setSpacing(6)
+        v = QVBoxLayout(w); v.setContentsMargins(22, 6, 22, 6); v.setSpacing(5)
 
         # Row 1: scan controls
         row1 = QHBoxLayout(); row1.setSpacing(10)
@@ -1137,6 +1137,38 @@ class MainWindow(QMainWindow):
         row2.addWidget(lbl_filter); row2.addWidget(self._filter_inp)
         row2.addStretch(); row2.addWidget(self._lbl_count)
         v.addLayout(row2)
+
+        # Row 3: quick filter chips
+        row3 = QHBoxLayout(); row3.setSpacing(10)
+        lbl_qf = QLabel("QUICK FILTER")
+        lbl_qf.setStyleSheet(
+            f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+        self._lbl_qf = lbl_qf
+
+        self._chk_sb   = QCheckBox("🟢  STRONG BUY")
+        self._chk_moat = QCheckBox("🏰  WIDE / NARROW Moat")
+        self._chk_1y   = QCheckBox("↑  1Y% > 0")
+        self._chk_52w  = QCheckBox("📈  52W High ≥ 90%")
+        self._chip_checks = (self._chk_sb, self._chk_moat, self._chk_1y, self._chk_52w)
+
+        for chk in self._chip_checks:
+            chk.setStyleSheet(self._chip_style())
+            chk.stateChanged.connect(self._apply_filter)
+
+        self._btn_clr = QPushButton("✕")
+        self._btn_clr.setFixedSize(24, 22)
+        self._btn_clr.setToolTip("Clear all filters")
+        self._btn_clr.setCursor(Qt.PointingHandCursor)
+        self._btn_clr.setStyleSheet(self._btn_style(PANEL, BORDER2, "9px"))
+        self._btn_clr.clicked.connect(self._clear_chips)
+
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.VLine)
+        sep2.setStyleSheet(f"background:{BORDER}; max-width:1px; margin:2px 4px;")
+        row3.addWidget(lbl_qf); row3.addWidget(sep2)
+        for chk in self._chip_checks:
+            row3.addWidget(chk)
+        row3.addStretch(); row3.addWidget(self._btn_clr)
+        v.addLayout(row3)
         return w
 
     def _build_table(self):
@@ -1287,6 +1319,10 @@ class MainWindow(QMainWindow):
         self._btn_lookup.setStyleSheet(self._btn_style(BLUE, BLUE_HV, size="9px"))
         self._filter_inp.setStyleSheet(self._input_style())
         self._lbl_count.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        self._lbl_qf.setStyleSheet(f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
+        for chk in self._chip_checks:
+            chk.setStyleSheet(self._chip_style())
+        self._btn_clr.setStyleSheet(self._btn_style(PANEL, BORDER2, "9px"))
 
         # ── Table ──
         self._table.setStyleSheet(f"""
@@ -1356,6 +1392,15 @@ class MainWindow(QMainWindow):
                 border:1px solid {BORDER};
             }}
         """
+
+    def _chip_style(self, checked=False):
+        fg = BLUE if checked else TEXT2
+        border = BLUE if checked else BORDER
+        return (f"QCheckBox {{ color:{fg}; font-size:9px; font-weight:600;"
+                f" font-family:'Segoe UI',sans-serif; spacing:4px;"
+                f" padding:2px 8px; border:1px solid {border}; border-radius:10px; }}"
+                f"QCheckBox:checked {{ color:{BLUE}; border-color:{BLUE}; }}"
+                f"QCheckBox:unchecked {{ color:{TEXT2}; border-color:{BORDER}; }}")
 
     def _btn_style(self, bg, hv, size="10px"):
         return f"""
@@ -1434,6 +1479,8 @@ class MainWindow(QMainWindow):
     # ── Table population ──────────────────────────────────────────────────────
 
     def _populate_table(self, df: pd.DataFrame):
+        self._ticker_data = {row.get("Ticker", ""): row.to_dict()
+                             for _, row in df.iterrows() if row.get("Ticker")}
         self._table.setSortingEnabled(False)
         self._table.setRowCount(0)
         self._table.setRowCount(len(df))
@@ -1542,20 +1589,52 @@ class MainWindow(QMainWindow):
                                            QColor(RED)   if v < 0 else
                                            QColor(TEXT3))
 
+    def _clear_chips(self):
+        for chk in self._chip_checks:
+            chk.blockSignals(True)
+            chk.setChecked(False)
+            chk.blockSignals(False)
+        self._apply_filter()
+
     def _apply_filter(self):
-        text = self._filter_inp.text().strip().lower()
+        text      = self._filter_inp.text().strip().lower()
+        only_sb   = self._chk_sb.isChecked()
+        only_moat = self._chk_moat.isChecked()
+        only_1y   = self._chk_1y.isChecked()
+        only_52w  = self._chk_52w.isChecked()
+        any_chip  = only_sb or only_moat or only_1y or only_52w
+        td        = getattr(self, "_ticker_data", {})
+
         visible = 0
         total = self._table.rowCount()
         for ri in range(total):
             show = True
             if text:
-                t_item = self._table.item(ri, 1)   # Ticker col
-                n_item = self._table.item(ri, 2)   # Name col
+                t_item = self._table.item(ri, 1)
+                n_item = self._table.item(ri, 2)
                 t_txt  = (t_item.text() if t_item else "").lower()
                 n_txt  = (n_item.text() if n_item else "").lower()
                 show   = (text in t_txt) or (text in n_txt)
+            if show and any_chip:
+                ticker = (self._table.item(ri, 1).text()
+                          if self._table.item(ri, 1) else "")
+                rd = td.get(ticker, {})
+                if only_sb and rd.get("CS_Signal") != "🟢 STRONG BUY":
+                    show = False
+                if show and only_moat and rd.get("Moat Score") not in (
+                        "WIDE  ★★★", "NARROW ★★"):
+                    show = False
+                if show and only_1y:
+                    v = rd.get("1Y%")
+                    if v is None or (isinstance(v, float) and pd.isna(v)) or v <= 0:
+                        show = False
+                if show and only_52w:
+                    v = rd.get("52W_High%")
+                    if v is None or (isinstance(v, float) and pd.isna(v)) or v < 90:
+                        show = False
             self._table.setRowHidden(ri, not show)
-            if show: visible += 1
+            if show:
+                visible += 1
         self._lbl_count.setText(f"{visible} / {total}  rows")
 
     # ── Row selection → detail card ───────────────────────────────────────────
