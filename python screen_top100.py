@@ -715,7 +715,7 @@ def _dashboard_sheet(wb, df):
     TP_GRP = [
         (1,  "\U0001f680 Momentum  (1Y% ↓)",              "1A5276"),
         (9,  "\U0001f48e Quality  (ROIC% ↓, Compounder)", "1A5C2B"),
-        (17, "\U0001f4c9 Value  (P/E ↑, CS ≥ 6)",    "784212"),
+        (17, "\U0001f4c9 Value  (PEG ↑, CS ≥ 6)",   "784212"),
     ]
     COL_HDRS = ["Ticker", "Metric", "Sector"]
 
@@ -731,10 +731,11 @@ def _dashboard_sheet(wb, df):
             qua = [(r["Ticker"], f"{r['ROIC%']:.1f}%", r.get("Sector","")) for _, r in d.iterrows()]
         else:
             qua = []
-        if "P/E" in df.columns and "CS_Score" in df.columns:
-            d = (df[(df["CS_Score"] >= 6) & (df["P/E"] > 0)][["Ticker","P/E","Sector"]]
-                 .dropna(subset=["P/E"]).sort_values("P/E", ascending=True).head(5))
-            val = [(r["Ticker"], f"P/E {r['P/E']:.1f}×", r.get("Sector","")) for _, r in d.iterrows()]
+        if "P/E" in df.columns and "EPS Annual%" in df.columns and "CS_Score" in df.columns:
+            tmp = df[(df["CS_Score"] >= 6) & (df["P/E"] > 0) & (df["EPS Annual%"] > 0)].copy()
+            tmp["PEG"] = tmp["P/E"] / tmp["EPS Annual%"]
+            tmp = tmp[tmp["PEG"] < 3].dropna(subset=["PEG"]).sort_values("PEG").head(5)
+            val = [(r["Ticker"], f"PEG {r['PEG']:.2f}", r.get("Sector","")) for _, r in tmp.iterrows()]
         else:
             val = []
         return mom, qua, val
