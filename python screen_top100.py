@@ -524,8 +524,17 @@ def _dashboard_sheet(wb, df):
     ws.row_dimensions[10].height = 18
     ws.row_dimensions[11].height = 8
 
-    # 📊 TOP CS SCORE (rows 12+, dynamic)
-    _sec(12, "📊  TOP CAN SLIM SCORE", bg="1B3A5C")
+    # 📊 TOP CS SCORE + TOP QC SCORE — side by side (row 12+)
+    # CS: cols 1-7 | spacer: col 8 | QC: cols 9-15
+    ws.merge_cells("A12:G12")
+    c = ws.cell(12, 1, "📊  TOP CAN SLIM SCORE")
+    c.font = F(True, 10, "FFFFFF"); c.fill = BG("1B3A5C"); c.alignment = AL()
+    ws.cell(12, 8).fill = BG("F0F4FA")
+    ws.merge_cells("I12:O12")
+    c = ws.cell(12, 9, "📊  TOP QUALITY COMPOUNDER SCORE")
+    c.font = F(True, 10, "FFFFFF"); c.fill = BG("0E6655"); c.alignment = AL()
+    ws.row_dimensions[12].height = 18
+
     CS_HDRS = ["#", "Ticker", "Company", "Sector", "CS Score", "Signal", "1Y%"]
     CS_WDS  = [4, 8, 20, 14, 8, 14, 8]
     for ci, (h, w) in enumerate(zip(CS_HDRS, CS_WDS), 1):
@@ -533,35 +542,87 @@ def _dashboard_sheet(wb, df):
         c = ws.cell(13, ci, h)
         c.font = F(True, 9, "FFFFFF"); c.fill = BG("1B3A5C")
         c.alignment = AL(); c.border = BD()
+
+    QC_HDRS = ["#", "Ticker", "Company", "Sector", "QC Score", "Signal", "ROIC%"]
+    QC_WDS  = [4, 8, 20, 14, 8, 14, 8]
+    QC_C0   = 9
+    for ci, (h, w) in enumerate(zip(QC_HDRS, QC_WDS), QC_C0):
+        ws.column_dimensions[CL(ci)].width = w
+        c = ws.cell(13, ci, h)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG("0E6655")
+        c.alignment = AL(); c.border = BD()
+    ws.column_dimensions["H"].width = 2
     ws.row_dimensions[13].height = 18
 
     cs_top = (df.sort_values("CS_Score", ascending=False).head(10)
               if "CS_Score" in df.columns else pd.DataFrame())
+    qc_top = (df.sort_values("QC_Score", ascending=False).head(10)
+              if HAS_QC else pd.DataFrame())
+    n_rows = max(len(cs_top), len(qc_top), 1)
+
     cs_end = 13
-    for ri, (_, row) in enumerate(cs_top.iterrows(), 1):
+    for ri in range(1, n_rows + 1):
         er  = 13 + ri
-        rbg = "EBF5FB" if ri % 2 == 0 else "F4F9FD"
         ws.row_dimensions[er].height = 17
-        sig    = row.get("CS_Signal", "") or ""
-        fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
-        def _cw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
-            c = ws.cell(er, ci, val)
-            c.border = BD(); c.alignment = AL(align)
-            c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
-            if nfmt and val is not None: c.number_format = nfmt
-        _cw(1, ri,  True, "FFFFFF", "1B3A5C")
-        _cw(2, row.get("Ticker", ""),           True,  "1B3A5C")
-        _cw(3, row.get("Tên Công Ty", ""),      False, "1C3550", align="left")
-        _cw(4, row.get("Sector", ""),           False, "334466", align="left")
-        _cw(5, int(row.get("CS_Score", 0) or 0), True, CG_FG, CG_BG)
-        _cw(6, sig, True, fg_s, bg_s)
-        v1y = row.get("1Y%")
-        if v1y is not None and not (isinstance(v1y, float) and pd.isna(v1y)):
-            c = ws.cell(er, 7); c.value = float(v1y) / 100
-            c.number_format = '+0.0%;(0.0%);"-"'; c.border = BD(); c.fill = BG(rbg)
-            c.alignment = AL(); c.font = F(size=9, color="276221" if float(v1y) > 0 else "9C0006")
-        else:
-            _cw(7, "—", fg="BBBBBB")
+
+        # CS side
+        if ri <= len(cs_top):
+            row  = cs_top.iloc[ri - 1]
+            rbg  = "EBF5FB" if ri % 2 == 0 else "F4F9FD"
+            sig  = row.get("CS_Signal", "") or ""
+            fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
+            def _cw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
+                c = ws.cell(er, ci, val)
+                c.border = BD(); c.alignment = AL(align)
+                c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
+                if nfmt and val is not None: c.number_format = nfmt
+            _cw(1, ri,  True, "FFFFFF", "1B3A5C")
+            _cw(2, row.get("Ticker", ""),             True,  "1B3A5C")
+            _cw(3, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
+            _cw(4, row.get("Sector", ""),             False, "334466", align="left")
+            _cw(5, int(row.get("CS_Score", 0) or 0), True,  CG_FG, CG_BG)
+            _cw(6, sig, True, fg_s, bg_s)
+            v1y = row.get("1Y%")
+            if v1y is not None and not (isinstance(v1y, float) and pd.isna(v1y)):
+                c7 = ws.cell(er, 7); c7.value = float(v1y) / 100
+                c7.number_format = '+0.0%;(0.0%);"-"'; c7.border = BD(); c7.fill = BG(rbg)
+                c7.alignment = AL(); c7.font = F(size=9, color="276221" if float(v1y) > 0 else "9C0006")
+            else:
+                _cw(7, "—", fg="BBBBBB")
+
+        # spacer col 8
+        ws.cell(er, 8).fill = BG("F0F4FA")
+
+        # QC side
+        if ri <= len(qc_top):
+            row  = qc_top.iloc[ri - 1]
+            rbgq = "E8F8F5" if ri % 2 == 0 else "F0FBF9"
+            sig  = row.get("QC_Signal", "") or ""
+            fg_q, bg_q = QC_SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
+            def _qw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
+                c = ws.cell(er, ci, val)
+                c.border = BD(); c.alignment = AL(align)
+                c.fill = BG(bgc if bgc else rbgq); c.font = F(bold, 9, fg)
+                if nfmt and val is not None: c.number_format = nfmt
+            _qw(QC_C0,   ri,  True, "FFFFFF", "0E6655")
+            _qw(QC_C0+1, row.get("Ticker", ""),             True,  "0E6655")
+            _qw(QC_C0+2, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
+            _qw(QC_C0+3, row.get("Sector", ""),             False, "334466", align="left")
+            _qw(QC_C0+4, int(row.get("QC_Score", 0) or 0), True,  CB_FG, CB_BG)
+            _qw(QC_C0+5, sig, True, fg_q, bg_q)
+            roic = row.get("ROIC%")
+            if roic is not None and not (isinstance(roic, float) and pd.isna(roic)):
+                cr = ws.cell(er, QC_C0+6); cr.value = float(roic) / 100
+                cr.number_format = '0.0%'; cr.border = BD(); cr.fill = BG(rbgq)
+                cr.alignment = AL()
+                cr.font = F(True, 9, "276221" if float(roic) >= 15 else "0070C0")
+            else:
+                _qw(QC_C0+6, "—", fg="BBBBBB")
+        elif not HAS_QC and ri == 1:
+            ws.merge_cells(f"I{er}:O{er}")
+            c = ws.cell(er, QC_C0, "— Y\xeau cầu bật yfinance —")
+            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
+
         cs_end = er
     ws.row_dimensions[cs_end + 1].height = 8
 
