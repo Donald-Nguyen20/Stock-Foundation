@@ -2556,7 +2556,7 @@ class MainWindow(QMainWindow):
                 [compute_qc_score(r.to_dict()) for _, r in df_export.iterrows()])
             df_export = pd.concat(
                 [df_export.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
-            write_excel(df_export, path, market, top)
+            write_excel(df_export, path, market, top, use_yf=self._use_yf.isChecked())
             self._set_status(f"✓  Exported → {path}", GREEN)
         except Exception as e:
             self._set_status(f"✕  Export failed: {e}", RED)

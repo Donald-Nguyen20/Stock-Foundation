@@ -412,14 +412,373 @@ def clean_df(df):
 # ═══════════════════════════════════════════════════════════════
 # EXCEL — giữ nguyên như cũ
 # ═══════════════════════════════════════════════════════════════
-def write_excel(df, path, market, top):
+def write_excel(df, path, market, top, use_yf=False):
     wb = Workbook()
     _main_sheet(wb, df, market, top)
     if "QC_Score" in df.columns:
         _qc_sheet(wb, df)
+    if use_yf:
+        _financials_sheet(wb, df)
     _dashboard_sheet(wb, df)
     wb.save(path)
     print(f"  💾 {path}")
+
+
+def _financials_sheet(wb, df):
+    import yfinance as yf
+    from openpyxl.chart import BarChart, Reference
+
+    ws = wb.create_sheet("Financials")
+    ws.sheet_view.showGridLines = False
+    ws.sheet_tab_color = "0E6655"
+
+    N_QTR, N_YR = 8, 4
+    C_LBL  = 1
+    C_QTR0 = 2
+    C_SEP  = C_QTR0 + N_QTR      # col 10
+    C_YR0  = C_SEP + 1            # col 11
+    LAST_C = C_YR0 + N_YR - 1    # col 14
+    C_GAP  = LAST_C + 1           # col 15 — gap before chart area
+    C_CH1  = C_GAP + 1            # col 16 — Revenue quarterly
+    C_CH2  = C_CH1 + 7            # col 23 — Revenue annual
+    C_CH3  = C_CH2 + 7            # col 30 — EPS quarterly
+    C_CH4  = C_CH3 + 7            # col 37 — EPS annual
+    C_CH5  = C_CH4 + 7            # col 44 — ROE quarterly
+    C_CH6  = C_CH5 + 7            # col 51 — ROE annual
+    C_CH7  = C_CH6 + 7            # col 58 — CF/Share quarterly
+    C_CH8  = C_CH7 + 7            # col 65 — CF/Share annual
+    CHART_SPACER = 6
+    CHART_H, CHART_W = 4.5, 9.0
+
+    ws.column_dimensions[CL(C_LBL)].width = 15
+    for ci in range(C_QTR0, C_SEP):
+        ws.column_dimensions[CL(ci)].width = 10
+    ws.column_dimensions[CL(C_SEP)].width = 2
+    for ci in range(C_YR0, LAST_C + 1):
+        ws.column_dimensions[CL(ci)].width = 11
+    ws.column_dimensions[CL(C_GAP)].width = 2
+
+    # Title
+    ws.merge_cells(f"A1:{CL(LAST_C)}1")
+    c = ws.cell(1, 1, "FINANCIAL HISTORY  ·  REVENUE & EPS DILUTED  (nguồn: yfinance)")
+    c.font = Font(name="Calibri", bold=True, size=13, color="FFFFFF")
+    c.fill = BG("0D2137"); c.alignment = AL()
+    ws.row_dimensions[1].height = 30
+
+    # Sub-header: quarters vs years
+    ws.merge_cells(f"{CL(C_QTR0)}2:{CL(C_SEP-1)}2")
+    c2 = ws.cell(2, C_QTR0, f"◀  {N_QTR} QUÝ GẦN NHẤT  ▶")
+    c2.font = F(True, 9, "FFFFFF"); c2.fill = BG("1B4F72"); c2.alignment = AL()
+    ws.merge_cells(f"{CL(C_YR0)}2:{CL(LAST_C)}2")
+    c3 = ws.cell(2, C_YR0, f"◀  {N_YR} NĂM GẦN NHẤT  ▶")
+    c3.font = F(True, 9, "FFFFFF"); c3.fill = BG("0E6655"); c3.alignment = AL()
+    ws.cell(2, C_LBL).fill = BG("0D2137")
+    ws.cell(2, C_SEP).fill = BG("F0F4FA")
+    ws.row_dimensions[2].height = 16
+
+    cur = 3
+    tickers = df["Ticker"].tolist()
+    total   = len(tickers)
+
+    for idx, ticker in enumerate(tickers, 1):
+        print(f"  📊 Financials {idx}/{total}: {ticker}", end="\r", flush=True)
+        name = str(df.loc[df["Ticker"] == ticker, "Tên Công Ty"].values[0]
+                   if len(df.loc[df["Ticker"] == ticker]) else "")
+
+        try:
+            yft  = yf.Ticker(ticker)
+            qfin = yft.quarterly_financials
+            afin = yft.financials
+            qbal = yft.quarterly_balance_sheet
+            abal = yft.balance_sheet
+
+            qtr_rev = (qfin.loc["Total Revenue"].sort_index().tail(N_QTR) / 1e9
+                       if "Total Revenue" in qfin.index else pd.Series(dtype=float))
+            qtr_eps = (qfin.loc["Diluted EPS"].sort_index().tail(N_QTR)
+                       if "Diluted EPS" in qfin.index else pd.Series(dtype=float))
+            ann_rev = (afin.loc["Total Revenue"].sort_index().dropna().tail(N_YR) / 1e9
+                       if "Total Revenue" in afin.index else pd.Series(dtype=float))
+            ann_eps = (afin.loc["Diluted EPS"].sort_index().dropna().tail(N_YR)
+                       if "Diluted EPS" in afin.index else pd.Series(dtype=float))
+
+            def _row(bs, *keys):
+                for k in keys:
+                    if k in bs.index: return bs.loc[k].sort_index()
+                return pd.Series(dtype=float)
+
+            qtr_ni  = _row(qfin, "Net Income", "Net Income Common Stockholders")
+            ann_ni  = _row(afin, "Net Income", "Net Income Common Stockholders")
+            qtr_eq  = _row(qbal, "Stockholders Equity", "Common Stock Equity",
+                           "Total Equity Gross Minority Interest")
+            ann_eq  = _row(abal, "Stockholders Equity", "Common Stock Equity",
+                           "Total Equity Gross Minority Interest")
+
+            def _roe_map(ni_s, eq_s, annualize=False):
+                common = ni_s.index.intersection(eq_s.index)
+                out = {}
+                for dt in common:
+                    ni = float(ni_s.loc[dt]); eq = float(eq_s.loc[dt])
+                    if pd.notna(ni) and pd.notna(eq) and eq != 0:
+                        out[dt] = ni / abs(eq) * (4 if annualize else 1)
+                return out
+
+            qtr_roe = _roe_map(qtr_ni.tail(N_QTR), qtr_eq.tail(N_QTR), annualize=True)
+            ann_roe = _roe_map(ann_ni.dropna().tail(N_YR), ann_eq.dropna().tail(N_YR))
+
+            qcf = yft.quarterly_cashflow
+            acf = yft.cashflow
+            qtr_ocf = _row(qcf, "Operating Cash Flow",
+                           "Cash Flow From Continuing Operating Activities")
+            ann_ocf = _row(acf, "Operating Cash Flow",
+                           "Cash Flow From Continuing Operating Activities")
+            qtr_sh  = _row(qbal, "Ordinary Shares Number", "Share Issued",
+                           "Common Stock Shares Outstanding")
+            ann_sh  = _row(abal, "Ordinary Shares Number", "Share Issued",
+                           "Common Stock Shares Outstanding")
+
+            def _cfps_map(ocf_s, sh_s, tail_n):
+                ocf_t = ocf_s.sort_index().tail(tail_n)
+                common = ocf_t.index.intersection(sh_s.index)
+                out = {}
+                for dt in common:
+                    ocf = float(ocf_t.loc[dt]); sh = float(sh_s.loc[dt])
+                    if pd.notna(ocf) and pd.notna(sh) and sh != 0:
+                        out[dt] = ocf / sh
+                return out
+
+            qtr_cfps = _cfps_map(qtr_ocf, qtr_sh, N_QTR)
+            ann_cfps = _cfps_map(ann_ocf.dropna(), ann_sh, N_YR)
+        except Exception:
+            continue
+
+        stock_row = cur
+
+        # ── Stock header ──────────────────────────────────────────
+        ws.merge_cells(f"A{cur}:{CL(LAST_C)}{cur}")
+        c = ws.cell(cur, 1, f"  {ticker}  —  {name}")
+        c.font = F(True, 10, "FFFFFF"); c.fill = BG("1B3A5C"); c.alignment = AL("left")
+        ws.row_dimensions[cur].height = 18; cur += 1
+
+        # ── Column headers: dates ─────────────────────────────────
+        col_hdr_row = cur
+        ws.cell(cur, C_LBL, "Chỉ số").font      = F(True, 8, "FFFFFF")
+        ws.cell(cur, C_LBL).fill                 = BG("2C4F7C")
+        ws.cell(cur, C_LBL).alignment            = AL()
+        ws.cell(cur, C_LBL).border               = BD()
+        ws.cell(cur, C_SEP).fill                 = BG("F0F4FA")
+
+        qtr_idx = qtr_rev.index if len(qtr_rev) else qtr_eps.index
+        for i, dt in enumerate(qtr_idx):
+            lbl = dt.strftime("%b'%y") if hasattr(dt, "strftime") else str(dt)[:7]
+            c = ws.cell(cur, C_QTR0 + i, lbl)
+            c.font = F(True, 8, "FFFFFF"); c.fill = BG("1B4F72")
+            c.alignment = AL(); c.border = BD()
+
+        yr_idx = ann_rev.index if len(ann_rev) else ann_eps.index
+        for i, dt in enumerate(yr_idx):
+            lbl = f"FY{dt.year}" if hasattr(dt, "year") else str(dt)[:4]
+            c = ws.cell(cur, C_YR0 + i, lbl)
+            c.font = F(True, 8, "FFFFFF"); c.fill = BG("0E6655")
+            c.alignment = AL(); c.border = BD()
+
+        ws.row_dimensions[cur].height = 16; cur += 1
+
+        # ── Revenue row ───────────────────────────────────────────
+        rev_row = cur
+        c = ws.cell(cur, C_LBL, "Revenue ($B)")
+        c.font = F(True, 9, "1B4F72"); c.fill = BG("EBF5FB")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        for i, v in enumerate(qtr_rev.values):
+            cell = ws.cell(cur, C_QTR0 + i, round(float(v), 2) if pd.notna(v) else None)
+            cell.font = F(size=9, color="1B4F72"); cell.fill = BG("EBF5FB")
+            cell.alignment = AL(); cell.border = BD()
+            if pd.notna(v): cell.number_format = "#,##0.00"
+        for i, v in enumerate(ann_rev.values):
+            cell = ws.cell(cur, C_YR0 + i, round(float(v), 2) if pd.notna(v) else None)
+            cell.font = F(True, 9, "1B4F72"); cell.fill = BG("DDEEFF")
+            cell.alignment = AL(); cell.border = BD()
+            if pd.notna(v): cell.number_format = "#,##0.00"
+
+        ws.row_dimensions[cur].height = 17; cur += 1
+
+        # ── EPS row ───────────────────────────────────────────────
+        eps_row = cur
+        c = ws.cell(cur, C_LBL, "EPS Diluted ($)")
+        c.font = F(True, 9, "276221"); c.fill = BG("E8F8F5")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        for i, v in enumerate(qtr_eps.values):
+            fv = float(v) if pd.notna(v) else None
+            cell = ws.cell(cur, C_QTR0 + i, fv)
+            cell.font = F(size=9, color="276221" if (fv or 0) >= 0 else "9C0006")
+            cell.fill = BG("E8F8F5"); cell.alignment = AL(); cell.border = BD()
+            if fv is not None: cell.number_format = '$#,##0.00'
+        for i, v in enumerate(ann_eps.values):
+            fv = float(v) if pd.notna(v) else None
+            cell = ws.cell(cur, C_YR0 + i, fv)
+            cell.font = F(True, 9, "276221" if (fv or 0) >= 0 else "9C0006")
+            cell.fill = BG("C6EFCE"); cell.alignment = AL(); cell.border = BD()
+            if fv is not None: cell.number_format = '$#,##0.00'
+
+        ws.row_dimensions[cur].height = 17; cur += 1
+
+        # ── ROE row ───────────────────────────────────────────────
+        roe_row = cur
+        c = ws.cell(cur, C_LBL, "ROE (annualized)")
+        c.font = F(True, 9, "4A235A"); c.fill = BG("F4ECF7")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        qtr_idx = qtr_rev.index if len(qtr_rev) else qtr_eps.index
+        for i, dt in enumerate(qtr_idx):
+            if dt in qtr_roe:
+                v = qtr_roe[dt]
+                cell = ws.cell(cur, C_QTR0 + i, round(v, 4))
+                cell.font = F(size=9, color="4A235A" if v >= 0 else "9C0006")
+                cell.fill = BG("F4ECF7"); cell.alignment = AL(); cell.border = BD()
+                cell.number_format = '0.0%'
+
+        yr_idx = ann_rev.index if len(ann_rev) else ann_eps.index
+        for i, dt in enumerate(yr_idx):
+            if dt in ann_roe:
+                v = ann_roe[dt]
+                cell = ws.cell(cur, C_YR0 + i, round(v, 4))
+                cell.font = F(True, 9, "4A235A" if v >= 0 else "9C0006")
+                cell.fill = BG("E8DAEF"); cell.alignment = AL(); cell.border = BD()
+                cell.number_format = '0.0%'
+
+        ws.row_dimensions[cur].height = 17; cur += 1
+
+        # ── CF/Share row ──────────────────────────────────────────
+        cfps_row = cur
+        c = ws.cell(cur, C_LBL, "CF/Share ($)")
+        c.font = F(True, 9, "0E6655"); c.fill = BG("E8F6F3")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        qtr_idx = qtr_rev.index if len(qtr_rev) else qtr_eps.index
+        for i, dt in enumerate(qtr_idx):
+            if dt in qtr_cfps:
+                v = qtr_cfps[dt]
+                cell = ws.cell(cur, C_QTR0 + i, round(v, 2))
+                cell.font = F(size=9, color="0E6655" if v >= 0 else "9C0006")
+                cell.fill = BG("E8F6F3"); cell.alignment = AL(); cell.border = BD()
+                cell.number_format = '$#,##0.00'
+
+        yr_idx = ann_rev.index if len(ann_rev) else ann_eps.index
+        for i, dt in enumerate(yr_idx):
+            if dt in ann_cfps:
+                v = ann_cfps[dt]
+                cell = ws.cell(cur, C_YR0 + i, round(v, 2))
+                cell.font = F(True, 9, "0E6655" if v >= 0 else "9C0006")
+                cell.fill = BG("D0EDE8"); cell.alignment = AL(); cell.border = BD()
+                cell.number_format = '$#,##0.00'
+
+        ws.row_dimensions[cur].height = 17; cur += 1
+
+        # ── Revenue QoQ % row ─────────────────────────────────────
+        c = ws.cell(cur, C_LBL, "Rev QoQ %")
+        c.font = F(True, 8, "155680"); c.fill = BG("D6EEF8")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        rv = list(qtr_rev.values)
+        for i, v in enumerate(rv):
+            if i == 0 or not pd.notna(v) or not pd.notna(rv[i-1]) or rv[i-1] == 0:
+                continue
+            pct = (v - rv[i-1]) / abs(rv[i-1])
+            cell = ws.cell(cur, C_QTR0 + i, round(pct, 4))
+            cell.font = F(size=8, color="276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("D6EEF8"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+        arv = list(ann_rev.values)
+        for i, v in enumerate(arv):
+            if i == 0 or not pd.notna(v) or not pd.notna(arv[i-1]) or arv[i-1] == 0:
+                continue
+            pct = (v - arv[i-1]) / abs(arv[i-1])
+            cell = ws.cell(cur, C_YR0 + i, round(pct, 4))
+            cell.font = F(True, 8, "276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("C4E0F0"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+
+        ws.row_dimensions[cur].height = 16; cur += 1
+
+        # ── EPS QoQ % row ─────────────────────────────────────────
+        c = ws.cell(cur, C_LBL, "EPS QoQ %")
+        c.font = F(True, 8, "276221"); c.fill = BG("D5F5E3")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        ev = list(qtr_eps.values)
+        for i, v in enumerate(ev):
+            if i == 0 or not pd.notna(v) or not pd.notna(ev[i-1]) or ev[i-1] == 0:
+                continue
+            pct = (v - ev[i-1]) / abs(ev[i-1])
+            cell = ws.cell(cur, C_QTR0 + i, round(pct, 4))
+            cell.font = F(size=8, color="276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("D5F5E3"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+        aev = list(ann_eps.values)
+        for i, v in enumerate(aev):
+            if i == 0 or not pd.notna(v) or not pd.notna(aev[i-1]) or aev[i-1] == 0:
+                continue
+            pct = (v - aev[i-1]) / abs(aev[i-1])
+            cell = ws.cell(cur, C_YR0 + i, round(pct, 4))
+            cell.font = F(True, 8, "276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("A9DFBF"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+
+        ws.row_dimensions[cur].height = 16; cur += 1
+
+        # ── Spacer (chart breathing room) ────────────────────────
+        for _ in range(CHART_SPACER):
+            ws.row_dimensions[cur].height = 8; cur += 1
+
+        def _bar(title, data_row, cat_col0, cat_col1, anchor, y_fmt='#,##0.00'):
+            ch = BarChart()
+            ch.type = "col"; ch.grouping = "clustered"; ch.style = 10
+            ch.title = title; ch.legend = None
+            ch.y_axis.numFmt = y_fmt
+            ch.add_data(Reference(ws, min_col=cat_col0, max_col=cat_col1,
+                                  min_row=data_row, max_row=data_row), from_rows=True)
+            ch.set_categories(Reference(ws, min_col=cat_col0, max_col=cat_col1,
+                                        min_row=col_hdr_row))
+            ch.width = CHART_W; ch.height = CHART_H
+            ch.anchor = anchor
+            ws.add_chart(ch)
+
+        q_rev = len(qtr_rev); a_rev = len(ann_rev)
+        q_eps = len(qtr_eps); a_eps = len(ann_eps)
+
+        if q_rev > 0:
+            _bar(f"{ticker}  |  Doanh thu quý ($B)",
+                 rev_row, C_QTR0, C_QTR0+q_rev-1, f"{CL(C_CH1)}{stock_row}")
+        if a_rev > 0:
+            _bar(f"{ticker}  |  Doanh thu năm ($B)",
+                 rev_row, C_YR0, C_YR0+a_rev-1, f"{CL(C_CH2)}{stock_row}")
+        if q_eps > 0:
+            _bar(f"{ticker}  |  EPS quý ($)",
+                 eps_row, C_QTR0, C_QTR0+q_eps-1, f"{CL(C_CH3)}{stock_row}")
+        if a_eps > 0:
+            _bar(f"{ticker}  |  EPS năm ($)",
+                 eps_row, C_YR0, C_YR0+a_eps-1, f"{CL(C_CH4)}{stock_row}")
+        if qtr_roe:
+            _bar(f"{ticker}  |  ROE quý (ann.)",
+                 roe_row, C_QTR0, C_QTR0+N_QTR-1, f"{CL(C_CH5)}{stock_row}", y_fmt='0%')
+        if ann_roe:
+            _bar(f"{ticker}  |  ROE năm",
+                 roe_row, C_YR0, C_YR0+N_YR-1, f"{CL(C_CH6)}{stock_row}", y_fmt='0%')
+        if qtr_cfps:
+            _bar(f"{ticker}  |  CF/Share quý ($)",
+                 cfps_row, C_QTR0, C_QTR0+N_QTR-1, f"{CL(C_CH7)}{stock_row}")
+        if ann_cfps:
+            _bar(f"{ticker}  |  CF/Share năm ($)",
+                 cfps_row, C_YR0, C_YR0+N_YR-1, f"{CL(C_CH8)}{stock_row}")
+
+    print(f"  📊 Financials done ({total} stocks)          ")
 
 
 def _dashboard_sheet(wb, df):
