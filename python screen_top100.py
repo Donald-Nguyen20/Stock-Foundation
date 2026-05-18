@@ -524,30 +524,73 @@ def _dashboard_sheet(wb, df):
     ws.row_dimensions[10].height = 18
     ws.row_dimensions[11].height = 8
 
-    # ⭐ DUAL LEADERS (rows 12+)
-    _sec(12, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
+    # 📊 TOP CS SCORE (rows 12+, dynamic)
+    _sec(12, "📊  TOP CAN SLIM SCORE", bg="1B3A5C")
+    CS_HDRS = ["#", "Ticker", "Company", "Sector", "CS Score", "Signal", "1Y%"]
+    CS_WDS  = [4, 8, 20, 14, 8, 14, 8]
+    for ci, (h, w) in enumerate(zip(CS_HDRS, CS_WDS), 1):
+        ws.column_dimensions[CL(ci)].width = w
+        c = ws.cell(13, ci, h)
+        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1B3A5C")
+        c.alignment = AL(); c.border = BD()
+    ws.row_dimensions[13].height = 18
+
+    cs_top = (df.sort_values("CS_Score", ascending=False).head(10)
+              if "CS_Score" in df.columns else pd.DataFrame())
+    cs_end = 13
+    for ri, (_, row) in enumerate(cs_top.iterrows(), 1):
+        er  = 13 + ri
+        rbg = "EBF5FB" if ri % 2 == 0 else "F4F9FD"
+        ws.row_dimensions[er].height = 17
+        sig    = row.get("CS_Signal", "") or ""
+        fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
+        def _cw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
+            c = ws.cell(er, ci, val)
+            c.border = BD(); c.alignment = AL(align)
+            c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
+            if nfmt and val is not None: c.number_format = nfmt
+        _cw(1, ri,  True, "FFFFFF", "1B3A5C")
+        _cw(2, row.get("Ticker", ""),           True,  "1B3A5C")
+        _cw(3, row.get("Tên Công Ty", ""),      False, "1C3550", align="left")
+        _cw(4, row.get("Sector", ""),           False, "334466", align="left")
+        _cw(5, int(row.get("CS_Score", 0) or 0), True, CG_FG, CG_BG)
+        _cw(6, sig, True, fg_s, bg_s)
+        v1y = row.get("1Y%")
+        if v1y is not None and not (isinstance(v1y, float) and pd.isna(v1y)):
+            c = ws.cell(er, 7); c.value = float(v1y) / 100
+            c.number_format = '+0.0%;(0.0%);"-"'; c.border = BD(); c.fill = BG(rbg)
+            c.alignment = AL(); c.font = F(size=9, color="276221" if float(v1y) > 0 else "9C0006")
+        else:
+            _cw(7, "—", fg="BBBBBB")
+        cs_end = er
+    ws.row_dimensions[cs_end + 1].height = 8
+
+    # ⭐ DUAL LEADERS (dynamic, after cs_end)
+    dl_sec = cs_end + 2
+    _sec(dl_sec, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
     DL_HDRS = ["#", "Ticker", "Company", "Sector", "Price", "CS", "QC",
                "1Y%", "ROE%", "ROIC%", "D/E", "Signal", "⚠"]
     ws.column_dimensions["M"].width = 11
+    dl_hdr_row = dl_sec + 1
     for ci, h in enumerate(DL_HDRS, 1):
-        c = ws.cell(13, ci, h)
+        c = ws.cell(dl_hdr_row, ci, h)
         c.font = F(True, 9, "FFFFFF"); c.fill = BG("4A235A")
         c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[13].height = 18
+    ws.row_dimensions[dl_hdr_row].height = 18
 
     dl_df = (df[(df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)]
              .sort_values(["CS_Score", "QC_Score"], ascending=[False, False])
              if HAS_QC else pd.DataFrame())
 
-    dl_end = 13
+    dl_end = dl_hdr_row
     if dl_df.empty:
-        ws.merge_cells("A14:M14")
-        c = ws.cell(14, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
+        ws.merge_cells(f"A{dl_hdr_row+1}:M{dl_hdr_row+1}")
+        c = ws.cell(dl_hdr_row + 1, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
         c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
-        ws.row_dimensions[14].height = 18; dl_end = 14
+        ws.row_dimensions[dl_hdr_row + 1].height = 18; dl_end = dl_hdr_row + 1
     else:
         for ri, (_, row) in enumerate(dl_df.iterrows(), 1):
-            er  = 13 + ri
+            er  = dl_hdr_row + ri
             rbg = "F5F0FF" if ri % 2 == 0 else "FBF7FF"
             ws.row_dimensions[er].height = 17
             sig      = row.get("CS_Signal", "") or ""
@@ -600,7 +643,7 @@ def _dashboard_sheet(wb, df):
                 _w(13, "", bgc=rbg)
             dl_end = er
         ws.conditional_formatting.add(
-            f"H14:H{dl_end}",
+            f"H{dl_hdr_row+1}:H{dl_end}",
             DataBarRule(start_type="min", start_value=0, end_type="max", end_value=100, color="0070C0"))
 
     # 🎯 TOP PICKS — 3 mini-tables
