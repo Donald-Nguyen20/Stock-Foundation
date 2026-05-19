@@ -2,28 +2,35 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = [
+    # PySide6 WebEngine (dùng để hiển thị chart plotly)
     'PySide6.QtWebEngineWidgets',
     'PySide6.QtWebEngineCore',
+    # openpyxl — import động bên trong hàm _dashboard_sheet
     'openpyxl',
     'openpyxl.styles',
     'openpyxl.utils',
     'openpyxl.formatting.rule',
+    'openpyxl.chart',
+    'openpyxl.chart.series',
+    # plotly / kaleido
     'plotly.graph_objects',
     'plotly.subplots',
     'plotly.io',
     'plotly.io.kaleido',
+    # yfinance & screener
     'yfinance',
     'tradingview_screener',
 ]
 hiddenimports += collect_submodules('tradingview_screener')
+hiddenimports += collect_submodules('openpyxl')
 
-# Chỉ exclude third-party không dùng — KHÔNG exclude standard library
 excludes = [
-    # ML / Deep Learning (>1.5 GB)
+    # ── ML / Deep Learning (>1.5 GB) ──────────────────────────────
     'tensorflow', 'tensorflow_core', 'tensorflow_estimator',
-    'keras', 'tensorboard', 'tensorflow_hub',
+    'keras', 'tensorboard', 'tensorflow_hub', 'tf_keras',
     'torch', 'torchvision', 'torchaudio',
     'transformers', 'tokenizers', 'huggingface_hub', 'diffusers',
+    'sentence_transformers', 'safetensors',
     'onnx', 'onnxruntime',
     'jax', 'jaxlib', 'flax',
     'sklearn', 'scikit_learn',
@@ -31,32 +38,56 @@ excludes = [
     'faiss', 'faiss_cpu',
     'llvmlite', 'numba',
 
-    # Data / Analytics không dùng
+    # ── Data / Analytics ──────────────────────────────────────────
     'scipy', 'statsmodels', 'sympy',
     'polars', 'pyarrow',
     'duckdb', 'sqlalchemy',
     'h5py',
-    'skimage',
+    'skimage', 'scikit_image',
+    'ydata_profiling', 'visions',
+    'shapely',
 
-    # Visualization không dùng
+    # ── Visualization không dùng ──────────────────────────────────
     'matplotlib', 'seaborn', 'bokeh', 'altair', 'dash',
-    'cv2',
+    'cv2', 'imageio', 'tifffile', 'pywavelets',
+    'wordcloud', 'squarify',
 
-    # Jupyter / IPython
+    # ── Excel alternatives (chỉ dùng openpyxl) ────────────────────
+    'xlsxwriter', 'xlrd', 'xlwt', 'pyxlsb',
+
+    # ── Document / PDF ────────────────────────────────────────────
+    'reportlab', 'fpdf2',
+    'docx', 'python_docx',
+    'python_pptx', 'pptx',
+
+    # ── OCR / Image processing ────────────────────────────────────
+    'pytesseract', 'rapidocr_onnxruntime',
+
+    # ── Web frameworks ────────────────────────────────────────────
+    'fastapi', 'uvicorn', 'starlette', 'choreographer',
+    'scrapy',
+
+    # ── Jupyter / IPython ─────────────────────────────────────────
     'IPython', 'jupyter', 'notebook', 'jupyterlab',
     'ipykernel', 'ipywidgets', 'nbformat', 'nbconvert',
 
-    # GUI frameworks khác
+    # ── GUI frameworks khác ───────────────────────────────────────
     'tkinter', 'wx',
 
-    # Cloud / không dùng
+    # ── Vietnamese stock libs (không dùng trực tiếp) ──────────────
+    'vnstock', 'vnstock3', 'vnstock_ezchart', 'vnai',
+
+    # ── Cloud / không dùng ────────────────────────────────────────
     'boto3', 'botocore', 'azure',
     'googleapiclient',
 
-    # Misc
+    # ── Dev / Docs ────────────────────────────────────────────────
+    'pytest', 'pytest_timeout',
     'docutils', 'sphinx',
-    'scrapy',
-    'grpc',
+    'grpc', 'grpcio',
+
+    # ── Scientific misc ───────────────────────────────────────────
+    'coolprop', 'iapws',
 ]
 
 a = Analysis(

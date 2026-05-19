@@ -10,12 +10,12 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QFrame, QSplitter,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QComboBox, QSpinBox, QCheckBox, QFileDialog,
-    QDialog, QTextBrowser, QTabWidget,
+    QDialog, QTextBrowser, QTabWidget, QProgressBar,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSortFilterProxyModel
 from PySide6.QtGui import QFont, QColor, QKeySequence, QShortcut, QPixmap, QPainter
 from PySide6.QtWidgets import QHeaderView
-#
+#pyinstaller StockScreener.spec --clean#
 # ─────────────────────────────────────────────────────────────────────────────
 # Load python screen_top100.py via importlib (filename has a space)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1371,92 +1371,331 @@ Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
   <li><b>Quick Filter chips</b> — Lọc nhanh STRONG BUY (hoặc COMPOUNDER ở tab QC), Moat, 1Y%, 52W High. Dùng nút ✕ để xóa tất cả.</li>
   <li><b>Click vào hàng</b> — Xem breakdown chi tiết (✓/✗ từng tiêu chí) ở panel phía dưới bảng. Chart tự động tải.</li>
   <li><b>Sort</b> — Click vào tiêu đề cột để sắp xếp. Cột số sắp xếp đúng theo giá trị số, không phải theo chữ.</li>
-  <li><b>Export</b> — Xuất Excel với 3 sheet: <b>Data</b> (toàn bộ cổ phiếu), <b>Quality Compounder</b> (nếu có), <b>Dashboard</b> (tóm tắt trực quan). Xem hướng dẫn đọc Dashboard ở phần ⑨.</li>
+  <li><b>Export</b> — Xuất Excel với các sheet: <b>Data</b> (toàn bộ), <b>Quality Compounder</b>, <b>Financials</b> (nếu bật yfinance), <b>Dashboard</b>. Thanh tiến trình xanh hiện trong status bar — UI không bị đơ. Xem hướng dẫn đọc Dashboard ở phần ⑨.</li>
   <li><b>F1</b> — Mở màn hình hướng dẫn này bất cứ lúc nào.</li>
 </ul>
 
-<h2>⑨ DASHBOARD EXCEL — CÁCH ĐỌC</h2>
-<p style="color:#7A8899;font-size:12px;margin:0 0 12px 0;">
-  Sheet <b style="color:#3D8EF0;">Dashboard</b> trong file Excel là tóm tắt toàn bộ kết quả scan — đọc từ trên xuống theo thứ tự ưu tiên.
+<h2>⑨ DASHBOARD EXCEL — HƯỚNG DẪN ĐỌC ĐẦY ĐỦ</h2>
+
+<p style="color:#7A8899;font-size:12px;margin:0 0 14px 0;">
+  Sheet <b style="color:#3D8EF0;">Dashboard</b> là bản tóm tắt toàn bộ kết quả scan, được thiết kế để đọc
+  <b style="color:#FFC000;">từ trên xuống</b> theo mức độ ưu tiên. Bạn không cần biết nhiều về chứng khoán —
+  hướng dẫn này giải thích từng khái niệm từ đầu.
 </p>
 
+<!-- ══ GIẢI THÍCH KHÁI NIỆM CƠ BẢN ══ -->
+<p style="color:#B8C4D0;font-size:12px;margin:10px 0 6px 0;font-weight:700;letter-spacing:1px;">① HIỂU CÁC KHÁI NIỆM CƠ BẢN TRƯỚC</p>
 <table>
-  <tr>
-    <th style="width:200px;">Vùng</th>
-    <th>Nội dung &amp; Cách đọc</th>
-  </tr>
-  <tr style="background-color:#0E1220;">
-    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">❶ CAN SLIM KPIs</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      6 thẻ tóm tắt kết quả CAN SLIM: <b>Total Stocks</b> · <b># Strong Buy</b> · <b># Buy</b> · <b>Avg Score</b> · <b>Avg 1Y%</b> · <b># Near 52W High</b>.
-      Đây là bức tranh tổng quan — thị trường đang có bao nhiêu cổ phiếu đủ tiêu chuẩn.
+  <tr style="background-color:#0D1526;">
+    <td style="color:#4FC3F7;font-weight:700;font-size:12px;padding:8px 12px;width:160px;">CS Score (0–10)</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>CAN SLIM Score</b> — thước đo tổng hợp dựa trên 7 tiêu chí của William O'Neil (tác giả "How to Make Money in Stocks").
+      Điểm càng cao, cổ phiếu càng mạnh cả về cơ bản lẫn kỹ thuật.<br>
+      <span style="color:#888;font-size:11px;">Score ≥ 7 = tốt · Score 5–6 = trung bình · Score &lt; 5 = yếu</span>
     </td>
   </tr>
   <tr style="background-color:#0B0E18;">
-    <td style="color:#34C472;font-weight:700;font-size:13px;padding:10px 14px;">❷ QC KPIs</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      6 thẻ Quality Compounder: <b># Compounder</b> · <b># Quality</b> · <b>Avg QC Score</b> · <b>Avg ROIC%</b> · <b># Dual Leaders</b> · <b># Cash Backed</b>.
-      <b style="color:#FFC000;">Cash Backed</b> chỉ đếm trong số cổ phiếu đạt QC signal — không tính tất cả 300 mã.
-      Hiển thị <b>—</b> nếu chưa bật yfinance Moat.
+    <td style="color:#34C472;font-weight:700;font-size:12px;padding:8px 12px;">QC Score (0–6)</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>Quality Compounder Score</b> — đo chất lượng dài hạn của công ty: lợi nhuận có bền vững không?
+      Dựa trên ROIC, biên lợi nhuận, tăng trưởng đều đặn. Cần bật <b>yfinance Moat</b> để tính.<br>
+      <span style="color:#888;font-size:11px;">Score ≥ 4 = chất lượng cao · Score 2–3 = ổn · Score &lt; 2 = yếu</span>
     </td>
   </tr>
-  <tr style="background-color:#0E1220;">
-    <td style="color:#FFC000;font-weight:700;font-size:13px;padding:10px 14px;">⚠ Risk Flags</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      3 cảnh báo rủi ro thị trường: <b>D/E &gt; 1</b> (đòn bẩy cao) · <b>P/E &gt; 50</b> (định giá cao) · <b>1M% &lt; −10%</b> (đang giảm mạnh).
-      Đọc dòng này trước khi quyết định — nếu có nhiều mã trong cảnh báo, thị trường đang rủi ro cao.
-    </td>
-  </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#FFD700;font-weight:700;font-size:13px;padding:10px 14px;">⭐ Dual Leaders</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      Bảng vàng: cổ phiếu đạt <b>cả hai</b> tiêu chuẩn — <b style="color:#34C472;">CS Score ≥ 7</b> và <b style="color:#3D8EF0;">QC Score ≥ 4</b>.
-      Đây là danh sách ưu tiên cao nhất: vừa có momentum (CAN SLIM) vừa có chất lượng bền vững (QC).
-      Cột <b>1Y%</b> có thanh màu xanh — dài hơn = hiệu suất tốt hơn.
-      Sắp xếp: CS Score cao nhất trước, sau đó QC Score.
-    </td>
-  </tr>
-  <tr style="background-color:#0E1220;">
-    <td style="color:#E040FB;font-weight:700;font-size:13px;padding:10px 14px;">🎯 Top Picks</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      3 bảng nhỏ đặt cạnh nhau, mỗi bảng top 5:<br>
-      &nbsp;• <b style="color:#FF7043;">🚀 Momentum</b> — Top 5 theo 1Y% cao nhất (tất cả cổ phiếu).<br>
-      &nbsp;• <b style="color:#4DB6AC;">💎 Quality</b> — Top 5 theo ROIC% cao nhất, chỉ lọc COMPOUNDER.<br>
-      &nbsp;• <b style="color:#FFD54F;">💰 Value</b> — Top 5 P/E thấp nhất với CS Score ≥ 6 (tăng trưởng tốt, định giá hợp lý).
+  <tr style="background-color:#0D1526;">
+    <td style="color:#FFD700;font-weight:700;font-size:12px;padding:8px 12px;">ROIC%</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>Return on Invested Capital</b> — tỷ suất sinh lời trên vốn đầu tư. Hiểu đơn giản:
+      nếu công ty đầu tư 100 đồng, họ tạo ra bao nhiêu đồng lợi nhuận mỗi năm?<br>
+      ROIC 20% nghĩa là mỗi 100đ đầu tư → tạo ra 20đ lợi nhuận/năm. Đây là thước đo
+      "công ty kiếm tiền hiệu quả" tốt nhất.<br>
+      <span style="color:#888;font-size:11px;">ROIC &gt;15% = xuất sắc · 10–15% = tốt · &lt;10% = trung bình</span>
     </td>
   </tr>
   <tr style="background-color:#0B0E18;">
-    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❸ Chart Analysis</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      <b>Trái — Scatter CS × QC:</b> Mỗi chấm = 1 cổ phiếu. Góc trên phải (CS≥7, QC≥4) là vùng Dual Leaders lý tưởng.
-      Đường cam dọc x=7 và ngang y=4 là ngưỡng phân chia. Màu chấm = tín hiệu CAN SLIM.<br><br>
-      <b>Phải — Bar Top 10 1Y%:</b> 10 cổ phiếu có hiệu suất 1 năm tốt nhất. Đọc cùng Scatter để tìm cổ phiếu vừa momentum vừa chất lượng.
+    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">P/E Ratio</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>Price-to-Earnings</b> — giá cổ phiếu chia cho lợi nhuận/cổ phiếu. Đây là thước đo "giá đắt hay rẻ".
+      P/E = 20 nghĩa là bạn trả 20 đồng để mua 1 đồng lợi nhuận/năm.<br>
+      <span style="color:#888;font-size:11px;">P/E &lt; 15 = rẻ · 15–35 = hợp lý · &gt;50 = đắt/rủi ro cao · Âm = đang lỗ</span>
     </td>
   </tr>
-  <tr style="background-color:#0E1220;">
-    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❹ Sector Breakdown</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      Pivot theo ngành: <b># Stocks</b> · <b># Strong Buy</b> · <b># Buy</b> · <b># Compounder</b> · <b>Avg CS</b> · <b>Avg QC</b> · <b>Avg 1Y%</b>.
-      Sắp xếp theo # Strong Buy giảm dần — <b style="color:#FFD700;">Top 3 ngành</b> được highlight vàng/xanh lá/xanh dương.
-      Dùng bảng này để tìm <b>sector rotation</b>: ngành nào đang có nhiều cổ phiếu mạnh nhất.
+  <tr style="background-color:#0D1526;">
+    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">EPS%</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>Earnings Per Share growth</b> — tốc độ tăng trưởng lợi nhuận mỗi cổ phiếu so với cùng kỳ năm ngoái.
+      EPS Annual 30% nghĩa là lợi nhuận tăng 30% so với năm trước — đây là dấu hiệu công ty đang tăng trưởng mạnh.<br>
+      <span style="color:#888;font-size:11px;">EPS &gt;25% YoY = rất tốt · 10–25% = tốt · &lt;10% = yếu · Âm = lỗ</span>
+    </td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">D/E Ratio</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>Debt-to-Equity</b> — tỷ lệ nợ so với vốn chủ sở hữu. D/E = 0.5 nghĩa là cứ 1 đồng vốn tự có,
+      công ty vay thêm 0.5 đồng. D/E cao = rủi ro cao khi lãi suất tăng.<br>
+      <span style="color:#888;font-size:11px;">D/E &lt; 0.5 = an toàn · 0.5–1 = chấp nhận được · &gt;1 = ⚠ cảnh báo</span>
+    </td>
+  </tr>
+  <tr style="background-color:#0D1526;">
+    <td style="color:#4FC3F7;font-weight:700;font-size:12px;padding:8px 12px;">1Y% / 52W High%</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      <b>1Y%</b> = hiệu suất giá trong 1 năm qua. +60% nghĩa là giá tăng 60% trong 12 tháng.<br>
+      <b>52W High%</b> = giá hiện tại so với đỉnh cao nhất 52 tuần. 95% nghĩa là giá đang ở 95% đỉnh —
+      tức là rất gần đỉnh, cổ phiếu đang rất mạnh.<br>
+      <span style="color:#888;font-size:11px;">52W High &gt;90% = gần đỉnh (tích cực) · &lt;50% = đang thấp (cẩn thận)</span>
+    </td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#E040FB;font-weight:700;font-size:12px;padding:8px 12px;">Signal (tín hiệu)</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+      Kết quả phân loại tự động dựa trên tổng hợp tất cả tiêu chí:<br>
+      🟢 <b>STRONG BUY</b> — CS Score cao, đủ điều kiện mạnh nhất<br>
+      🔵 <b>BUY</b> — CS Score khá, đủ điều kiện cơ bản<br>
+      🏆 <b>COMPOUNDER</b> — QC Score cao, công ty chất lượng xuất sắc dài hạn<br>
+      ⭐ <b>QUALITY</b> — QC Score tốt, nền tảng vững chắc<br>
+      🟡 <b>WATCH</b> — Chưa đủ điều kiện, cần theo dõi thêm<br>
+      🔴 <b>SKIP</b> — Điểm thấp, không khuyến nghị lúc này
     </td>
   </tr>
 </table>
 
-<p style="color:#B8C4D0;font-size:12px;margin:16px 0 6px 0;font-weight:700;letter-spacing:1px;">QUY TRÌNH ĐỌC DASHBOARD NHANH (30 giây)</p>
+<!-- ══ TỪNG VÙNG DASHBOARD ══ -->
+<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">② TỪNG VÙNG TRONG DASHBOARD</p>
+<table>
+  <tr>
+    <th style="width:180px;">Vùng</th>
+    <th>Nội dung &amp; Cách đọc</th>
+  </tr>
+
+  <tr style="background-color:#0E1220;">
+    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">❶ CAN SLIM KPIs</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Hàng thẻ tổng quan — đọc đầu tiên để biết thị trường đang như thế nào.</b><br><br>
+      • <b>Total Stocks</b>: tổng số mã được scan (thường là top 100–300 vốn hóa lớn nhất)<br>
+      • <b># Strong Buy</b>: có bao nhiêu mã đạt tín hiệu STRONG BUY. Nếu con số này &gt;10% tổng → thị trường đang tốt<br>
+      • <b># Buy</b>: số mã tín hiệu BUY — chất lượng khá, không xuất sắc như Strong Buy<br>
+      • <b>Avg CS Score</b>: điểm CAN SLIM trung bình toàn thị trường. &gt;6 = thị trường đang chất lượng cao<br>
+      • <b>Avg 1Y%</b>: hiệu suất trung bình 1 năm của toàn bộ cổ phiếu scan<br>
+      • <b># Near 52W High</b>: bao nhiêu mã đang gần đỉnh 52 tuần (&gt;90%) — nhiều mã gần đỉnh = thị trường đang tăng mạnh
+    </td>
+  </tr>
+
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#34C472;font-weight:700;font-size:13px;padding:10px 14px;">❷ QC KPIs</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Hàng thẻ chất lượng dài hạn — cần bật yfinance Moat để hiện đầy đủ.</b><br><br>
+      • <b># Compounder</b>: số mã đạt QC Signal "COMPOUNDER" (chất lượng cao nhất, giữ 5–10 năm)<br>
+      • <b># Quality</b>: số mã QC tốt nhưng chưa đến mức Compounder<br>
+      • <b>Avg QC Score</b>: điểm QC trung bình — &gt;3 là thị trường có nhiều công ty chất lượng<br>
+      • <b>Avg ROIC%</b>: ROIC trung bình toàn thị trường scan. &gt;15% = doanh nghiệp đang rất hiệu quả<br>
+      • <b># Dual Leaders</b>: số mã đạt cả CS≥7 và QC≥4 — đây là "tinh hoa" của toàn bộ danh sách<br>
+      • <b># Cash Backed</b>: trong nhóm QC, số mã có lượng tiền mặt lớn bảo vệ khi thị trường xấu<br>
+      <span style="color:#888;font-size:11px;">Hiển thị — nếu chưa tích ✓ yfinance Moat trước khi scan.</span>
+    </td>
+  </tr>
+
+  <tr style="background-color:#0E1220;">
+    <td style="color:#FFC000;font-weight:700;font-size:13px;padding:10px 14px;">⚠ Risk Flags</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Đèn cảnh báo — đọc dòng này trước khi đưa ra quyết định mua.</b><br><br>
+      • <b># D/E &gt; 1</b>: bao nhiêu mã có nợ &gt; vốn chủ sở hữu. Nhiều mã D/E cao = rủi ro lãi suất tăng<br>
+      • <b># P/E &gt; 50</b>: bao nhiêu mã đang định giá rất cao. Thị trường đang "kỳ vọng nhiều" — nếu kỳ vọng sai, giảm mạnh<br>
+      • <b># 1M% &lt; −10%</b>: bao nhiêu mã giảm &gt;10% trong tháng vừa rồi — thị trường đang yếu<br><br>
+      <b style="color:#FFC000;">Cách đọc:</b> Nếu Risk Flags nhiều → tăng tiêu chuẩn lọc (chọn CS ≥ 8 thay vì ≥ 7) hoặc đợi thêm tín hiệu trước khi vào tiền.
+    </td>
+  </tr>
+
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">📊 Bảng CS Top / QC Top</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Hai bảng đặt cạnh nhau — danh sách đầy đủ các mã đủ tiêu chuẩn.</b><br><br>
+      <b style="color:#3D8EF0;">Trái — Top CAN SLIM:</b> tất cả mã có tín hiệu STRONG BUY hoặc BUY, sắp xếp theo CS Score cao nhất.<br>
+      Cột màu xanh lá = CS Score (càng xanh càng cao). Cột 1Y% màu xanh/đỏ theo chiều tăng/giảm.<br><br>
+      <b style="color:#34C472;">Phải — Top Quality Compounder:</b> tất cả mã COMPOUNDER hoặc QUALITY, sắp xếp theo QC Score.<br>
+      Cột ROIC% màu xanh đậm nếu &gt;15% — đây là mức ROIC của các công ty vĩ đại.<br><br>
+      <b style="color:#FFC000;">Mẹo:</b> Mã nào xuất hiện trong <u>cả hai bảng</u> = đáng chú ý nhất — vừa mạnh ngắn hạn, vừa chất lượng dài hạn.
+    </td>
+  </tr>
+
+  <tr style="background-color:#0E1220;">
+    <td style="color:#FFD700;font-weight:700;font-size:13px;padding:10px 14px;">⭐ Dual Leaders</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Bảng "tinh hoa" — shortlist đáng nghiên cứu kỹ nhất.</b><br><br>
+      Điều kiện: <b>CS Score ≥ 7</b> (CAN SLIM tốt) <b>VÀ QC Score ≥ 4</b> (chất lượng dài hạn tốt).<br>
+      Đây là giao điểm giữa "đang chạy mạnh" và "công ty thực sự tốt" — tránh được cả hai bẫy phổ biến:
+      mua cổ phiếu kém chất lượng chỉ vì đang hot, hoặc mua công ty tốt nhưng không ai quan tâm.<br><br>
+      Các cột cần chú ý:<br>
+      • <b>1Y%</b> — thanh màu xanh (data bar): thanh dài hơn = hiệu suất tốt hơn, so sánh nhanh giữa các mã<br>
+      • <b>ROE%</b> — lợi nhuận trên vốn cổ đông, &gt;17% là tốt<br>
+      • <b>ROIC%</b> — màu xanh đậm nếu &gt;15%, màu vàng nếu 10–15%, cam nếu thấp hơn<br>
+      • <b>D/E</b> — màu đỏ nếu &gt;1 (nhiều nợ), màu xanh nếu &lt;0.5 (ít nợ)<br>
+      • <b>⚠</b> — cảnh báo nếu D/E &gt;1 hoặc P/E &gt;50 — cần nghiên cứu thêm trước khi mua<br><br>
+      <span style="color:#888;font-size:11px;">Hiển thị TẤT CẢ mã thỏa điều kiện, không giới hạn số lượng.</span>
+    </td>
+  </tr>
+
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#E040FB;font-weight:700;font-size:13px;padding:10px 14px;">🎯 Top Picks</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>4 bảng cạnh nhau — mỗi bảng là một chiến lược đầu tư khác nhau.</b><br>
+      Không có chiến lược nào "đúng hơn" — tùy vào mục tiêu và thời gian bạn muốn nắm giữ.<br><br>
+
+      <b style="color:#4FC3F7;">🚀 Momentum — ngắn hạn 3–12 tháng</b><br>
+      <span style="color:#B8C4D0;font-size:11px;">
+        Chọn những mã đang tăng mạnh nhất trong 1 năm qua (sort 1Y% cao nhất), trong số STRONG BUY.<br>
+        <b>Tại sao?</b> Nghiên cứu học thuật (Jegadeesh &amp; Titman 1993) chứng minh: cổ phiếu outperform trong
+        12 tháng qua có xu hướng tiếp tục outperform 3–12 tháng tiếp theo. Đây là hiện tượng tâm lý thị trường —
+        nhà đầu tư tiếp tục mua vào những gì đang "win". Yêu cầu STRONG BUY để lọc bỏ "rác đang chạy".<br>
+        ⚠ <b>Rủi ro:</b> Nếu thị trường đảo chiều đột ngột, những mã tăng mạnh nhất sẽ giảm mạnh nhất.
+      </span><br><br>
+
+      <b style="color:#4DB6AC;">💎 Quality — dài hạn 5–10 năm</b><br>
+      <span style="color:#B8C4D0;font-size:11px;">
+        Chọn những mã COMPOUNDER có ROIC cao nhất. Cần bật yfinance Moat.<br>
+        <b>Tại sao?</b> ROIC &gt;15% liên tục nhiều năm = công ty có "lợi thế cạnh tranh bền vững" (moat) —
+        đối thủ khó copy được mô hình kinh doanh. Những công ty này tự động sinh lời và tái đầu tư hiệu quả,
+        không cần bạn timing thị trường. Warren Buffett và Charlie Munger đầu tư theo triết lý này.<br>
+        ⚠ <b>Rủi ro:</b> P/E thường cao (bạn trả giá đắt cho chất lượng), nhạy cảm khi lãi suất tăng.
+      </span><br><br>
+
+      <b style="color:#FFD54F;">📉 Value Growth — trung hạn 1–3 năm</b><br>
+      <span style="color:#B8C4D0;font-size:11px;">
+        Chọn mã có P/E &lt;35, EPS tăng &gt;10%/năm, CS Score ≥6. Sort theo P/E thấp nhất trước.<br>
+        <b>Tại sao?</b> Đây là chiến lược GARP (Growth at a Reasonable Price) của huyền thoại Peter Lynch:
+        tìm công ty đang tăng trưởng tốt nhưng giá chưa phản ánh hết tiềm năng đó. Công thức đơn giản:
+        nếu P/E thấp hơn tốc độ tăng EPS → cổ phiếu đang bị định giá thấp.<br>
+        ⚠ <b>Rủi ro:</b> "Bẫy giá rẻ" — P/E thấp có thể vì công ty đang gặp vấn đề mà dữ liệu chưa phản ánh.
+      </span><br><br>
+
+      <b style="color:#CE93D8;">💥 Breakout — rất ngắn hạn, cần theo dõi sát</b><br>
+      <span style="color:#B8C4D0;font-size:11px;">
+        Chọn mã đang gần đỉnh 52 tuần (&gt;90%) và CS Score ≥7. Sort theo CS cao nhất.<br>
+        <b>Tại sao?</b> William O'Neil và Mark Minervini — hai trader huyền thoại — chỉ mua cổ phiếu
+        đang phá đỉnh lịch sử, không mua cổ phiếu đang "rẻ" hay "hồi phục". Lý do: khi giá gần đỉnh 52W,
+        tất cả người mua trước đó đều đang có lời → không có áp lực bán từ người cần cắt lỗ → giá dễ tiếp tục tăng.<br>
+        ⚠ <b>Rủi ro:</b> Nếu thị trường chung yếu, breakout thất bại và giá quay về rất nhanh.
+      </span>
+    </td>
+  </tr>
+
+  <tr style="background-color:#0E1220;">
+    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❸ Chart Analysis</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Bảng 2×2 phân vùng — thay scatter chart bằng danh sách tên mã có thể đọc.</b><br><br>
+      Trục ngang: CS Score (trái &lt;7, phải ≥7) — Trục dọc: QC Score (trên ≥4, dưới &lt;4)<br><br>
+      <table style="border-collapse:collapse;font-size:11px;width:100%;">
+        <tr>
+          <td style="padding:6px 10px;background:#1A5C2B;color:#FFF;font-weight:700;border:1px solid #444;width:50%;">
+            💎 Quality (CS&lt;7, QC≥4)<br>
+            <span style="font-weight:400;font-size:10px;color:#C8E6C9;">Công ty tốt về cơ bản, chưa được thị trường chú ý nhiều. Mua để giữ dài hạn, không cần timing.</span>
+          </td>
+          <td style="padding:6px 10px;background:#4A235A;color:#FFF;font-weight:700;border:1px solid #444;width:50%;">
+            ⭐ Dual Leaders (CS≥7 &amp; QC≥4)<br>
+            <span style="font-weight:400;font-size:10px;color:#E1BEE7;">Tốt nhất cả hai chiều. Ưu tiên nghiên cứu nhóm này đầu tiên.</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px 10px;background:#3A3A3A;color:#CCC;font-weight:700;border:1px solid #444;">
+            👀 Watchlist (CS&lt;7, QC&lt;4)<br>
+            <span style="font-weight:400;font-size:10px;">Chưa đủ điều kiện. Chỉ hiển thị số lượng — xem sheet chính để lọc thêm.</span>
+          </td>
+          <td style="padding:6px 10px;background:#1A5276;color:#FFF;font-weight:700;border:1px solid #444;">
+            🚀 Momentum (CS≥7, QC&lt;4)<br>
+            <span style="font-weight:400;font-size:10px;color:#BBDEFB;">Đang tăng mạnh ngắn hạn, chưa đủ chất lượng dài hạn. Phù hợp nếu bạn theo dõi sát.</span>
+          </td>
+        </tr>
+      </table><br>
+      Mỗi ô hiển thị: <b>Ticker · CS · QC · 1Y%</b> — đọc nhanh mà không cần mở sheet chính.
+    </td>
+  </tr>
+
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❹ Sector Breakdown</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+      <b>Phân tích theo ngành — tìm ngành nào đang dẫn đầu thị trường.</b><br><br>
+      Bảng thống kê theo từng sector: # Stocks · # Strong Buy · # Buy · # Compounder · Avg CS · Avg QC · Avg 1Y%<br>
+      Sắp xếp theo # Strong Buy giảm dần. Top 3 ngành được tô màu vàng / xanh lá / xanh dương.<br><br>
+      <b style="color:#FFC000;">Tại sao sector quan trọng?</b><br>
+      Thị trường thường di chuyển theo nhóm ngành (sector rotation). Khi Technology dẫn đầu,
+      hầu hết cổ phiếu công nghệ đều tăng — ngay cả mã bình thường cũng được "kéo theo".
+      Ưu tiên chọn mã trong sector có nhiều Strong Buy nhất, vì "thủy triều nâng tất cả thuyền".<br><br>
+      <b style="color:#FFC000;">Mẹo đọc:</b> Nếu một ngành có Avg 1Y% cao và nhiều Strong Buy → đây là sector đang trending.
+      Tìm Dual Leaders trong sector đó để có xác suất thành công cao nhất.
+    </td>
+  </tr>
+</table>
+
+<!-- ══ QUY TRÌNH ĐỌC ══ -->
+<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">③ QUY TRÌNH ĐỌC DASHBOARD — 5 BƯỚC (dành cho người mới)</p>
 <ol style="padding-left:20px;margin:0;">
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❶+❷ KPIs</b> — Thị trường đang tốt hay xấu? # Strong Buy &gt; 10% tổng là dấu hiệu tốt.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>⚠ Risk Flags</b> — Có nhiều cảnh báo không? Nếu có, tăng tiêu chuẩn lọc.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>⭐ Dual Leaders</b> — Đây là shortlist thực sự. Nghiên cứu kỹ từng mã trong bảng này.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>🎯 Top Picks</b> — Bổ sung từ 3 góc nhìn: momentum / chất lượng / định giá.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❸ Scatter</b> — Xác nhận trực quan: mã nào ở góc trên phải là ứng viên tốt nhất.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❹ Sector</b> — Sector nào dẫn đầu? Ưu tiên mã trong sector mạnh.</li>
+  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+    <b>Bắt đầu từ ❶+❷ KPIs</b> — Nhìn 2 hàng thẻ đầu tiên. Câu hỏi cần trả lời:
+    "Thị trường hôm nay đang tốt hay xấu?" Nếu # Strong Buy &lt;5% tổng → thị trường đang yếu,
+    nên thận trọng. Nếu Avg CS &gt;6 và # Dual Leaders &gt;5 → thị trường đang chất lượng.
+  </li>
+  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+    <b>Kiểm tra ⚠ Risk Flags</b> — Nếu có nhiều cảnh báo (D/E cao, 1M% âm nhiều), đừng vội vào tiền.
+    Đợi thêm 1–2 tuần rồi scan lại. Thị trường tốt sẽ quay lại — kiên nhẫn quan trọng hơn hành động nhanh.
+  </li>
+  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+    <b>Xem ⭐ Dual Leaders</b> — Đây là danh sách ngắn nhất và chất lượng nhất.
+    Nếu bạn chỉ có thời gian nghiên cứu 2–3 mã, hãy lấy từ bảng này. Chú ý cột ⚠ — mã có cảnh báo
+    D/E hoặc P/E cao cần đọc thêm báo cáo tài chính trước khi quyết định.
+  </li>
+  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+    <b>Dùng 🎯 Top Picks theo chiến lược của bạn</b> —
+    Nếu bạn muốn giao dịch ngắn hạn → xem 🚀 Momentum hoặc 💥 Breakout.
+    Nếu bạn muốn đầu tư dài hạn, ít theo dõi → xem 💎 Quality (Compounder) hoặc 📉 Value Growth.
+    Không cần chọn tất cả 4 nhóm — chọn 1 nhóm phù hợp với bạn nhất.
+  </li>
+  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+    <b>Xác nhận bằng ❸+❹</b> — Trong ❸ Chart Analysis, kiểm tra mã bạn chọn đang ở vùng nào
+    (Dual Leader, Momentum, hay Quality?). Trong ❹ Sector Breakdown, kiểm tra ngành của mã đó có
+    đang trong top 3 ngành dẫn đầu không? Nếu có → xác suất tốt cao hơn.
+  </li>
 </ol>
-<p class="tip">⚠  Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b> từ app. Dữ liệu phản ánh thời điểm scan gần nhất — xem timestamp ở góc phải hàng đầu của sheet.</p>
+
+<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">④ LỖI PHỔ BIẾN CẦN TRÁNH</p>
+<ul style="padding-left:20px;margin:0;">
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Chỉ nhìn 1Y% cao mà mua ngay</b> — Cổ phiếu tăng 200% trong 1 năm không có nghĩa là tiếp tục tăng. Phải kết hợp CS Score và Risk Flags.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Bỏ qua D/E và cột ⚠</b> — Công ty nợ nhiều, khi lãi suất tăng hoặc doanh thu giảm, có thể sụp đổ rất nhanh.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Mua tất cả mã trong Dual Leaders</b> — Dual Leaders là shortlist để nghiên cứu sâu hơn, không phải lệnh mua tự động. Hãy đọc thêm về từng công ty trước khi quyết định.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Bỏ qua Sector Breakdown</b> — Một mã tốt trong ngành đang yếu vẫn có thể bị kéo xuống theo ngành. Luôn kiểm tra sector trend.</li>
+  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Dùng dữ liệu cũ</b> — Dashboard phản ánh thời điểm scan gần nhất. Thị trường thay đổi nhanh — scan lại ít nhất mỗi tuần 1 lần.</li>
+</ul>
+
+<p class="tip">⚠ Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b>. Thanh tiến trình xanh ở status bar cho biết quá trình xuất — UI không bị đơ. Dữ liệu phản ánh thời điểm scan gần nhất.</p>
 </body></html>"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Export worker — chạy write_excel trên background thread
+# ─────────────────────────────────────────────────────────────────────────────
+class ExportWorker(QThread):
+    progress = Signal(int, str)   # (0-100, message)
+    done     = Signal(str)        # output path
+    failed   = Signal(str)        # error message
+
+    def __init__(self, df, path, market, top, use_yf):
+        super().__init__()
+        self._df     = df
+        self._path   = path
+        self._market = market
+        self._top    = top
+        self._use_yf = use_yf
+
+    def run(self):
+        try:
+            def cb(pct, msg=""):
+                self.progress.emit(pct, msg)
+            write_excel(self._df, self._path, self._market, self._top,
+                        use_yf=self._use_yf, progress_cb=cb)
+            self.done.emit(self._path)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 # Main window
 # ─────────────────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
@@ -1583,11 +1822,21 @@ class MainWindow(QMainWindow):
             f"color:{TEXT1}; font-size:9px; font-weight:600; letter-spacing:1.5px;")
         self._top_spin = QSpinBox()
         self._top_spin.setRange(50, 1000); self._top_spin.setValue(300); self._top_spin.setSingleStep(50)
-        self._top_spin.setFixedSize(80, 32)
+        self._top_spin.setFixedSize(60, 32)
+        self._top_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self._top_spin.setStyleSheet(self._spinbox_style())
 
+        self._spin_minus = QPushButton("−")
+        self._spin_plus  = QPushButton("+")
+        for btn in (self._spin_minus, self._spin_plus):
+            btn.setFixedSize(24, 32)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(self._spin_btn_style())
+        self._spin_minus.clicked.connect(lambda: self._top_spin.setValue(self._top_spin.value() - self._top_spin.singleStep()))
+        self._spin_plus.clicked.connect( lambda: self._top_spin.setValue(self._top_spin.value() + self._top_spin.singleStep()))
+
         self._use_yf = QCheckBox("yfinance Moat")
-        self._use_yf.setChecked(False)
+        self._use_yf.setChecked(True)
         self._use_yf.setStyleSheet(
             f"color:{TEXT1}; font-size:10px; font-family:'Segoe UI',sans-serif;")
 
@@ -1605,7 +1854,10 @@ class MainWindow(QMainWindow):
         self._btn_export.clicked.connect(self._on_export)
 
         row1.addWidget(lbl_market); row1.addWidget(self._market)
-        row1.addWidget(lbl_top);    row1.addWidget(self._top_spin)
+        row1.addWidget(lbl_top)
+        row1.addWidget(self._spin_minus)
+        row1.addWidget(self._top_spin)
+        row1.addWidget(self._spin_plus)
         row1.addWidget(self._use_yf)
         row1.addStretch()
         row1.addWidget(self._btn_scan)
@@ -2031,7 +2283,20 @@ class MainWindow(QMainWindow):
         self.status_lbl = QLabel("Ready  ·  Enter market & top N, then click SCAN")
         self.status_lbl.setStyleSheet(
             f"color:{TEXT3}; font-size:10px; font-family:'Segoe UI',sans-serif;")
-        h.addWidget(self._dot); h.addWidget(self.status_lbl); h.addStretch()
+        self._export_bar = QProgressBar()
+        self._export_bar.setFixedSize(180, 10)
+        self._export_bar.setTextVisible(False)
+        self._export_bar.setRange(0, 100)
+        self._export_bar.setValue(0)
+        self._export_bar.setVisible(False)
+        self._export_bar.setStyleSheet("""
+            QProgressBar { background:#333; border-radius:4px; }
+            QProgressBar::chunk { background:#4AE06A; border-radius:4px; }
+        """)
+        h.addWidget(self._dot); h.addWidget(self.status_lbl)
+        h.addWidget(self._export_bar)
+        h.addStretch()
+
         self._ver_lbl = QLabel("TradingView  ·  yfinance  ·  PySide6")
         self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
         h.addWidget(self._ver_lbl)
@@ -2123,6 +2388,8 @@ class MainWindow(QMainWindow):
         self._lbl_filter.setStyleSheet(_lbl_s)
         self._market.setStyleSheet(self._combo_style())
         self._top_spin.setStyleSheet(self._spinbox_style())
+        self._spin_minus.setStyleSheet(self._spin_btn_style())
+        self._spin_plus.setStyleSheet(self._spin_btn_style())
         self._use_yf.setStyleSheet(f"color:{TEXT1}; font-size:10px; font-family:'Segoe UI',sans-serif;")
         self._btn_scan.setStyleSheet(self._btn_style(BLUE, BLUE_HV))
         self._btn_export.setStyleSheet(self._btn_style("#2E5C2E", "#1A4C1A"))
@@ -2187,20 +2454,45 @@ class MainWindow(QMainWindow):
             QLineEdit:focus {{ border-color:{BLUE}; }}
         """
 
+    def _spin_btn_style(self):
+        return f"""
+            QPushButton {{
+                background:{SURFACE}; color:{TEXT1};
+                border:1px solid {BORDER}; border-radius:3px;
+                font-size:15px; font-weight:600;
+                padding:0;
+            }}
+            QPushButton:hover   {{ background:{BORDER};  color:{TEXT1}; }}
+            QPushButton:pressed {{ background:{BORDER2}; color:{TEXT1}; }}
+        """
+
     def _spinbox_style(self):
         return f"""
             QSpinBox {{
                 background:{INPUT_BG}; color:{TEXT1};
                 border:1px solid {BORDER}; border-radius:3px;
-                padding:0 4px; font-size:11px;
+                padding:0 4px 0 6px; font-size:11px;
                 font-family:'Segoe UI',sans-serif;
             }}
             QSpinBox:focus {{ border-color:{BLUE}; }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                background:{SURFACE}; border:none; width:16px;
+            QSpinBox::up-button {{
+                subcontrol-origin:border; subcontrol-position:top right;
+                background:{SURFACE}; border-left:1px solid {BORDER};
+                border-top-right-radius:3px;
+                width:18px; height:16px;
             }}
-            QSpinBox::up-arrow  {{ color:{TEXT2}; }}
-            QSpinBox::down-arrow {{ color:{TEXT2}; }}
+            QSpinBox::up-button:hover   {{ background:{BORDER}; }}
+            QSpinBox::up-button:pressed {{ background:{BORDER2}; }}
+            QSpinBox::down-button {{
+                subcontrol-origin:border; subcontrol-position:bottom right;
+                background:{SURFACE}; border-left:1px solid {BORDER};
+                border-bottom-right-radius:3px;
+                width:18px; height:16px;
+            }}
+            QSpinBox::down-button:hover   {{ background:{BORDER}; }}
+            QSpinBox::down-button:pressed {{ background:{BORDER2}; }}
+            QSpinBox::up-arrow   {{ color:{TEXT1}; width:10px; height:10px; }}
+            QSpinBox::down-arrow {{ color:{TEXT1}; width:10px; height:10px; }}
         """
 
     def _combo_style(self):
@@ -2550,16 +2842,42 @@ class MainWindow(QMainWindow):
             self, "Export Excel", default, "Excel (*.xlsx)")
         if not path: return
         if not path.endswith(".xlsx"): path += ".xlsx"
-        try:
-            df_export = self._df.copy()
-            qc_df = pd.DataFrame(
-                [compute_qc_score(r.to_dict()) for _, r in df_export.iterrows()])
-            df_export = pd.concat(
-                [df_export.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
-            write_excel(df_export, path, market, top, use_yf=self._use_yf.isChecked())
-            self._set_status(f"✓  Exported → {path}", GREEN)
-        except Exception as e:
-            self._set_status(f"✕  Export failed: {e}", RED)
+
+        # Tính QC score (nhanh, làm trong main thread trước)
+        df_export = self._df.copy()
+        qc_df = pd.DataFrame(
+            [compute_qc_score(r.to_dict()) for _, r in df_export.iterrows()])
+        df_export = pd.concat(
+            [df_export.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
+
+        # Hiện progress bar, disable nút
+        self._export_bar.setValue(0)
+        self._export_bar.setVisible(True)
+        self._btn_export.setEnabled(False)
+        self._set_status("Exporting…", AMBER)
+
+        self._export_wkr = ExportWorker(
+            df_export, path, market, top, self._use_yf.isChecked())
+        self._export_wkr.progress.connect(self._on_export_progress)
+        self._export_wkr.done.connect(self._on_export_done)
+        self._export_wkr.failed.connect(self._on_export_failed)
+        self._export_wkr.start()
+
+    def _on_export_progress(self, pct, msg):
+        self._export_bar.setValue(pct)
+        if msg:
+            self._set_status(f"💾  {msg}", AMBER)
+
+    def _on_export_done(self, path):
+        self._export_bar.setValue(100)
+        self._set_status(f"✓  Exported → {path}", GREEN)
+        self._btn_export.setEnabled(True)
+        QTimer.singleShot(2000, lambda: self._export_bar.setVisible(False))
+
+    def _on_export_failed(self, msg):
+        self._export_bar.setVisible(False)
+        self._set_status(f"✕  Export failed: {msg}", RED)
+        self._btn_export.setEnabled(True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

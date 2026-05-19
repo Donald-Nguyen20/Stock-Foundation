@@ -166,9 +166,13 @@ def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
     Giống fetch() trong screen_accumulate.py.
     """
     try:
-        import yfinance as yf
+        import yfinance as yf, sys, io
         tk   = yf.Ticker(ticker)
-        info = tk.info or {}
+        _stderr, sys.stderr = sys.stderr, io.StringIO()
+        try:
+            info = tk.info or {}
+        finally:
+            sys.stderr = _stderr
 
         # Sector từ yfinance (chính xác hơn TV)
         yf_sector = info.get("sector", "") or sector
@@ -412,19 +416,38 @@ def clean_df(df):
 # ═══════════════════════════════════════════════════════════════
 # EXCEL — giữ nguyên như cũ
 # ═══════════════════════════════════════════════════════════════
-def write_excel(df, path, market, top, use_yf=False):
+def write_excel(df, path, market, top, use_yf=False, progress_cb=None):
+    def _pb(pct, msg=""):
+        if progress_cb:
+            progress_cb(pct, msg)
+
     wb = Workbook()
+    _pb(5,  "Building main sheet…")
     _main_sheet(wb, df, market, top)
+
     if "QC_Score" in df.columns:
+        _pb(20, "QC sheet…")
         _qc_sheet(wb, df)
+
     if use_yf:
-        _financials_sheet(wb, df)
+        n = len(df)
+        def _fin_cb(idx):
+            # map ticker index → 25-70%
+            _pb(25 + int(idx / max(n, 1) * 45),
+                f"Financials  {idx}/{n}…")
+        _financials_sheet(wb, df, progress_cb=_fin_cb)
+    else:
+        _pb(25, "")
+
+    _pb(75, "Dashboard sheet…")
     _dashboard_sheet(wb, df)
+    _pb(95, "Saving file…")
     wb.save(path)
+    _pb(100, "")
     print(f"  💾 {path}")
 
 
-def _financials_sheet(wb, df):
+def _financials_sheet(wb, df, progress_cb=None):
     import yfinance as yf
     from openpyxl.chart import BarChart, Reference
 
@@ -481,6 +504,7 @@ def _financials_sheet(wb, df):
     total   = len(tickers)
 
     for idx, ticker in enumerate(tickers, 1):
+        if progress_cb: progress_cb(idx)
         print(f"  📊 Financials {idx}/{total}: {ticker}", end="\r", flush=True)
         name = str(df.loc[df["Ticker"] == ticker, "Tên Công Ty"].values[0]
                    if len(df.loc[df["Ticker"] == ticker]) else "")
@@ -782,7 +806,6 @@ def _financials_sheet(wb, df):
 
 
 def _dashboard_sheet(wb, df):
-    from openpyxl.chart import BarChart, ScatterChart, Reference, Series
     from openpyxl.formatting.rule import DataBarRule
 
     ws = wb.create_sheet("Dashboard")
@@ -791,9 +814,6 @@ def _dashboard_sheet(wb, df):
 
     HAS_QC   = "QC_Score" in df.columns and "QC_Signal" in df.columns
     N_QC_LOC = 6
-    SIGNALS  = ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY", "\U0001f7e1 WATCH", "\U0001f534 SKIP"]
-    SIG_COLS = ["00AA44", "0070C0", "FFC000", "FF0000"]
-    SIG_LBLS = ["STRONG BUY", "BUY", "WATCH", "SKIP"]
 
     for ci in range(1, 25):
         ws.column_dimensions[CL(ci)].width = 9
@@ -913,9 +933,13 @@ def _dashboard_sheet(wb, df):
     ws.column_dimensions["H"].width = 2
     ws.row_dimensions[13].height = 18
 
-    cs_top = (df.sort_values("CS_Score", ascending=False).head(10)
+    _cs_buy = ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY"]
+    cs_top = (df[df["CS_Signal"].isin(_cs_buy)]
+              .sort_values("CS_Score", ascending=False)
               if "CS_Score" in df.columns else pd.DataFrame())
-    qc_top = (df.sort_values("QC_Score", ascending=False).head(10)
+    _qc_buy = ["\U0001f3c6 COMPOUNDER", "⭐ QUALITY"]
+    qc_top = (df[df["QC_Signal"].isin(_qc_buy)]
+              .sort_values("QC_Score", ascending=False)
               if HAS_QC else pd.DataFrame())
     n_rows = max(len(cs_top), len(qc_top), 1)
 
@@ -1066,44 +1090,76 @@ def _dashboard_sheet(wb, df):
             f"H{dl_hdr_row+1}:H{dl_end}",
             DataBarRule(start_type="min", start_value=0, end_type="max", end_value=100, color="0070C0"))
 
-    # 🎯 TOP PICKS — 3 mini-tables
+    # 🎯 TOP PICKS — 4 mini-tables (side by side, dynamic height)
     ws.row_dimensions[dl_end + 1].height = 10
     tp_sec = dl_end + 2
     _sec(tp_sec, "\U0001f3af  TOP PICKS", bg="1A3A5C")
     tp_hdr = tp_sec + 1
+    # col offsets: Momentum=1, Quality=7, Value=13, Breakout=19
     TP_GRP = [
-        (1,  "\U0001f680 Momentum  (1Y% ↓)",              "1A5276"),
-        (9,  "\U0001f48e Quality  (ROIC% ↓, Compounder)", "1A5C2B"),
-        (17, "\U0001f4c9 Value  (P/E<35, EPS>10%, CS≥6)", "784212"),
+        (1,  "\U0001f680 Momentum  (STRONG BUY, 1Y% ↓)",     "1A5276"),
+        (7,  "\U0001f48e Quality  (Compounder, ROIC% ↓)",     "1A5C2B"),
+        (13, "\U0001f4c9 Value  (P/E<35, EPS>10%, CS≥6)",     "784212"),
+        (19, "\U0001f4a5 Breakout  (52W High ≥90%, CS≥7)",    "4A235A"),
     ]
     COL_HDRS = ["Ticker", "Metric", "Sector"]
+    TP_BG    = ["1A5276", "1A5C2B", "784212", "4A235A"]
 
     def _tp_rows():
-        if "1Y%" in df.columns:
-            d = df[["Ticker","1Y%","Sector"]].dropna(subset=["1Y%"]).sort_values("1Y%", ascending=False).head(5)
-            mom = [(r["Ticker"], f"{r['1Y%']:+.1f}%", r.get("Sector","")) for _, r in d.iterrows()]
-        else:
-            mom = []
+        # Momentum: STRONG BUY sort 1Y%; fallback thêm BUY nếu trống
+        mom = []
+        if "1Y%" in df.columns and "CS_Signal" in df.columns:
+            for sig_filter in ["\U0001f7e2 STRONG BUY",
+                               ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY"]]:
+                mask = (df["CS_Signal"] == sig_filter if isinstance(sig_filter, str)
+                        else df["CS_Signal"].isin(sig_filter))
+                d = (df[mask][["Ticker","1Y%","Sector","CS_Signal"]]
+                     .dropna(subset=["1Y%"]).sort_values("1Y%", ascending=False))
+                if not d.empty:
+                    mom = [(r["Ticker"],
+                            f"{r['1Y%']:+.1f}%  ({r['CS_Signal'].split()[1]})",
+                            r.get("Sector",""))
+                           for _, r in d.iterrows()]
+                    break
+
+        # Quality: Compounder sort ROIC%
+        qua = []
         if HAS_QC and "ROIC%" in df.columns:
             d = (df[df["QC_Signal"] == "\U0001f3c6 COMPOUNDER"][["Ticker","ROIC%","Sector"]]
-                 .dropna(subset=["ROIC%"]).sort_values("ROIC%", ascending=False).head(5))
-            qua = [(r["Ticker"], f"{r['ROIC%']:.1f}%", r.get("Sector","")) for _, r in d.iterrows()]
-        else:
-            qua = []
+                 .dropna(subset=["ROIC%"]).sort_values("ROIC%", ascending=False))
+            qua = [(r["Ticker"], f"ROIC {r['ROIC%']:.1f}%", r.get("Sector",""))
+                   for _, r in d.iterrows()]
+
+        # Value: P/E<35 + EPS growth + CS≥6, sort P/E asc
+        val = []
         if "P/E" in df.columns and "EPS Annual%" in df.columns and "CS_Score" in df.columns:
             tmp = (df[
                 (df["CS_Score"] >= 6) &
                 (df["P/E"] > 0) & (df["P/E"] < 35) &
                 (df["EPS Annual%"] > 10) & (df["EPS Annual%"] < 200)
-            ].dropna(subset=["P/E"]).sort_values("P/E").head(5))
-            val = [(r["Ticker"], f"P/E {r['P/E']:.1f}× | EPS +{r['EPS Annual%']:.0f}%",
-                    r.get("Sector","")) for _, r in tmp.iterrows()]
-        else:
-            val = []
-        return mom, qua, val
+            ].dropna(subset=["P/E"]).sort_values("P/E"))
+            val = [(r["Ticker"],
+                    f"P/E {r['P/E']:.1f}× | EPS +{r['EPS Annual%']:.0f}%",
+                    r.get("Sector",""))
+                   for _, r in tmp.iterrows()]
+
+        # Breakout: gần 52W High (≥90%) + CS Score cao
+        brk = []
+        if "52W_High%" in df.columns and "CS_Score" in df.columns:
+            tmp = (df[
+                (df["52W_High%"] >= 90) &
+                (df["CS_Score"] >= 7)
+            ].sort_values(["CS_Score", "52W_High%"], ascending=[False, False]))
+            brk = [(r["Ticker"],
+                    f"52W {r['52W_High%']:.1f}% | CS {int(r['CS_Score'])}",
+                    r.get("Sector",""))
+                   for _, r in tmp.iterrows()]
+
+        return mom, qua, val, brk
 
     tp_data = _tp_rows()
-    TP_BG   = ["1A5276", "1A5C2B", "784212"]
+    max_tp_rows = max((len(rows) for rows in tp_data), default=1)
+
     for (sc, title, _), bg_h in zip(TP_GRP, TP_BG):
         ws.merge_cells(f"{CL(sc)}{tp_hdr}:{CL(sc+2)}{tp_hdr}")
         c = ws.cell(tp_hdr, sc, title)
@@ -1114,7 +1170,13 @@ def _dashboard_sheet(wb, df):
             c2.font = F(True, 8, "FFFFFF"); c2.fill = BG(bg_h)
             c2.alignment = AL(); c2.border = BD()
         ws.row_dimensions[tp_hdr + 1].height = 16
+
     for (sc, _, _), bg_h, rows in zip(TP_GRP, TP_BG, tp_data):
+        if not rows:
+            ws.merge_cells(f"{CL(sc)}{tp_hdr+2}:{CL(sc+2)}{tp_hdr+2}")
+            c = ws.cell(tp_hdr + 2, sc, "— No data —")
+            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
+            continue
         for ri, (ticker, metric, sector) in enumerate(rows):
             er2 = tp_hdr + 2 + ri
             rbg2 = "F0F8FF" if ri % 2 == 0 else "FFFFFF"
@@ -1128,24 +1190,42 @@ def _dashboard_sheet(wb, df):
                 c.fill = BG(rbg2); c.border = BD()
                 c.font = F(bold, 9, fg)
                 c.alignment = AL("left" if ci_off == 2 else "center")
-        if not rows:
-            ws.merge_cells(f"{CL(sc)}{tp_hdr+2}:{CL(sc+2)}{tp_hdr+6}")
-            c = ws.cell(tp_hdr + 2, sc, "— No data —")
-            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
-    tp_end = tp_hdr + 7
+
+    tp_end = tp_hdr + 1 + max_tp_rows + 1   # dynamic, không hardcode
+
+    # Pre-compute zone data so ch_end can be set dynamically
+    zone_data = []; watch_n = 0
+    if HAS_QC:
+        _cs = df["CS_Score"]; _qc = df["QC_Score"]
+        _dual = df[(_cs >= 7) & (_qc >= 4)].sort_values(["CS_Score","QC_Score"], ascending=[False,False])
+        _mom  = df[(_cs >= 7) & (_qc <  4)].sort_values(["CS_Score","1Y%"],      ascending=[False,False])
+        _qual = df[(_cs <  7) & (_qc >= 4)].sort_values("QC_Score",              ascending=False)
+        watch_n = int(((_cs < 7) & (_qc < 4)).sum())
+        zone_data = [
+            ("⭐  Dual Leaders  (CS ≥ 7  &  QC ≥ 4)", "4A235A", _dual),
+            ("🚀  Momentum  (CS ≥ 7,  QC < 4)",        "1A5276", _mom),
+            ("💎  Quality  (CS < 7,  QC ≥ 4)",         "1A5C2B", _qual),
+        ]
+    if zone_data:
+        _top_n = max(len(zone_data[0][2]), len(zone_data[2][2]))  # Dual vs Quality
+        _bot_n = max(1, len(zone_data[1][2]))                     # Momentum
+        zone_rows = 4 + _top_n + _bot_n  # top(hdr+col+data) + divider + bottom(hdr+col+data)
+    else:
+        zone_rows = 10
+    zone_rows = max(zone_rows, 22)
 
     # ❸ CHART ANALYSIS
     ws.row_dimensions[tp_end].height = 10
     ch_sec = tp_end + 1
     _sec(ch_sec, "❸  CHART ANALYSIS")
     ch_start = ch_sec + 1
-    for r in range(ch_start, ch_start + 20):
-        ws.row_dimensions[r].height = 16
-    ch_end = ch_start + 18
+    for r in range(ch_start, ch_start + zone_rows + 2):
+        ws.row_dimensions[r].height = 17
+    ch_end = ch_start + zone_rows
 
     # ❹ SECTOR BREAKDOWN
-    ws.row_dimensions[ch_end].height = 10
-    s4_row = ch_end + 9
+    ws.row_dimensions[ch_end + 1].height = 10
+    s4_row = ch_end + 2
     _sec(s4_row, "❹  SECTOR BREAKDOWN  —  Sort: # Strong Buy ↓")
     S4_HDRS = ["Sector", "# Stocks", "# Str.Buy", "# Buy", "# Comp.", "Avg CS", "Avg QC", "Avg 1Y%"]
     S4_WD   = [16, 8, 9, 7, 8, 7, 7, 8]
@@ -1192,82 +1272,111 @@ def _dashboard_sheet(wb, df):
         else:
             c.value = "—"; c.font = F(size=9, color="BBBBBB")
 
-    # DATA TABLES (row 300+, hidden)
-    DR = 300
+    # ZONE 2×2 QUADRANT TABLE — mirrors CS×QC scatter layout
+    # Layout:  Left cols (LC) = CS<7  |  divider  |  Right cols (RC) = CS≥7
+    #          Top rows = QC≥4  |  thick divider  |  Bottom rows = QC<4
+    LC = [1, 2, 3, 4]   # Ticker | CS | QC | 1Y%
+    DC = 5               # divider column (uses sector width, just colored gray)
+    RC = [6, 7, 8, 9]   # Ticker | CS | QC | 1Y%
+    ws.column_dimensions["I"].width = 8   # RC 1Y%
 
-    def _hdr(r, c_idx, text):
-        c = ws.cell(r, c_idx, text)
-        c.font = F(True, 8, "FFFFFF"); c.fill = BG("1F3864")
+    def _zh(r, cols, label, bg):
+        ws.merge_cells(f"{CL(cols[0])}{r}:{CL(cols[-1])}{r}")
+        c = ws.cell(r, cols[0], label)
+        c.font = F(True, 10, "FFFFFF"); c.fill = BG(bg)
+        c.alignment = AL("left"); c.border = BD()
+        ws.row_dimensions[r].height = 18
 
-    _hdr(DR, 2, "CS_X"); _hdr(DR, 3, "QC_Y")
-    for j, lbl in enumerate(SIG_LBLS, 1):
-        _hdr(DR, 3 + j, lbl)
-    n_sct = 0
-    if HAS_QC:
-        sct_df = df[["CS_Score", "QC_Score", "CS_Signal"]].dropna(subset=["CS_Score", "QC_Score"])
-        for i, (_, row) in enumerate(sct_df.iterrows(), 1):
-            x = int(row["CS_Score"]); y = round(float(row["QC_Score"]), 2)
-            ws.cell(DR+i, 2, x); ws.cell(DR+i, 3, y)
-            for j, s in enumerate(SIGNALS, 1):
-                ws.cell(DR+i, 3+j, y if row["CS_Signal"] == s else None)
-        n_sct = len(sct_df)
-    rl = DR + n_sct + 2
-    ws.cell(rl,   2, 7);    ws.cell(rl,   3, 0)
-    ws.cell(rl+1, 2, 7);    ws.cell(rl+1, 3, N_QC_LOC)
-    ws.cell(rl+3, 2, 0);    ws.cell(rl+3, 3, 4)
-    ws.cell(rl+4, 2, N_CS); ws.cell(rl+4, 3, 4)
+    def _ch(r, cols):
+        for ci, h in zip(cols, ["Ticker", "CS", "QC", "1Y%"]):
+            c = ws.cell(r, ci, h)
+            c.font = F(True, 9, "FFFFFF"); c.fill = BG("2C4F7C")
+            c.alignment = AL(); c.border = BD()
+        ws.row_dimensions[r].height = 16
 
-    _hdr(DR, 9, "Ticker"); _hdr(DR, 10, "1Y%")
-    bar10 = (df[["Ticker", "1Y%"]].dropna(subset=["1Y%"])
-             .sort_values("1Y%", ascending=False).head(10)
-             .sort_values("1Y%", ascending=True))
-    for i, (_, row) in enumerate(bar10.iterrows(), 1):
-        ws.cell(DR+i, 9, str(row.get("Ticker", "")))
+    def _div(r):
+        c = ws.cell(r, DC); c.fill = BG("C5D5E8"); c.border = BD()
+
+    def _stock(r, cols, row, rbg):
+        c = ws.cell(r, cols[0], str(row.get("Ticker", "")))
+        c.border = BD(); c.fill = BG(rbg); c.alignment = AL("left"); c.font = F(True, 9, "1B3A5C")
+        c = ws.cell(r, cols[1], int(row.get("CS_Score", 0) or 0))
+        c.border = BD(); c.fill = BG(CG_BG); c.alignment = AL(); c.font = F(True, 9, CG_FG)
+        qc_v = row.get("QC_Score")
+        c = ws.cell(r, cols[2])
+        c.border = BD(); c.alignment = AL()
+        if qc_v is not None and not (isinstance(qc_v, float) and pd.isna(qc_v)):
+            c.value = int(qc_v); c.fill = BG(CB_BG); c.font = F(True, 9, CB_FG)
+        else:
+            c.value = "—"; c.fill = BG(rbg); c.font = F(size=9, color="BBBBBB")
         v = row.get("1Y%")
-        ws.cell(DR+i, 10, round(float(v), 1) if v is not None else None)
+        c = ws.cell(r, cols[3])
+        c.border = BD(); c.alignment = AL(); c.fill = BG(rbg)
+        if v is not None and not (isinstance(v, float) and pd.isna(v)):
+            c.value = float(v) / 100; c.number_format = '+0.0%;(0.0%)'
+            c.font = F(size=9, color="276221" if float(v) > 0 else "9C0006")
+        else:
+            c.value = "—"; c.font = F(size=9, color="BBBBBB")
+        ws.row_dimensions[r].height = 17
 
-    max_dr = DR + max(n_sct + 10, 15) + 2
-    for r in range(DR, max_dr + 1):
-        ws.row_dimensions[r].height = 1
+    def _pad(r, cols, bg):
+        for ci in cols:
+            c = ws.cell(r, ci); c.border = BD(); c.fill = BG(bg)
 
-    # CHARTS
-    if HAS_QC and n_sct > 0:
-        sct = ScatterChart()
-        sct.title = "CS Score × QC Score  (Dual Leaders: top-right)"
-        sct.style = 10
-        sct.x_axis.title = f"CAN SLIM Score (0–{N_CS})"
-        sct.y_axis.title = "QC Score (0–6)"
-        sct.x_axis.scaling.min = 0; sct.x_axis.scaling.max = N_CS
-        sct.y_axis.scaling.min = 0; sct.y_axis.scaling.max = N_QC_LOC
-        for j, (lbl, col) in enumerate(zip(SIG_LBLS, SIG_COLS)):
-            xv  = Reference(ws, min_col=2,   min_row=DR+1, max_row=DR+n_sct)
-            yv  = Reference(ws, min_col=4+j, min_row=DR+1, max_row=DR+n_sct)
-            ser = Series(yv, xv, title=lbl)
-            ser.marker.symbol = "circle"; ser.marker.size = 5
-            ser.graphicalProperties.line.noFill = True
-            ser.marker.graphicalProperties.solidFill      = col
-            ser.marker.graphicalProperties.line.solidFill = col
-            sct.series.append(ser)
-        sv = Series(Reference(ws, min_col=3, min_row=rl,   max_row=rl+1),
-                    Reference(ws, min_col=2, min_row=rl,   max_row=rl+1), title="CS≥7")
-        sv.graphicalProperties.line.solidFill = "FF6600"; sv.marker.symbol = "none"
-        sct.series.append(sv)
-        sh = Series(Reference(ws, min_col=3, min_row=rl+3, max_row=rl+4),
-                    Reference(ws, min_col=2, min_row=rl+3, max_row=rl+4), title="QC≥4")
-        sh.graphicalProperties.line.solidFill = "FF6600"; sh.marker.symbol = "none"
-        sct.series.append(sh)
-        sct.width = 14; sct.height = 14
-        ws.add_chart(sct, f"A{ch_start}")
+    if not zone_data:
+        ws.merge_cells(f"A{ch_start}:I{ch_start}")
+        c = ws.cell(ch_start, 1, "— Bật yfinance Moat để xem phân vùng CS×QC —")
+        c.font = F(False, 10, "888888", italic=True); c.fill = BG("F5F5F5"); c.alignment = AL()
+    else:
+        _dual_df = zone_data[0][2]; _mom_df = zone_data[1][2]; _qual_df = zone_data[2][2]
+        top_n = max(len(_qual_df), len(_dual_df))
+        bot_n = max(1, len(_mom_df))
+        qual_rows = list(_qual_df.iterrows()); dual_rows = list(_dual_df.iterrows())
+        mom_rows  = list(_mom_df.iterrows())
 
-    bar = BarChart()
-    bar.type = "bar"; bar.style = 10
-    bar.title = "Top 10 Stocks  ·  1Y% Return"
-    bar.x_axis.title = "1Y Return %"; bar.y_axis.title = "Ticker"
-    bar.add_data(Reference(ws, min_col=10, min_row=DR,   max_row=DR+10), titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=9,  min_row=DR+1, max_row=DR+10))
-    bar.series[0].graphicalProperties.solidFill = "0070C0"
-    bar.width = 14; bar.height = 14
-    ws.add_chart(bar, f"N{ch_start}")
+        # ── TOP HALF: 💎 Quality (left) | ⭐ Dual Leaders (right) ──
+        _zh(ch_start,     LC, "💎  Quality  (CS < 7,  QC ≥ 4)",        "1A5C2B")
+        _zh(ch_start,     RC, "⭐  Dual Leaders  (CS ≥ 7  &  QC ≥ 4)", "4A235A")
+        _div(ch_start)
+        _ch(ch_start + 1, LC); _ch(ch_start + 1, RC); _div(ch_start + 1)
+        ws.row_dimensions[ch_start + 1].height = 16
+
+        for i in range(top_n):
+            r = ch_start + 2 + i; _div(r)
+            if i < len(qual_rows):
+                _stock(r, LC, qual_rows[i][1], "EAFAF1" if i % 2 == 0 else "FFFFFF")
+            else:
+                _pad(r, LC, "F4FDF8")
+            if i < len(dual_rows):
+                _stock(r, RC, dual_rows[i][1], "F5F0FF" if i % 2 == 0 else "FFFFFF")
+            else:
+                _pad(r, RC, "FAF7FF")
+
+        # ── HORIZONTAL DIVIDER ──
+        div_r = ch_start + 2 + top_n
+        for ci in LC + [DC] + RC:
+            c = ws.cell(div_r, ci); c.fill = BG("334466"); c.border = BD()
+        ws.row_dimensions[div_r].height = 5
+
+        # ── BOTTOM HALF: 👀 Watchlist (left) | 🚀 Momentum (right) ──
+        b0 = div_r + 1
+        _zh(b0, LC, "👀  Watchlist  (CS < 7  &  QC < 4)", "555555")
+        _zh(b0, RC, "🚀  Momentum  (CS ≥ 7,  QC < 4)",    "1A5276")
+        _div(b0)
+
+        # Watchlist — merged cell spanning col-header + all data rows
+        ws.merge_cells(f"{CL(LC[0])}{b0+1}:{CL(LC[-1])}{b0+1+bot_n}")
+        c = ws.cell(b0 + 1, LC[0], f"{watch_n} mã\nXem sheet chính để lọc thêm")
+        c.font = F(False, 11, "999999", italic=True); c.fill = BG("F5F5F5")
+        c.alignment = AL("center"); c.border = BD()
+
+        # Momentum — col headers at b0+1, data from b0+2
+        _ch(b0 + 1, RC); _div(b0 + 1)
+        for i, (_, row) in enumerate(mom_rows):
+            r = b0 + 2 + i; _div(r)
+            _stock(r, RC, row, "EBF5FB" if i % 2 == 0 else "FFFFFF")
+        for i in range(len(mom_rows), bot_n):
+            r = b0 + 2 + i; _div(r); _pad(r, RC, "F0F8FF")
 
 
 def _main_sheet(wb, df, market, top):
