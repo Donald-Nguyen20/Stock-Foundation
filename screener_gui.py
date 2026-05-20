@@ -112,6 +112,7 @@ TABLE_COLS = [
     ("N",           "CS_N",         32,  Qt.AlignCenter | Qt.AlignVCenter),
     ("MKT",         "CS_MKT",       40,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Score",       "CS_Score",     52,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Conviction",  "Conviction",   70,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Signal",      "CS_Signal",   118,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
@@ -160,6 +161,7 @@ QC_COLS = [
     ("DE",        "QC_DE",         38,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Moat✓",     "QC_MOAT",       45,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Score",     "QC_Score",      55,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Conviction","Conviction",    70,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Quality",   "QC_Signal",    138,  Qt.AlignCenter | Qt.AlignVCenter),
     ("EQ",        "EQ_Badge",     118,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
@@ -173,12 +175,13 @@ def compute_qc_score(row: dict) -> dict:
       Op Mgn > 15% — operational leverage / pricing power
       GM > 40%     — structural margin advantage
       FCF/sh > 0   — actually generating free cash (not just accounting profit)
-      D/E < 1.0    — clean balance sheet
+      D/E < 1.0    — clean balance sheet (skip for Financial Services)
       Moat Wide/Narrow — confirmed competitive advantage
     """
     result = {}
     score  = 0
     moat_good = {"WIDE  ★★★", "NARROW ★★"}
+    is_financial = row.get("Sector", "") == "Financial Services"
 
     for key, field, op, thr in [
         ("QC_ROIC", "ROIC%",         "gt", 15),
@@ -187,6 +190,9 @@ def compute_qc_score(row: dict) -> dict:
         ("QC_FCF",  "FCF/sh",        "gt", 0),
         ("QC_DE",   "D/E",           "lt", 1.0),
     ]:
+        if key == "QC_DE" and is_financial:
+            result[key] = None  # D/E không áp dụng cho banks/insurance
+            continue
         val = row.get(field)
         if val is None or (isinstance(val, float) and pd.isna(val)):
             result[key] = None
@@ -552,9 +558,9 @@ class ScanWorker(QThread):
                     time.sleep(0.3)
 
             self.progress.emit(f"Fetching market direction ({_MKT_INDEX.get(self.market.lower(), ('','SP:SPX'))[1]})…")
-            market_ok = fetch_market_direction(self.market)
+            market_ok, index_1y = fetch_market_direction(self.market)
             self.progress.emit("Applying CAN SLIM scoring…")
-            df = score_canslim(df, moat_cache, market_ok=market_ok)
+            df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -583,8 +589,8 @@ class TickerWorker(QThread):
             proxy, score, w52_pct, eq_badge = fetch_moat_yfinance(
                 self.ticker, df["Sector"].iloc[0] if "Sector" in df.columns else "")
             moat_cache = {self.ticker: (proxy, score, w52_pct, eq_badge)}
-            market_ok = fetch_market_direction(self.market)
-            df = score_canslim(df, moat_cache, market_ok=market_ok)
+            market_ok, index_1y = fetch_market_direction(self.market)
+            df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -1066,14 +1072,14 @@ class HelpDialog(QDialog):
                   <td style="color:{fg};font-size:12px;padding:10px 14px;">{desc}</td>
                 </tr>"""
             for icon, label, score, fg, bg, desc in [
-                ("🟢", "STRONG BUY", f"≥{round(N_CS*0.875)} / {N_CS}", "#1A5C2B", "#C6EFCE",
-                 "Đạt ≥87.5% tiêu chí. Nền tảng cơ bản + kỹ thuật đều mạnh. Ưu tiên theo dõi và cân nhắc mua."),
+                ("🟢", "STRONG BUY", f"≥{round(N_CS*0.80)} / {N_CS}", "#1A5C2B", "#C6EFCE",
+                 f"Đạt ≥80% tiêu chí (≥{round(N_CS*0.80)}/{N_CS} điểm). Nền tảng cơ bản + kỹ thuật đều mạnh. Đây là nhóm ưu tiên cao nhất — tất cả tiêu chí quan trọng đều đạt."),
                 ("🔵", "BUY",        f"≥{round(N_CS*0.625)} / {N_CS}", "#1B3A5C", "#DDEEFF",
-                 "Đạt ≥62.5% tiêu chí. Nền tảng tốt, đáng xem xét nhưng kiểm tra thêm tiêu chí còn thiếu."),
+                 f"Đạt ≥62.5% tiêu chí (≥{round(N_CS*0.625)}/{N_CS} điểm). Nền tảng tốt, một vài tiêu chí chưa đạt. Đáng xem xét nhưng cần kiểm tra kỹ tiêu chí còn thiếu trước khi vào tiền."),
                 ("🟡", "WATCH",      f"≥{round(N_CS*0.375)} / {N_CS}", "#7D6608", "#FFF2CC",
-                 "Đạt ≥37.5% tiêu chí. Tiềm năng nhưng chưa đủ điều kiện. Đưa vào watchlist, chờ cải thiện."),
+                 f"Đạt ≥37.5% tiêu chí (≥{round(N_CS*0.375)}/{N_CS} điểm). Tiềm năng nhưng chưa đủ điều kiện. Đưa vào watchlist, scan lại sau 2–4 tuần để xem có cải thiện không."),
                 ("🔴", "SKIP",       f"< {round(N_CS*0.375)} / {N_CS}", "#9C0006", "#FFC7CE",
-                 "Không đủ điều kiện theo CAN SLIM. Bỏ qua hoặc chờ fundamental xoay chiều."),
+                 f"Dưới {round(N_CS*0.375)}/{N_CS} điểm. Không đủ điều kiện CAN SLIM — bỏ qua. Không nên ép mua chỉ vì thích tên công ty; chờ fundamental xoay chiều rõ ràng."),
             ]
         ])
 
@@ -1191,6 +1197,79 @@ class HelpDialog(QDialog):
             ]
         ])
 
+        _sb = round(N_CS * 0.80); _buy = round(N_CS * 0.625)
+        conviction_html = f"""<h2>③ CONVICTION — ĐIỂM TỰ TIN TỔNG HỢP</h2>
+<p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">
+  Cột <b style="color:#4FC3F7;">Conviction</b> xuất hiện trong cả hai tab (CAN SLIM và Quality Compounder),
+  đứng ngay sau cột <b>Score</b> và trước cột <b>Signal</b>. Đây là
+  <b>CS&nbsp;Score đã điều chỉnh theo chất lượng hào kinh tế (Moat)</b>
+  — phản ánh mức độ tự tin của hệ thống vào tín hiệu, không chỉ dựa vào momentum thuần túy.
+  Cùng CS&nbsp;Score nhưng Moat khác nhau → Conviction khác nhau → mức ưu tiên khác nhau.
+</p>
+<p style="color:#DCE4EE;font-size:12px;margin:0 0 4px 0;font-weight:700;">Công thức:</p>
+<p style="color:#4FC3F7;font-size:13px;font-family:Consolas,monospace;
+          background:#0D1C2E;padding:8px 14px;border-radius:4px;margin:0 0 12px 0;">
+  Conviction&nbsp; = &nbsp;CS_Score &nbsp;×&nbsp; Moat_Multiplier
+</p>
+<table>
+  <tr>
+    <th style="width:155px;">Moat Score</th>
+    <th style="width:110px;">Hệ số nhân</th>
+    <th style="width:155px;">Conviction tối đa</th>
+    <th>Ý nghĩa</th>
+  </tr>
+  <tr style="background-color:#C6EFCE;">
+    <td style="color:#1A5C2B;font-weight:700;font-size:12px;padding:9px 13px;">WIDE ★★★</td>
+    <td style="color:#1A5C2B;font-weight:700;padding:9px 13px;text-align:center;">× 1.2</td>
+    <td style="color:#1A5C2B;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*1.2, 1)}&nbsp; (CS = {N_CS})</td>
+    <td style="color:#0D2010;font-size:12px;padding:9px 13px;">Hệ thống rất tự tin: momentum mạnh + lợi thế cạnh tranh bền vững. Ưu tiên cao nhất — đây là nhóm đáng nghiên cứu đầu tiên.</td>
+  </tr>
+  <tr style="background-color:#DDEEFF;">
+    <td style="color:#1B3A5C;font-weight:700;font-size:12px;padding:9px 13px;">NARROW ★★</td>
+    <td style="color:#1B3A5C;font-weight:700;padding:9px 13px;text-align:center;">× 1.1</td>
+    <td style="color:#1B3A5C;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*1.1, 1)}&nbsp; (CS = {N_CS})</td>
+    <td style="color:#0D1C30;font-size:12px;padding:9px 13px;">Tự tin cao: moat tốt nhưng hẹp hơn WIDE. Duy trì được 5–10 năm. Cần theo dõi áp lực cạnh tranh ngành định kỳ.</td>
+  </tr>
+  <tr style="background-color:#FFF2CC;">
+    <td style="color:#7D6608;font-weight:700;font-size:12px;padding:9px 13px;">UNCERTAIN ★</td>
+    <td style="color:#7D6608;font-weight:700;padding:9px 13px;text-align:center;">× 1.0</td>
+    <td style="color:#7D6608;font-weight:700;padding:9px 13px;text-align:center;">{float(N_CS):.1f}&nbsp; (CS = {N_CS})</td>
+    <td style="color:#3D2E00;font-size:12px;padding:9px 13px;">Bằng CS&nbsp;Score thuần: chưa xác định được moat. Cần phân tích định tính thêm về mô hình kinh doanh, sản phẩm, ban lãnh đạo.</td>
+  </tr>
+  <tr style="background-color:#FFC7CE;">
+    <td style="color:#9C0006;font-weight:700;font-size:12px;padding:9px 13px;">WEAK</td>
+    <td style="color:#9C0006;font-weight:700;padding:9px 13px;text-align:center;">× 0.85</td>
+    <td style="color:#9C0006;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*0.85, 1)}&nbsp; (CS = {N_CS})</td>
+    <td style="color:#5C0000;font-size:12px;padding:9px 13px;">Giảm điểm: không có lợi thế cạnh tranh. CS cao nhưng Conviction thấp = momentum ngắn hạn, dễ đảo chiều khi thị trường yếu. Thận trọng hơn khi vào tiền.</td>
+  </tr>
+</table>
+<p style="color:#DCE4EE;font-size:12px;margin:10px 0 5px 0;font-weight:700;">Ví dụ thực tế — hai cổ phiếu cùng CS&nbsp;Score = 8:</p>
+<table>
+  <tr>
+    <th style="width:80px;">Cổ phiếu</th>
+    <th style="width:90px;">CS&nbsp;Score</th>
+    <th style="width:140px;">Moat</th>
+    <th style="width:120px;">Conviction</th>
+    <th>Nhận xét</th>
+  </tr>
+  <tr style="background-color:#0E1220;">
+    <td style="color:#4FC3F7;font-weight:700;padding:8px 13px;">Cổ A</td>
+    <td style="color:#DCE4EE;padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
+    <td style="color:#1A5C2B;font-weight:700;padding:8px 13px;">WIDE ★★★</td>
+    <td style="color:#34C472;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*1.2, 1)}</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 13px;">Mạnh cả ngắn hạn (CS) lẫn dài hạn (Moat) → ưu tiên nghiên cứu sâu</td>
+  </tr>
+  <tr style="background-color:#0B0E18;">
+    <td style="color:#4FC3F7;font-weight:700;padding:8px 13px;">Cổ B</td>
+    <td style="color:#DCE4EE;padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
+    <td style="color:#9C0006;font-weight:700;padding:8px 13px;">WEAK</td>
+    <td style="color:#FFC7CE;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*0.85, 1)}</td>
+    <td style="color:#DCE4EE;font-size:12px;padding:8px 13px;">Momentum tốt nhưng không có nền tảng bền vững → dễ bị xói mòn, theo dõi sát hơn</td>
+  </tr>
+</table>
+<p class="tip">💡 Khi hai mã có CS&nbsp;Score gần bằng nhau, dùng <b>Conviction</b> để phân biệt: mã nào Conviction cao hơn thì hệ thống tự tin hơn cả ngắn lẫn dài hạn.
+Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat ước tính từ TTM ROE&amp;GM nên Conviction kém chính xác hơn.</p>"""
+
         return f"""<html><head><style>
   body  {{ background-color:#0B0E18; color:#DCE4EE;
            font-family:'Segoe UI',sans-serif; font-size:13px;
@@ -1236,9 +1315,11 @@ class HelpDialog(QDialog):
   </tr>
   {signal_rows}
 </table>
-<p class="tip">Score = số tiêu chí đạt được (tối đa {N_CS}). ✓ = đạt (+1 điểm) · ✗ = không đạt · — = thiếu dữ liệu (không tính vào score).</p>
+<p class="tip">Score = số tiêu chí đạt được (tối đa {N_CS}). ✓ = đạt (+1 điểm) · ✗ = không đạt · — = thiếu dữ liệu (không tính vào score). Signal dựa trên Score: STRONG BUY ≥{round(N_CS*0.80)}, BUY ≥{round(N_CS*0.625)}, WATCH ≥{round(N_CS*0.375)}, SKIP &lt;{round(N_CS*0.375)}.</p>
 
-<h2>③ QUALITY COMPOUNDER — 6 TIÊU CHÍ CHẤT LƯỢNG BỀN VỮNG</h2>
+{conviction_html}
+
+<h2>④ QUALITY COMPOUNDER — 6 TIÊU CHÍ CHẤT LƯỢNG BỀN VỮNG</h2>
 <p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">Tab <b style="color:#34C472;">Quality Compounder</b> tìm doanh nghiệp có khả năng tăng trưởng kép bền vững dài hạn — không chỉ tốt về momentum mà còn mạnh về chất lượng nền tảng.</p>
 <table>
   <tr>
@@ -1251,7 +1332,7 @@ class HelpDialog(QDialog):
 </table>
 <p class="tip">⚠  Tiêu chí MOAT yêu cầu bật "yfinance Moat" để có dữ liệu 5 năm chính xác. Khi tắt, Moat được ước tính từ TTM ROE &amp; GM.</p>
 
-<h2>④ QUALITY COMPOUNDER SIGNAL</h2>
+<h2>⑤ QUALITY COMPOUNDER SIGNAL</h2>
 <table>
   <tr>
     <th style="width:160px;">Tín hiệu</th>
@@ -1262,7 +1343,7 @@ class HelpDialog(QDialog):
 </table>
 <p class="tip">Score = số trong 6 tiêu chí đạt. Quick Filter "🟢 STRONG BUY" trên tab Quality Compounder sẽ lọc cột 🏆 COMPOUNDER.</p>
 
-<h2>⑤ EQ BADGE — CHẤT LƯỢNG LỢI NHUẬN (Earnings Quality)</h2>
+<h2>⑥ EQ BADGE — CHẤT LƯỢNG LỢI NHUẬN (Earnings Quality)</h2>
 <p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">
   Cột <b style="color:#4DB6AC;">EQ</b> trong bảng Quality Compounder trả lời câu hỏi:
   <b style="color:#FFFFFF;">Lợi nhuận công ty báo cáo có phải là tiền mặt thực hay chỉ là con số kế toán?</b>
@@ -1328,7 +1409,7 @@ class HelpDialog(QDialog):
 <p class="tip">⚠  EQ Badge dùng số liệu <b>năm tài chính gần nhất</b> (annual, không phải TTM quarterly).
 Một số ngành có FCF tự nhiên thấp hơn Net Income do capex lớn (bán dẫn, pharma R&amp;D) — cần so sánh trong ngành, không áp dụng ngưỡng cứng cho mọi sector.</p>
 
-<h2>⑥ MOAT SCORE — LỢI THẾ CẠNH TRANH (Economic Moat)</h2>
+<h2>⑦ MOAT SCORE — LỢI THẾ CẠNH TRANH (Economic Moat)</h2>
 <table>
   <tr>
     <th style="width:160px;">Moat</th>
@@ -1340,7 +1421,7 @@ Một số ngành có FCF tự nhiên thấp hơn Net Income do capex lớn (bá
 <p class="tip">Moat Score dựa trên ROE 5yr avg + GM 5yr avg từ yfinance (hoặc TTM từ TradingView nếu tắt checkbox).
 Khi tắt "yfinance Moat", dùng TV TTM ROE &amp; GM thay thế (nhanh hơn nhưng kém chính xác hơn).</p>
 
-<h2>⑦ MOAT PROXY — LOẠI LỢI THẾ CẠNH TRANH</h2>
+<h2>⑧ MOAT PROXY — LOẠI LỢI THẾ CẠNH TRANH</h2>
 <p style="color:#DCE4EE;font-size:12px;margin:0 0 9px 0;">Moat Proxy được gán tự động theo <b>ngành (Sector)</b> của cổ phiếu.</p>
 <table>
   <tr>
@@ -1361,21 +1442,27 @@ Khi tắt "yfinance Moat", dùng TV TTM ROE &amp; GM thay thế (nhanh hơn như
 <p class="tip">Moat Proxy chỉ là ước tính định tính theo ngành — không thay thế phân tích sâu từng công ty.
 Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
 
-<h2>⑧ CÁCH SỬ DỤNG</h2>
+<h2>⑨ CÁCH SỬ DỤNG</h2>
 <ul>
-  <li><b>SCAN</b> — Lấy top N cổ phiếu theo Market Cap từ TradingView. Tự động tính CAN SLIM score và Quality Compounder score cho tất cả.</li>
-  <li><b>Tab CAN SLIM / Quality Compounder</b> — Chuyển tab để xem hai góc nhìn khác nhau trên cùng một bộ dữ liệu. Chart panel bên phải dùng chung.</li>
-  <li><b>yfinance Moat</b> — Bật để lấy ROE/GM 5 năm từ yfinance cho Moat chính xác hơn, đồng thời tính <b>EQ Badge</b> (chất lượng lợi nhuận FCF/NI) cho tab Quality Compounder. Chậm hơn ~0.3 giây/cổ phiếu.</li>
-  <li><b>TICKER lookup</b> — Nhập mã (ví dụ: NVDA) rồi Enter hoặc nhấn LOOKUP để tra cứu ngay mà không cần scan toàn bộ.</li>
-  <li><b>FILTER</b> — Gõ vào ô filter để lọc bảng đang hiển thị theo ticker hoặc tên công ty theo thời gian thực.</li>
-  <li><b>Quick Filter chips</b> — Lọc nhanh STRONG BUY (hoặc COMPOUNDER ở tab QC), Moat, 1Y%, 52W High. Dùng nút ✕ để xóa tất cả.</li>
-  <li><b>Click vào hàng</b> — Xem breakdown chi tiết (✓/✗ từng tiêu chí) ở panel phía dưới bảng. Chart tự động tải.</li>
-  <li><b>Sort</b> — Click vào tiêu đề cột để sắp xếp. Cột số sắp xếp đúng theo giá trị số, không phải theo chữ.</li>
-  <li><b>Export</b> — Xuất Excel với các sheet: <b>Data</b> (toàn bộ), <b>Quality Compounder</b>, <b>Financials</b> (nếu bật yfinance), <b>Dashboard</b>. Thanh tiến trình xanh hiện trong status bar — UI không bị đơ. Xem hướng dẫn đọc Dashboard ở phần ⑨.</li>
+  <li><b>SCAN</b> — Lấy top N cổ phiếu theo Market Cap từ TradingView. Tự động tính CAN SLIM Score, Conviction, Quality Compounder Score cho tất cả. Sau khi scan xong, kết quả hiển thị ngay trong bảng.</li>
+  <li><b>Tab CAN SLIM</b> — Hiển thị tất cả cổ phiếu với 10 tiêu chí (C/A/S/L/Q/R/M/D/N/MKT), CS Score, Conviction và Signal. Click vào tiêu đề cột để sort. Cột Conviction nằm sau Score — dùng cột này để ưu tiên khi nhiều mã có cùng Signal.</li>
+  <li><b>Tab Quality Compounder</b> — Góc nhìn dài hạn: ROIC, Op Margin, Gross Margin, FCF/sh, D/E, Moat. Cũng có cột Conviction. Hai tab dùng chung chart panel bên phải.</li>
+  <li><b>yfinance Moat</b> — Bật checkbox này trước khi SCAN để:
+    (1) Tính Moat chính xác từ ROE/GM trung bình 5 năm (thay vì chỉ TTM),
+    (2) Tính <b>Conviction</b> chính xác hơn (WIDE/NARROW/WEAK có cơ sở thực tế),
+    (3) Tính <b>EQ Badge</b> (chất lượng lợi nhuận FCF/Net Income).
+    Chậm hơn ~0.3 giây/cổ phiếu do gọi API yfinance.
+  </li>
+  <li><b>TICKER lookup</b> — Nhập mã (ví dụ: NVDA, AAPL) vào ô Ticker rồi Enter hoặc nhấn LOOKUP. Hữu ích khi muốn tra nhanh 1–2 mã mà không cần scan toàn bộ.</li>
+  <li><b>FILTER</b> — Gõ vào ô filter để lọc bảng theo Ticker hoặc tên công ty theo thời gian thực. Ví dụ: gõ "tech" để chỉ hiện các công ty có "tech" trong tên.</li>
+  <li><b>Quick Filter chips</b> — Lọc nhanh theo nhóm: STRONG BUY / COMPOUNDER (tab QC), Moat Wide/Narrow, 1Y%&gt;50, 52W High&gt;90%. Dùng nút ✕ để bỏ filter.</li>
+  <li><b>Click vào hàng</b> — Xem breakdown chi tiết: ✓/✗ từng tiêu chí, giải thích từng chỉ số, và chart tự động tải bên phải. Đây là cách nhanh nhất để hiểu tại sao một mã đạt/không đạt.</li>
+  <li><b>Sort</b> — Click tiêu đề cột để sort. Cột số (CS Score, Conviction, 1Y%...) sort theo giá trị số, không phải chữ. Click 2 lần để đảo chiều.</li>
+  <li><b>Export</b> — Xuất Excel với các sheet: <b>Data</b> (toàn bộ), <b>Quality Compounder</b>, <b>Financials</b> (nếu bật yfinance — biểu đồ EPS/Revenue từng công ty), <b>Dashboard</b> (tóm tắt). Thanh tiến trình xanh ở status bar — UI không bị đơ trong lúc xuất. Xem hướng dẫn đọc Dashboard ở phần ⑩.</li>
   <li><b>F1</b> — Mở màn hình hướng dẫn này bất cứ lúc nào.</li>
 </ul>
 
-<h2>⑨ DASHBOARD EXCEL — HƯỚNG DẪN ĐỌC ĐẦY ĐỦ</h2>
+<h2>⑩ DASHBOARD EXCEL — HƯỚNG DẪN ĐỌC ĐẦY ĐỦ</h2>
 
 <p style="color:#7A8899;font-size:12px;margin:0 0 14px 0;">
   Sheet <b style="color:#3D8EF0;">Dashboard</b> là bản tóm tắt toàn bộ kết quả scan, được thiết kế để đọc
@@ -1664,7 +1751,7 @@ Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
   <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Dùng dữ liệu cũ</b> — Dashboard phản ánh thời điểm scan gần nhất. Thị trường thay đổi nhanh — scan lại ít nhất mỗi tuần 1 lần.</li>
 </ul>
 
-<p class="tip">⚠ Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b>. Thanh tiến trình xanh ở status bar cho biết quá trình xuất — UI không bị đơ. Dữ liệu phản ánh thời điểm scan gần nhất.</p>
+<p class="tip">⚠ Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b>. Thanh tiến trình xanh ở status bar cho biết quá trình xuất — UI không bị đơ. Dữ liệu phản ánh thời điểm scan gần nhất — nên scan lại ít nhất mỗi tuần 1 lần để cập nhật thị trường.</p>
 </body></html>"""
 
 

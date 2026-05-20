@@ -4,18 +4,30 @@ __pycache__/
 *.pyo
 *.pyd
 *.pycache
+*.egg-info/
+*.egg
+MANIFEST
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environment
 venv/
 .venv/
 env/
 .env
+.env.*
 
 # IDE
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
+*.swp
+*.swo
+*~
 
 # Claude Code memory
 .claude/
@@ -24,6 +36,7 @@ env/
 build/
 dist/
 *.spec.bak
+*.manifest
 
 # Output / generated files
 *.xlsx
@@ -31,6 +44,15 @@ dist/
 *.csv
 *.log
 *.tmp
+*.bak
+
+# Office documents & markdown nội bộ (hướng dẫn, tài liệu)
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.pdf
+*.md
 
 # Office lock files (Word/Excel open temp files)
 ~$*
@@ -40,3 +62,5 @@ dist/
 Thumbs.db
 desktop.ini
 ehthumbs.db
+$RECYCLE.BIN/
+*.lnk

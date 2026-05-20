@@ -30,7 +30,7 @@ CANSLIM = {
     "C":   dict(label="C — EPS Qtr",   field="EPS Qtr%",      thr=25,  op="gt", desc="EPS Quarterly YoY > 25%"),
     "A":   dict(label="A — EPS Ann",   field="EPS Annual%",   thr=20,  op="gt", desc="EPS Annual YoY > 20%"),
     "S":   dict(label="S — Sales",     field="Rev Qtr%",      thr=20,  op="gt", desc="Revenue Quarterly YoY > 20%"),
-    "L":   dict(label="L — RS (1Y)",   field="1Y%",           thr=20,  op="gt", desc="1-Year Perf > 20% (RS proxy)"),
+    "L":   dict(label="L — RS (vs Idx)", field="RS_1Y%",        thr=0,   op="gt", desc="1Y outperform market index"),
     "Q":   dict(label="Quality GM",    field="Gross Margin%", thr=40,  op="gt", desc="Gross Margin > 40%"),
     "R":   dict(label="ROE",           field="ROE%",          thr=17,  op="gt", desc="ROE > 17%"),
     "M":   dict(label="Momentum 3M",   field="3M%",           thr=0,   op="gt", desc="3-Month Perf > 0%"),
@@ -285,22 +285,25 @@ _MKT_INDEX = {
 }
 
 def fetch_market_direction(market="america"):
-    """True nếu index thị trường đang trên MA50 và MA200, False nếu không, None nếu lỗi."""
+    """Returns (market_ok, index_1y).
+    market_ok: True nếu index trên MA50 & MA200; index_1y: % 1-year perf của index."""
     import requests
     tv_market, ticker = _MKT_INDEX.get(market.lower(), ("america", "SP:SPX"))
     try:
         r = requests.post(
             f"https://scanner.tradingview.com/{tv_market}/scan",
             json={"symbols": {"tickers": [ticker], "query": {"types": []}},
-                  "columns": ["close", "SMA50", "SMA200"]},
+                  "columns": ["close", "SMA50", "SMA200", "Perf.Y"]},
             timeout=10)
         d = r.json()["data"][0]["d"]
-        price, ma50, ma200 = d[0], d[1], d[2]
+        price, ma50, ma200, perf_y = d[0], d[1], d[2], d[3]
         if price is None or ma50 is None or ma200 is None:
-            return None
-        return float(price) > float(ma50) and float(price) > float(ma200)
+            return None, None
+        market_ok = float(price) > float(ma50) and float(price) > float(ma200)
+        index_1y = float(perf_y) if perf_y is not None else None
+        return market_ok, index_1y
     except Exception:
-        return None
+        return None, None
 
 
 # ─── Colors ─────────────────────────────────────────────────────────────────
@@ -329,7 +332,7 @@ def CL(i): return get_column_letter(i)
 # ═══════════════════════════════════════════════════════════════
 # SCORING
 # ═══════════════════════════════════════════════════════════════
-def score_canslim(df, moat_cache: dict = None, market_ok=None):
+def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
     # Populate 52W_High% from moat_cache (3rd element of tuple)
     if moat_cache:
         def _get_w52(ticker):
@@ -339,11 +342,19 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None):
     else:
         df["52W_High%"] = None
 
+    # Relative Strength vs index for L criterion
+    if index_1y is not None and "1Y%" in df.columns:
+        df["RS_1Y%"] = df["1Y%"] - index_1y
+    else:
+        df["RS_1Y%"] = df["1Y%"] if "1Y%" in df.columns else None
+
     # Market direction — same value for all rows
     df["Market_OK"] = market_ok
 
     def chk(row, key):
         cfg = CANSLIM[key]
+        if key == "D" and row.get("Sector", "") == "Financial Services":
+            return None  # D/E không áp dụng cho ngành tài chính (banks/insurance dùng leverage cấu trúc)
         v = row.get(cfg["field"])
         if v is None or (isinstance(v, float) and pd.isna(v)): return None
         return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
@@ -355,7 +366,7 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None):
         lambda r: sum(1 for v in r if v is True), axis=1)
 
     def sig(s):
-        if s >= round(N_CS * 0.875): return "🟢 STRONG BUY"
+        if s >= round(N_CS * 0.80): return "🟢 STRONG BUY"
         if s >= round(N_CS * 0.625): return "🔵 BUY"
         if s >= round(N_CS * 0.375): return "🟡 WATCH"
         return "🔴 SKIP"
@@ -538,15 +549,19 @@ def _financials_sheet(wb, df, progress_cb=None):
                            "Total Equity Gross Minority Interest")
 
             def _roe_map(ni_s, eq_s, annualize=False):
-                common = ni_s.index.intersection(eq_s.index)
+                ni_sorted = ni_s.sort_index()
+                eq_sorted = eq_s.sort_index()
+                # TTM rolling: sum 4 quarters instead of multiplying 1 quarter × 4
+                ni_use = ni_sorted.rolling(4, min_periods=1).sum() if annualize else ni_sorted
+                common = ni_use.index.intersection(eq_sorted.index)
                 out = {}
                 for dt in common:
-                    ni = float(ni_s.loc[dt]); eq = float(eq_s.loc[dt])
+                    ni = float(ni_use.loc[dt]); eq = float(eq_sorted.loc[dt])
                     if pd.notna(ni) and pd.notna(eq) and eq != 0:
-                        out[dt] = ni / abs(eq) * (4 if annualize else 1)
+                        out[dt] = ni / abs(eq)
                 return out
 
-            qtr_roe = _roe_map(qtr_ni.tail(N_QTR), qtr_eq.tail(N_QTR), annualize=True)
+            qtr_roe = _roe_map(qtr_ni, qtr_eq.tail(N_QTR), annualize=True)  # full qtr_ni so rolling has enough history
             ann_roe = _roe_map(ann_ni.dropna().tail(N_YR), ann_eq.dropna().tail(N_YR))
 
             qcf = yft.quarterly_cashflow
@@ -898,7 +913,7 @@ def _dashboard_sheet(wb, df):
     risk_1m = int((df["1M%"].fillna(0) < -10).sum()) if "1M%"  in df.columns else 0
     ws.merge_cells("A10:X10")
     c = ws.cell(10, 1,
-        f"⚠️  RISK FLAGS:   D/E > 1: {risk_de} m\xe3   |   P/E > 50: {risk_pe} m\xe3   |   1M% < −10%: {risk_1m} m\xe3")
+        f"⚠️  RISK FLAGS:   D/E > 1: {risk_de} mã   |   P/E > 50: {risk_pe} mã   |   1M% < −10%: {risk_1m} mã")
     c.font = F(True, 9, "9C6500"); c.fill = BG("FFF2CC"); c.alignment = AL()
     ws.row_dimensions[10].height = 18
     ws.row_dimensions[11].height = 8
@@ -1146,14 +1161,17 @@ def _dashboard_sheet(wb, df):
         # Breakout: gần 52W High (≥90%) + CS Score cao
         brk = []
         if "52W_High%" in df.columns and "CS_Score" in df.columns:
-            tmp = (df[
-                (df["52W_High%"] >= 90) &
-                (df["CS_Score"] >= 7)
-            ].sort_values(["CS_Score", "52W_High%"], ascending=[False, False]))
-            brk = [(r["Ticker"],
-                    f"52W {r['52W_High%']:.1f}% | CS {int(r['CS_Score'])}",
-                    r.get("Sector",""))
-                   for _, r in tmp.iterrows()]
+            if df["52W_High%"].isna().all():
+                brk = [("—", "52W High% N/A — chạy không có --no-yf để lấy dữ liệu", "yfinance off")]
+            else:
+                tmp = (df[
+                    (df["52W_High%"] >= 90) &
+                    (df["CS_Score"] >= 7)
+                ].sort_values(["CS_Score", "52W_High%"], ascending=[False, False]))
+                brk = [(r["Ticker"],
+                        f"52W {r['52W_High%']:.1f}% | CS {int(r['CS_Score'])}",
+                        r.get("Sector",""))
+                       for _, r in tmp.iterrows()]
 
         return mom, qua, val, brk
 
@@ -1383,18 +1401,23 @@ def _main_sheet(wb, df, market, top):
     ws = wb.active; ws.title = f"Top{top}"
     ws.sheet_view.showGridLines = False
     bdr = BD(); nd = len(DATA_HEADERS)
-    CS_START = nd + 1
-    CI_SCORE  = CS_START + N_CS
-    CI_SIGNAL = CS_START + N_CS + 1
-    TOTAL     = CI_SIGNAL
+    CS_START    = nd + 1
+    CI_SCORE    = CS_START + N_CS
+    CI_CONV     = CS_START + N_CS + 1
+    CI_SIGNAL   = CS_START + N_CS + 2
+    TOTAL       = CI_SIGNAL
     DR = 5
+
+    # Sort theo CS_Score → Conviction giảm dần để mã tốt nhất lên đầu
+    sort_cols = [c for c in ["CS_Score", "Conviction"] if c in df.columns]
+    df = df.sort_values(sort_cols, ascending=[False] * len(sort_cols)).reset_index(drop=True) if sort_cols else df
 
     ws.merge_cells(f"A1:{CL(TOTAL)}1")
     c = ws["A1"]; c.value = f"📊  TOP {top} {market.upper()}  —  FUNDAMENTAL + CAN SLIM SCREENER"
     c.font = F(True,15,C_WHITE); c.fill = BG(C_DARK); c.alignment = AL(); ws.row_dimensions[1].height = 32
 
     ws.merge_cells(f"A2:{CL(TOTAL)}2")
-    c = ws["A2"]; c.value = f"Source: TradingView + yfinance (Moat)   |   {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Sorted by Market Cap ↓"
+    c = ws["A2"]; c.value = f"Source: TradingView + yfinance (Moat)   |   {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Sorted by CS Score ↓"
     c.font = F(False,8,"88AACC",True); c.fill = BG(C_DARK); c.alignment = AL(); ws.row_dimensions[2].height = 16
 
     groups = [
@@ -1407,6 +1430,7 @@ def _main_sheet(wb, df, market, top):
         (19,23,"PERFORMANCE","0E3251"),
         (CS_START, CI_SCORE-1, "✅  CAN SLIM  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
         (CI_SCORE, CI_SCORE, "SCORE", "0D3B1A"),
+        (CI_CONV, CI_CONV, "CONVICTION", "0D3B1A"),
         (CI_SIGNAL, CI_SIGNAL, "SIGNAL", "0D3B1A"),
     ]
     ws.row_dimensions[3].height = 14
@@ -1423,7 +1447,7 @@ def _main_sheet(wb, df, market, top):
         ci = CS_START + i
         c = ws.cell(4,ci,CANSLIM[key]["label"])
         c.font=F(True,8,C_WHITE); c.fill=BG("1A5C2B"); c.alignment=AL(wrap=True); c.border=bdr
-    for ci, lbl in [(CI_SCORE,f"Score\n/{N_CS}"), (CI_SIGNAL,"Signal")]:
+    for ci, lbl in [(CI_SCORE,f"Score\n/{N_CS}"), (CI_CONV,"Conviction"), (CI_SIGNAL,"Signal")]:
         c = ws.cell(4,ci,lbl); c.font=F(True,9,C_WHITE); c.fill=BG("0D3B1A"); c.alignment=AL(wrap=True); c.border=bdr
 
     for ri, (_, row) in enumerate(df.iterrows(), 1):
@@ -1471,6 +1495,14 @@ def _main_sheet(wb, df, market, top):
         elif pct>=0.375: c.fill=BG(CY_BG); c.font=F(True,11,CY_FG)
         else:            c.fill=BG(CR_BG); c.font=F(True,11,CR_FG)
 
+        cv = row.get("Conviction", sc); c = ws.cell(er, CI_CONV, cv)
+        c.border=bdr; c.alignment=AL(); c.number_format="0.0"
+        pct_cv = cv / (N_CS * 1.2)  # max conviction = N_CS × WIDE moat multiplier
+        if pct_cv>=0.75:  c.fill=BG(CG_BG); c.font=F(True,10,CG_FG)
+        elif pct_cv>=0.55: c.fill=BG(CB_BG); c.font=F(True,10,CB_FG)
+        elif pct_cv>=0.35: c.fill=BG(CY_BG); c.font=F(True,10,CY_FG)
+        else:              c.fill=BG(CR_BG); c.font=F(True,10,CR_FG)
+
         sig = row.get("CS_Signal",""); c = ws.cell(er,CI_SIGNAL,sig)
         c.border=bdr; c.alignment=AL()
         fg,bg = SIGNAL_STYLE.get(sig,("000000",C_WHITE))
@@ -1484,6 +1516,7 @@ def _main_sheet(wb, df, market, top):
         ws.column_dimensions[CL(ci)].width=w
     for i in range(N_CS): ws.column_dimensions[CL(CS_START+i)].width=9
     ws.column_dimensions[CL(CI_SCORE)].width=7
+    ws.column_dimensions[CL(CI_CONV)].width=9
     ws.column_dimensions[CL(CI_SIGNAL)].width=15
     for ri in range(DR, DR+len(df)): ws.row_dimensions[ri].height=16
 
@@ -1709,8 +1742,9 @@ def main():
     else:
         print("  ⚡ Bỏ qua yfinance — dùng TV TTM data cho Moat\n")
 
-    # 3. Score + Moat
-    df = score_canslim(df, moat_cache)
+    # 3. Market direction + Score + Moat
+    market_ok, index_1y = fetch_market_direction(a.market)
+    df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
 
     # Preview
     prev = ["Ticker","Moat Proxy","Moat Score","EPS Qtr%","ROE%","CS_Score","CS_Signal"]
