@@ -730,6 +730,23 @@ def _financials_sheet(wb, df, progress_cb=None):
 
         ws.row_dimensions[cur].height = 16; cur += 1
 
+        # ── Revenue YoY % row (so cùng kỳ năm ngoái — CAN SLIM chuẩn) ────
+        c = ws.cell(cur, C_LBL, "Rev YoY %")
+        c.font = F(True, 8, "0C4A6E"); c.fill = BG("BAE6FD")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        for i, v in enumerate(rv):
+            if i < 4 or not pd.notna(v) or not pd.notna(rv[i-4]) or rv[i-4] == 0:
+                continue
+            pct = (v - rv[i-4]) / abs(rv[i-4])
+            cell = ws.cell(cur, C_QTR0 + i, round(pct, 4))
+            cell.font = F(size=8, color="276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("BAE6FD"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+
+        ws.row_dimensions[cur].height = 16; cur += 1
+
         # ── EPS QoQ % row ─────────────────────────────────────────
         c = ws.cell(cur, C_LBL, "EPS QoQ %")
         c.font = F(True, 8, "276221"); c.fill = BG("D5F5E3")
@@ -753,6 +770,23 @@ def _financials_sheet(wb, df, progress_cb=None):
             cell = ws.cell(cur, C_YR0 + i, round(pct, 4))
             cell.font = F(True, 8, "276221" if pct >= 0 else "9C0006")
             cell.fill = BG("A9DFBF"); cell.alignment = AL(); cell.border = BD()
+            cell.number_format = '0.0%'
+
+        ws.row_dimensions[cur].height = 16; cur += 1
+
+        # ── EPS YoY % row (so cùng kỳ năm ngoái — CAN SLIM chuẩn) ───────
+        c = ws.cell(cur, C_LBL, "EPS YoY %")
+        c.font = F(True, 8, "14532D"); c.fill = BG("86EFAC")
+        c.alignment = AL("left"); c.border = BD()
+        ws.cell(cur, C_SEP).fill = BG("F0F4FA")
+
+        for i, v in enumerate(ev):
+            if i < 4 or not pd.notna(v) or not pd.notna(ev[i-4]) or ev[i-4] == 0:
+                continue
+            pct = (v - ev[i-4]) / abs(ev[i-4])
+            cell = ws.cell(cur, C_QTR0 + i, round(pct, 4))
+            cell.font = F(True, 8, "276221" if pct >= 0 else "9C0006")
+            cell.fill = BG("86EFAC"); cell.alignment = AL(); cell.border = BD()
             cell.number_format = '0.0%'
 
         ws.row_dimensions[cur].height = 16; cur += 1
