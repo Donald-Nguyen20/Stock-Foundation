@@ -171,7 +171,8 @@ def compute_qc_score(row: dict) -> dict:
     """Return QC pass/fail flags + Score + Signal for one stock row dict.
 
     Criteria (all sourced from TradingView):
-      ROIC > 15%   — earns above cost of capital (core compounder trait)
+      ROIC > 15%   — earns above cost of capital (non-financial)
+      ROE  > 12%   — replaces ROIC for Financial Services (leverage cấu trúc)
       Op Mgn > 15% — operational leverage / pricing power
       GM > 40%     — structural margin advantage
       FCF/sh > 0   — actually generating free cash (not just accounting profit)
@@ -181,7 +182,7 @@ def compute_qc_score(row: dict) -> dict:
     result = {}
     score  = 0
     moat_good = {"WIDE  ★★★", "NARROW ★★"}
-    is_financial = row.get("Sector", "") == "Financial Services"
+    is_financial = row.get("Sector", "") in ("Financial Services", "Finance")
 
     for key, field, op, thr in [
         ("QC_ROIC", "ROIC%",         "gt", 15),
@@ -192,6 +193,15 @@ def compute_qc_score(row: dict) -> dict:
     ]:
         if key == "QC_DE" and is_financial:
             result[key] = None  # D/E không áp dụng cho banks/insurance
+            continue
+        if key == "QC_ROIC" and is_financial:
+            # ROIC bị méo bởi leverage cấu trúc — dùng ROE > 12% thay thế
+            val = row.get("ROE%")
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                result[key] = None
+            else:
+                result[key] = val > 12
+                if result[key]: score += 1
             continue
         val = row.get(field)
         if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -541,8 +551,9 @@ class ScanWorker(QThread):
             df = clean_df(raw)
             self.progress.emit(f"Got {len(df)} stocks.")
 
+            _US_MARKETS = {"america", "nasdaq", "nyse"}
             moat_cache = None
-            if self.use_yf:
+            if self.use_yf and self.market.lower() in _US_MARKETS:
                 tickers = df["Ticker"].tolist()
                 sectors = dict(zip(df["Ticker"], df["Sector"].fillna("")))
                 moat_cache = {}
@@ -1036,22 +1047,59 @@ class HelpDialog(QDialog):
     def _html(self):
         ops = {"gt": ">", "lt": "<"}
         full_desc = {
-            "C": "EPS quý gần nhất tăng ≥25% so cùng kỳ năm trước. Tiêu chí quan trọng nhất — tăng trưởng lợi nhuận hiện tại phải mạnh và tăng tốc.",
-            "A": "EPS năm (FY) tăng ≥20% YoY. Xác nhận tăng trưởng bền vững qua nhiều năm, không phải chỉ một quý tốt đột biến.",
-            "S": "Doanh thu quý tăng ≥20% YoY. Đảm bảo EPS growth đến từ top-line thực sự, không phải từ cắt chi phí hay buyback.",
-            "L": "1-Year Performance >20% là proxy cho Relative Strength. Cổ phiếu dẫn đầu thường outperform index 12 tháng trước breakout.",
-            "Q": "Gross Margin >40% — dấu hiệu pricing power và lợi thế cạnh tranh. Công ty có thể bảo vệ biên lợi nhuận khi chi phí tăng.",
-            "R": "ROE >17% — hiệu quả sử dụng vốn chủ sở hữu. Bao nhiêu lợi nhuận tạo ra trên mỗi đồng equity của cổ đông.",
-            "M": "3-Month Performance >0% — giá đang trong xu hướng tăng ngắn hạn. Không mua cổ phiếu đang giảm (catching a falling knife).",
-            "D": "D/E <2.0 — kiểm soát đòn bẩy tài chính. Tránh công ty overleveraged, đặc biệt nguy hiểm khi lãi suất tăng cao.",
-            "N": "Price ≥90% of 52-Week High — cổ phiếu đang ở vùng sức mạnh dài hạn, gần đỉnh 52 tuần. O'Neil: mua cổ phiếu phá đỉnh, không phải đang trong downtrend.",
-            "MKT": "S&P 500 trên MA50 & MA200 — thị trường chung đang uptrend. Ngay cả cổ phiếu tốt cũng khó tăng khi thị trường correction.",
+            "C": ("<b>Tại sao?</b> EPS quý là tín hiệu sớm nhất — một công ty đang tăng tốc sẽ thể hiện ngay ở quý gần nhất trước khi số năm bắt kịp. "
+                  "Ngưỡng 25% loại bỏ những công ty chỉ tăng trưởng bình thường; O'Neil thống kê rằng phần lớn cổ phiếu tăng mạnh nhất trong lịch sử "
+                  "đều có EPS quý tăng ít nhất 25–50% trước breakout. <b>Nguồn:</b> TradingView — EPS diluted YoY growth FQ (so cùng quý năm trước)."),
+            "A": ("<b>Tại sao?</b> Một quý tốt có thể là may mắn; nhiều năm tốt liên tiếp là cấu trúc. Tiêu chí A xác nhận C không phải là điểm bất thường. "
+                  "Ngưỡng 20% (thấp hơn C một chút) vì tăng trưởng năm thường ổn định hơn quý, cộng thêm hiệu ứng base effect làm số năm dao động nhiều hơn. "
+                  "<b>Lưu ý:</b> EPS annual dễ bị méo bởi base effect (ví dụ: phục hồi từ năm lỗ → growth ảo 500–1000%) — cần kết hợp xem C và S."),
+            "S": ("<b>Tại sao?</b> EPS có thể tăng giả tạo từ cắt giảm chi phí, buyback cổ phiếu, hoặc thay đổi kế toán — nhưng doanh thu thì không. "
+                  "S đảm bảo tăng trưởng đến từ top-line thực sự: khách hàng đang mua nhiều hơn. O'Neil yêu cầu cả C lẫn S cùng tăng mạnh để loại bỏ "
+                  "công ty 'tối ưu hóa' lợi nhuận mà kinh doanh thực chất đang co lại."),
+            "L": ("<b>Tại sao?</b> O'Neil's L = Leader vs Laggard, đo bằng RS Rating 1–99 so toàn bộ thị trường. App dùng <b>proxy đơn giản hóa</b>: "
+                  "1Y% của cổ phiếu trừ 1Y% của index thị trường → nếu dương = outperform index. "
+                  "Ý nghĩa: cổ phiếu tốt nhất thường outperform thị trường 6–12 tháng trước khi breakout mạnh nhất — mua laggard là đang cưỡi ngựa chậm."),
+            "Q": ("<b>Tại sao?</b> Trong app này, Q được tái định nghĩa thành <b>Quality — Gross Margin &gt;40%</b> "
+                  "(O'Neil gốc dùng Q cho chất lượng sponsor tổ chức, khó đo được từ dữ liệu screener). "
+                  "<b>Gross Margin = (Revenue − Giá vốn) / Revenue</b> — tỷ lệ còn lại sau khi trừ chi phí tạo ra sản phẩm/dịch vụ. "
+                  "GM cao = pricing power: công ty có thể định giá cao hơn chi phí, có tiền cho R&amp;D và marketing. "
+                  "Ngưỡng 40% là ranh giới thực nghiệm: dưới đó thường là commodity business (cạnh tranh bằng giá thấp), trên đó thường có lợi thế khác biệt thực sự. "
+                  "<b style='color:#FFA726;'>⚠ Lưu ý sector:</b> Tech/Healthcare/Software tự nhiên có GM 50–80%; Industrials/Energy/Retail hiếm khi vượt 40% — "
+                  "đây là đặc thù ngành, không phải điểm yếu. Trong chiến lược kết hợp, tiêu chí này phản ánh độ 'lean' của business model."),
+            "R": ("<b>Tại sao?</b> ROE đo hiệu quả sinh lời trên vốn cổ đông — bao nhiêu lợi nhuận tạo ra trên mỗi đồng equity. "
+                  "ROE >17% đảm bảo công ty không chỉ tăng trưởng mà còn <b>tạo ra giá trị thực</b> cho cổ đông. "
+                  "ROE thấp + EPS growth cao thường là dấu hiệu growth nhờ pha loãng vốn (phát hành cổ phiếu mới), không bền vững."),
+            "M": ("<b>Tại sao?</b> Tiêu chí M được chuyển từ momentum giá 3 tháng sang <b>EPS Acceleration</b>: "
+                  "EPS quý (YoY) &gt; EPS năm (YoY) VÀ EPS quý &gt; 0. "
+                  "<b>Ý nghĩa:</b> Khi tốc độ tăng EPS quý vượt qua tốc độ tăng EPS năm, nghĩa là tăng trưởng đang tăng tốc — "
+                  "không chỉ duy trì mà còn đang bứt phá. Đây là tín hiệu động lực earnings thực sự, khác với momentum giá có thể bị ảnh hưởng bởi yếu tố kỹ thuật. "
+                  "Điều kiện EPS quý &gt; 0 loại bỏ trường hợp acceleration từ vùng âm (phục hồi từ thua lỗ — có thể là base effect, không phải sức mạnh thực). "
+                  "<b>Lưu ý:</b> Trong O'Neil gốc, M = Market Direction (đã tách riêng thành tiêu chí MKT). App dùng slot M cho EPS momentum tăng tốc."),
+            "D": ("<b>Tại sao?</b> <b>D/E = Tổng nợ / Vốn chủ sở hữu</b> — đo mức độ doanh nghiệp dùng nợ để tài trợ hoạt động. "
+                  "D/E = 1.0 nghĩa là nợ bằng vốn tự có; D/E = 2.0 nghĩa là nợ gấp đôi vốn. "
+                  "<b>Tại sao nợ nguy hiểm?</b> Lãi vay phải trả dù doanh thu giảm — đòn bẩy khuếch đại lợi nhuận khi tốt nhưng khuếch đại thua lỗ khi xấu. "
+                  "Công ty D/E cao + môi trường lãi suất tăng = rủi ro thanh khoản nghiêm trọng. "
+                  "Ngưỡng &lt;1.5 (chặt hơn phiên bản cũ 2.0) — lọc ra những công ty dùng nợ vừa phải, phù hợp chiến lược momentum+quality. "
+                  "<b style='color:#FFA726;'>⚠ Ngoại lệ Financial Services:</b> Ngân hàng/bảo hiểm có D/E cấu trúc rất cao (tiền gửi khách hàng được tính là 'nợ') — "
+                  "D/E 8–15 là bình thường với ngân hàng, không phải rủi ro. Tiêu chí D bị bỏ qua cho nhóm này."),
+            "N": ("<b>Tại sao?</b> O'Neil quan sát rằng cổ phiếu tăng mạnh nhất thường phá đỉnh 52 tuần trước khi tăng tiếp — "
+                  "không phải 'mua rẻ' từ vùng đáy. App dùng ngưỡng ≥90% thay vì phá đỉnh tuyệt đối để bắt cả những cổ phiếu đang tích lũy sát đỉnh. "
+                  "Cổ phiếu ở <70% của 52W High thường đang trong downtrend — tránh."),
+            "MKT": ("<b>Tại sao?</b> O'Neil nghiên cứu lịch sử và kết luận: 3 trong 4 cổ phiếu sẽ đi cùng xu hướng thị trường chung. "
+                    "Mua cổ phiếu tốt trong bear market = bơi ngược dòng. "
+                    "Điều kiện index > MA50 &amp; MA200 xác nhận thị trường đang uptrend bền vững, không phải chỉ là bounce ngắn. "
+                    "Mỗi market dùng index riêng: America=S&amp;P 500, NASDAQ=NDX, Vietnam=VNINDEX, Hong Kong=HSI."),
         }
         canslim_rows = ""
         for i, key in enumerate(CS_KEYS):
             cfg  = CANSLIM[key]
-            op   = ops[cfg["op"]]
-            thr  = f"{op}&nbsp;{cfg['thr']}{'%' if cfg['thr'] != 2.0 else ''}"
+            if cfg["op"] == "accel":
+                thr = "Qtr&nbsp;&gt;&nbsp;Ann&nbsp;&amp;&nbsp;&gt;0%"
+            elif key == "D":
+                thr = f"&lt;&nbsp;{cfg['thr']}"
+            else:
+                op  = ops[cfg["op"]]
+                thr = f"{op}&nbsp;{cfg['thr']}%"
             name = cfg["label"].split("—")[1].strip() if "—" in cfg["label"] else cfg["label"]
             bg   = "#0E1220" if i % 2 == 0 else "#0B0E18"
             canslim_rows += f"""
@@ -1153,12 +1201,37 @@ class HelpDialog(QDialog):
 
         # ── Quality Compounder criteria rows ──────────────────────────────────
         qc_full_desc = {
-            "ROIC": "ROIC >15% — Return on Invested Capital: lợi nhuận tạo ra trên mỗi đồng vốn đầu tư (cả debt lẫn equity). ĐÂY là tiêu chí cốt lõi nhất của compounder — công ty kiếm được nhiều hơn chi phí vốn, tạo ra giá trị thực sự cho cổ đông dài hạn.",
-            "OPGM": "Operating Margin >15% — biên lợi nhuận hoạt động từ business core, trước lãi vay và thuế. Cao và ổn định qua nhiều năm là dấu hiệu rõ ràng của pricing power và cấu trúc chi phí tối ưu.",
-            "GM":   "Gross Margin >40% — biên lợi nhuận gộp. Mức nền tảng quyết định công ty có thể tái đầu tư vào R&D, marketing, và nhân sự hay không. Compounder thực sự cần GM cao để duy trì lợi thế cạnh tranh.",
-            "FCF":  "FCF/share >0 — Free Cash Flow trên mỗi cổ phiếu dương, nghĩa là công ty thực sự tạo ra tiền mặt, không chỉ là lợi nhuận kế toán. Compounder dùng FCF để buyback, dividend, hoặc tái đầu tư — đây là nguồn gốc của compound return.",
-            "DE":   "D/E <1.0 — đòn bẩy tài chính thấp. Tiêu chuẩn chặt hơn CAN SLIM (D/E <2). Compounder chất lượng tăng trưởng bằng FCF tái đầu tư, không cần đòn bẩy nợ. Balance sheet sạch giúp vượt qua khủng hoảng và tận dụng cơ hội M&A.",
-            "MOAT": "Moat Wide ★★★ hoặc Narrow ★★ — có lợi thế cạnh tranh được xác nhận bởi ROE 5yr avg + GM 5yr avg. Moat là điều kiện bắt buộc để ROIC cao được duy trì dài hạn — không có moat, lợi nhuận sẽ bị cạnh tranh xói mòn.",
+            "ROIC": ("<b>Tại sao?</b> ROIC = Net Income / (Debt + Equity) — đo lợi nhuận tạo ra trên <i>toàn bộ</i> vốn đầu tư vào doanh nghiệp, "
+                     "không phân biệt vốn đến từ cổ đông hay chủ nợ. Đây là tiêu chí cốt lõi nhất của compounder: "
+                     "nếu ROIC > WACC (chi phí vốn bình quân ~8–10%), công ty đang tạo ra giá trị thực — mỗi đồng tái đầu tư sinh thêm lợi nhuận. "
+                     "Ngưỡng 15% tạo biên an toàn rõ ràng so với chi phí vốn. "
+                     "<b style='color:#FFA726;'>⚠ Financial Services:</b> Ngân hàng/bảo hiểm có Debt rất lớn (tiền gửi khách hàng) nên ROIC luôn thấp — "
+                     "thay thế bằng <b>ROE &gt; 12%</b> để đánh giá đúng hiệu quả vốn chủ sở hữu."),
+            "OPGM": ("<b>Tại sao?</b> Operating Margin = EBIT / Revenue — đo hiệu quả vận hành core business, loại bỏ ảnh hưởng của cấu trúc vốn (lãi vay) và thuế. "
+                     "Margin cao và ổn định = pricing power thực sự: công ty có thể tăng giá mà không mất khách, hoặc kiểm soát chi phí tốt hơn đối thủ. "
+                     "Ngưỡng 15% phân biệt premium business (software, pharma, luxury) với commodity business. "
+                     "OpMgn giảm dần qua nhiều năm là cảnh báo sớm áp lực cạnh tranh tăng."),
+            "GM":   ("<b>Tại sao?</b> Gross Margin = (Revenue − COGS) / Revenue — biên lợi nhuận trước mọi chi phí hoạt động. "
+                     "GM cao là nền tảng của mọi thứ tốt khác: "
+                     "công ty GM 70% (như phần mềm) có nhiều tiền hơn để chi cho R&D, sales, và vẫn còn lãi; "
+                     "công ty GM 15% (như bán lẻ) phải vận hành cực kỳ hiệu quả mới tồn tại. "
+                     "Ngưỡng 40% là ranh giới thực nghiệm giữa <i>business cần scale mới sống</i> và <i>business tự tạo ra lợi thế</i>."),
+            "FCF":  ("<b>Tại sao?</b> FCF/share &gt; 0 nghĩa là sau khi trả hết chi phí vận hành và đầu tư tài sản cố định (capex), "
+                     "vẫn còn tiền mặt thực về tay. Đây là điều kiện tối thiểu để một compounder hoạt động: "
+                     "buyback cổ phiếu, trả dividend, thực hiện M&A — tất cả đều cần FCF dương. "
+                     "EPS dương nhưng FCF âm = lợi nhuận kế toán, không phải tiền thật. "
+                     "FCF &gt; EPS trong nhiều năm = earnings quality cao, rất hiếm và rất quý."),
+            "DE":   ("<b>Tại sao?</b> D/E &lt; 1.0 — tiêu chuẩn chặt hơn CAN SLIM (&lt;2.0) vì compounder cần bền vững qua nhiều chu kỳ. "
+                     "Compounder thực sự tăng trưởng bằng FCF tái đầu tư, không cần vay nợ nhiều. "
+                     "Balance sheet sạch = linh hoạt tài chính khi khủng hoảng (2008, 2020): "
+                     "trong khi đối thủ overleveraged phải bán tài sản để trả nợ, compounder có thể mua lại đối thủ hoặc buyback cổ phiếu. "
+                     "<b style='color:#FFA726;'>⚠ Financial Services:</b> Ngân hàng/bảo hiểm có D/E 8–15x là cấu trúc bình thường (tiền gửi = nợ) — "
+                     "tiêu chí này bị <b>bỏ qua hoàn toàn</b> cho sector này."),
+            "MOAT": ("<b>Tại sao?</b> Moat là lý do duy nhất ROIC cao có thể <i>duy trì</i> dài hạn. "
+                     "Không có moat: đối thủ thấy ROIC cao → đầu tư vào ngành → cạnh tranh tăng → ROIC giảm về mức trung bình trong 3–7 năm. "
+                     "Có moat: rào cản cạnh tranh (switching cost, network effect, brand, patent) bảo vệ ROIC khỏi bị xói mòn. "
+                     "Trong app: Moat tính từ ROE 5yr avg + GM 5yr avg qua yfinance — ổn định qua 5 năm là bằng chứng moat thực sự. "
+                     "Chỉ Wide ★★★ hoặc Narrow ★★ mới đủ điều kiện; Uncertain và Weak = chưa chứng minh được."),
         }
         qc_criteria_rows = ""
         for i, key in enumerate(QC_KEYS):
@@ -1330,7 +1403,8 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
   </tr>
   {qc_criteria_rows}
 </table>
-<p class="tip">⚠  Tiêu chí MOAT yêu cầu bật "yfinance Moat" để có dữ liệu 5 năm chính xác. Khi tắt, Moat được ước tính từ TTM ROE &amp; GM.</p>
+<p class="tip">⚠  Tiêu chí MOAT yêu cầu bật "yfinance Moat" để có dữ liệu 5 năm chính xác. Khi tắt, Moat được ước tính từ TTM ROE &amp; GM.<br>
+⚠  <b>Financial Services</b> (ngân hàng, bảo hiểm): ROIC được thay bằng <b>ROE &gt; 12%</b> (ROIC bị méo bởi leverage cấu trúc); D/E bị <b>bỏ qua</b> hoàn toàn (D/E cao là bình thường với ngân hàng). Điểm tối đa cho Financial Services vẫn là 6 (5 tiêu chí còn lại + Moat).</p>
 
 <h2>⑤ QUALITY COMPOUNDER SIGNAL</h2>
 <table>

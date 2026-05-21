@@ -33,8 +33,8 @@ CANSLIM = {
     "L":   dict(label="L — RS (vs Idx)", field="RS_1Y%",        thr=0,   op="gt", desc="1Y outperform market index"),
     "Q":   dict(label="Quality GM",    field="Gross Margin%", thr=40,  op="gt", desc="Gross Margin > 40%"),
     "R":   dict(label="ROE",           field="ROE%",          thr=17,  op="gt", desc="ROE > 17%"),
-    "M":   dict(label="Momentum 3M",   field="3M%",           thr=0,   op="gt", desc="3-Month Perf > 0%"),
-    "D":   dict(label="Debt OK",       field="D/E",           thr=2.0, op="lt", desc="D/E < 2.0"),
+    "M":   dict(label="M — EPS Accel",  field="EPS Qtr%",      thr=0,   op="accel", desc="EPS Quarterly YoY > Annual YoY AND > 0 (accelerating earnings momentum)"),
+    "D":   dict(label="Debt OK",       field="D/E",           thr=1.5, op="lt", desc="D/E < 1.5"),
     "N":   dict(label="N — 52W High",  field="52W_High%",     thr=90,  op="gt", desc="Price ≥ 90% of 52-Week High"),
     "MKT": dict(label="Market",        field="Market_OK",     thr=0.5, op="gt", desc="Market index above MA50 & MA200"),
 }
@@ -353,8 +353,13 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
 
     def chk(row, key):
         cfg = CANSLIM[key]
-        if key == "D" and row.get("Sector", "") == "Financial Services":
+        if key == "D" and row.get("Sector", "") in ("Financial Services", "Finance"):
             return None  # D/E không áp dụng cho ngành tài chính (banks/insurance dùng leverage cấu trúc)
+        if key == "M":
+            qtr = row.get("EPS Qtr%"); ann = row.get("EPS Annual%")
+            if qtr is None or (isinstance(qtr, float) and pd.isna(qtr)): return None
+            if ann is None or (isinstance(ann, float) and pd.isna(ann)): return None
+            return float(qtr) > float(ann) and float(qtr) > 0
         v = row.get(cfg["field"])
         if v is None or (isinstance(v, float) and pd.isna(v)): return None
         return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
@@ -440,14 +445,17 @@ def write_excel(df, path, market, top, use_yf=False, progress_cb=None):
         _pb(20, "QC sheet…")
         _qc_sheet(wb, df)
 
-    if use_yf:
+    _US_MARKETS = {"america", "nasdaq", "nyse"}
+    can_yf = use_yf and market.lower() in _US_MARKETS
+    if can_yf:
         n = len(df)
         def _fin_cb(idx):
-            # map ticker index → 25-70%
             _pb(25 + int(idx / max(n, 1) * 45),
                 f"Financials  {idx}/{n}…")
         _financials_sheet(wb, df, progress_cb=_fin_cb)
     else:
+        if use_yf and market.lower() not in _US_MARKETS:
+            print(f"  ⚠  yfinance không hỗ trợ {market.upper()} — bỏ qua sheet Financials")
         _pb(25, "")
 
     _pb(75, "Dashboard sheet…")
