@@ -283,10 +283,10 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
 
 
 def _build_chart(ticker, name, labels, eps, gm, roe, cfps,
-                 mode="quarterly", height=860):
-    """Return interactive Plotly HTML string (used by standalone viewer)."""
+                 mode="quarterly", height=860, dark_mode=True):
+    """Return interactive Plotly HTML string (used by standalone viewer and screener panel)."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, cfps,
-                        mode=mode, height=height)
+                        mode=mode, height=height, dark_mode=dark_mode)
     return fig.to_html(
         include_plotlyjs="cdn", full_html=True,
         config={"displayModeBar": True, "displaylogo": False,
