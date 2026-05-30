@@ -3720,10 +3720,12 @@ class MainWindow(QMainWindow):
         if not path: return
         if not path.endswith(".xlsx"): path += ".xlsx"
 
-        # Tính QC score (nhanh, làm trong main thread trước)
+        # Tính QC score — drop cột cũ trước để tránh duplicate sau concat
         df_export = self._df.copy()
         qc_df = pd.DataFrame(
             [compute_qc_score(r.to_dict()) for _, r in df_export.iterrows()])
+        dup_cols = [c for c in qc_df.columns if c in df_export.columns]
+        df_export = df_export.drop(columns=dup_cols, errors="ignore")
         df_export = pd.concat(
             [df_export.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
 
