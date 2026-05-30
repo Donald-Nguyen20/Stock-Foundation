@@ -1,4 +1,4 @@
-"""
+﻿"""
 Fundamental Screener — PySide6 GUI
 Wraps python screen_top100.py
 """
@@ -2153,7 +2153,10 @@ class MainWindow(QMainWindow):
         tabs.setDocumentMode(True)
         tabs.setStyleSheet(self._tab_style())
 
-        # Tab 0 — CAN SLIM
+        # Tab 0 — Dashboard
+        tabs.addTab(self._build_dashboard_panel(), "  📊 Dashboard  ")
+
+        # Tab 1 — CAN SLIM
         cs_w = QWidget(); cs_w.setStyleSheet(f"background:{BG};")
         cs_v = QVBoxLayout(cs_w)
         cs_v.setContentsMargins(0, 0, 0, 0); cs_v.setSpacing(0)
@@ -2165,7 +2168,7 @@ class MainWindow(QMainWindow):
         cs_v.addWidget(v_split)
         tabs.addTab(cs_w, "  CAN SLIM  ")
 
-        # Tab 1 — Quality Compounder
+        # Tab 2 — Quality Compounder
         qc_w = QWidget(); qc_w.setStyleSheet(f"background:{BG};")
         qc_v = QVBoxLayout(qc_w)
         qc_v.setContentsMargins(0, 0, 0, 0); qc_v.setSpacing(0)
@@ -2178,6 +2181,32 @@ class MainWindow(QMainWindow):
         tabs.addTab(qc_w, "  Quality Compounder  ")
 
         return tabs
+
+    def _build_dashboard_panel(self):
+        w = QWidget(); w.setStyleSheet(f"background:{BG};")
+        lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
+        self._dash_browser = QTextBrowser()
+        self._dash_browser.setOpenExternalLinks(False)
+        self._dash_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background:{BG}; color:#DCE4EE;
+                border:none; padding:16px 20px;
+                font-family:'Segoe UI',sans-serif;
+            }}
+        """)
+        self._dash_browser.setHtml(self._dash_placeholder())
+        lay.addWidget(self._dash_browser)
+        return w
+
+    def _dash_placeholder(self):
+        return f"""<html><body style="background:{BG};color:#4A6080;
+            font-family:'Segoe UI',sans-serif;text-align:center;padding-top:120px;">
+            <p style="font-size:48px;margin:0;">📊</p>
+            <p style="font-size:18px;font-weight:700;color:#3D5070;margin:12px 0 6px 0;">
+              Dashboard chưa có dữ liệu</p>
+            <p style="font-size:13px;color:#2A3A50;">
+              Nhấn <b style="color:#3D8EF0;">▶ SCAN</b> để tải dữ liệu và xem Dashboard</p>
+        </body></html>"""
 
     def _tab_style(self):
         return f"""
@@ -2425,7 +2454,11 @@ class MainWindow(QMainWindow):
             self._ticker_inp.setText(ticker)
             self._chart_panel.load_ticker(ticker)
 
-    def _on_tab_changed(self, _idx: int):
+    def _on_tab_changed(self, idx: int):
+        # Tab 0 = Dashboard → full width, ẩn chart panel
+        is_dash = (idx == 0)
+        if hasattr(self, "_chart_panel"):
+            self._chart_panel.setVisible(not is_dash)
         self._apply_filter()
 
     def _apply_qc_filter(self):
@@ -2777,6 +2810,8 @@ class MainWindow(QMainWindow):
         self._btn_export.setEnabled(True)
         self._populate_table(df)
         self._populate_qc_table(df)
+        self._update_dashboard(df)
+        self._tabs_w.setCurrentIndex(0)   # tự chuyển sang Dashboard
         self._set_status(
             f"✓  {len(df)} stocks  ·  "
             f"STRONG BUY: {(df['CS_Signal']=='🟢 STRONG BUY').sum()}  "
@@ -2929,6 +2964,511 @@ class MainWindow(QMainWindow):
                 self._table.horizontalHeaderItem(_keys.index("MCap ($B)")).setText("MCap($B)")
         self._apply_filter()
 
+    # ── Dashboard ─────────────────────────────────────────────────────────────
+
+    def _update_dashboard(self, df):
+        self._dash_browser.setHtml(self._generate_dashboard_html(df))
+
+    def _generate_dashboard_html(self, df):  # noqa: C901
+        import pandas as pd
+        from datetime import datetime
+
+        HAS_QC = "QC_Score" in df.columns and "QC_Signal" in df.columns
+        market = self._market.currentText()
+        is_vn  = market.lower() == "vietnam"
+        scan_t = datetime.now().strftime("%Y-%m-%d  %H:%M")
+
+        def _v(row, key):
+            v = row.get(key)
+            return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+
+        def _pct(v):
+            if v is None: return "—"
+            return f"{v:+.1f}%"
+
+        # ── ❶ CAN SLIM KPIs ──────────────────────────────────────
+        total   = len(df)
+        sb_cnt  = int((df["CS_Signal"] == "🟢 STRONG BUY").sum())
+        b_cnt   = int((df["CS_Signal"] == "🔵 BUY").sum())
+        avg_cs  = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
+        _1y     = df["1Y%"].dropna() if "1Y%" in df.columns else pd.Series(dtype=float)
+        avg_1y  = f"{_1y.mean():.1f}%" if len(_1y) else "—"
+        _roe    = df["ROE%"].dropna() if "ROE%" in df.columns else pd.Series(dtype=float)
+        avg_roe = f"{_roe.mean():.1f}%" if len(_roe) else "—"
+
+        # ── ❷ QC KPIs ────────────────────────────────────────────
+        if HAS_QC:
+            comp_cnt  = int((df["QC_Signal"] == "🏆 COMPOUNDER").sum())
+            qual_cnt  = int((df["QC_Signal"] == "⭐ QUALITY").sum())
+            avg_qc_s  = f"{df['QC_Score'].mean():.1f}"
+            _roic     = df["ROIC%"].dropna() if "ROIC%" in df.columns else pd.Series(dtype=float)
+            avg_roic  = f"{_roic.mean():.1f}%" if len(_roic) else "—"
+            dual_cnt  = int(((df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)).sum())
+            _qc_mask  = df["QC_Signal"].isin(["🏆 COMPOUNDER", "⭐ QUALITY"])
+            eq_cb_cnt = (int((df[_qc_mask]["EQ_Badge"] == "💚 Cash Backed").sum())
+                         if "EQ_Badge" in df.columns else 0)
+        else:
+            comp_cnt = qual_cnt = dual_cnt = eq_cb_cnt = 0
+            avg_qc_s = avg_roic = "—"
+
+        # ── Risk Flags ────────────────────────────────────────────
+        risk_de = int((df["D/E"].fillna(0) > 1.5).sum()) if "D/E"  in df.columns else 0
+        risk_pe = int((df["P/E"].fillna(0) > 50).sum())  if "P/E"  in df.columns else 0
+        risk_1m = int((df["1M%"].fillna(0) < -10).sum()) if "1M%"  in df.columns else 0
+
+        # ── KPI card helper ────────────────────────────────────────
+        def _kpi(val, lbl, bg, fg="FFFFFF"):
+            return (f'<td style="padding:3px;">'
+                    f'<table width="100%" cellspacing="0" cellpadding="0">'
+                    f'<tr><td align="center" style="background:#{bg};padding:10px 6px 3px;">'
+                    f'<span style="font-size:20px;font-weight:700;color:#{fg};">{val}</span></td></tr>'
+                    f'<tr><td align="center" style="background:#{bg};padding:3px 6px 9px;">'
+                    f'<span style="font-size:9px;color:#{fg};letter-spacing:1px;">{lbl}</span>'
+                    f'</td></tr></table></td>')
+
+        sb_pct = f"{sb_cnt/total*100:.1f}%" if total else "0%"
+        b_pct  = f"{b_cnt/total*100:.1f}%"  if total else "0%"
+
+        cs_kpis = (
+            _kpi(total,   "TOTAL STOCKS",              "1B3A5C") +
+            _kpi(sb_pct,  f"STRONG BUY  ({sb_cnt})",  "00703A") +
+            _kpi(b_pct,   f"BUY  ({b_cnt})",           "0070C0") +
+            _kpi(avg_cs,  f"AVG CS / {N_CS}",          "5B2C6F") +
+            _kpi(avg_1y,  "AVG 1Y RETURN",              "7D3C0A") +
+            _kpi(avg_roe, "AVG ROE%",                   "0E6655")
+        )
+        qc_kpis = (
+            _kpi(comp_cnt,   "# COMPOUNDER",               "1A5C2B") +
+            _kpi(qual_cnt,   "# QUALITY",                   "1A3A5C") +
+            _kpi(avg_roic,   "AVG ROIC%",                   "0E6655") +
+            _kpi(avg_qc_s,   "AVG QC / 6",                  "5B2C6F") +
+            _kpi(dual_cnt,   "DUAL LEADERS (CS≥7 &amp; QC≥4)","4A235A") +
+            _kpi(eq_cb_cnt,  "💚 CASH BACKED (QC stocks)",  "155A28")
+        ) if HAS_QC else ""
+
+        # ── Section header ─────────────────────────────────────────
+        def _sec(text, bg="2C4F7C"):
+            return (f'<tr><td colspan="100%" style="background:#{bg};color:#FFFFFF;'
+                    f'font-size:11px;font-weight:700;padding:7px 10px;letter-spacing:1px;'
+                    f'margin-top:10px;">{text}</td></tr>')
+
+        # ── Top CS | Top QC side by side ──────────────────────────
+        _cs_buy = ["🟢 STRONG BUY", "🔵 BUY"]
+        cs_top = (df[df["CS_Signal"].isin(_cs_buy)].sort_values("CS_Score", ascending=False)
+                  if "CS_Score" in df.columns else pd.DataFrame())
+        _qc_buy = ["🏆 COMPOUNDER", "⭐ QUALITY"]
+        qc_top = (df[df["QC_Signal"].isin(_qc_buy)].sort_values("QC_Score", ascending=False)
+                  if HAS_QC else pd.DataFrame())
+        n_top = max(len(cs_top), len(qc_top), 1)
+
+        SROW = ("#", "Ticker", "Company", "Sector", "Score", "Signal", "Key%")
+        def _th(text, bg):
+            return f'<td align="center" style="background:#{bg};color:#FFFFFF;font-size:9px;font-weight:700;padding:5px 6px;border:1px solid #1A2A3A;">{text}</td>'
+
+        cs_hdr = "".join(_th(h,"1B3A5C") for h in SROW)
+        qc_hdr = "".join(_th(h,"0E6655") for h in SROW)
+
+        cs_rows_html = ""
+        for ri in range(1, n_top + 1):
+            bg = "EBF5FB" if ri%2==0 else "F4F9FD"
+            if ri <= len(cs_top):
+                r = cs_top.iloc[ri-1]
+                sig = r.get("CS_Signal","") or ""
+                sfg = {"🟢 STRONG BUY":"276221","🔵 BUY":"1B3A5C"}.get(sig,"000000")
+                _1y_v = _v(r,"1Y%"); _1y_s = _pct(_1y_v)
+                _1y_c = "276221" if _1y_v and _1y_v>0 else "9C0006" if _1y_v and _1y_v<0 else "888888"
+                cs_rows_html += (f'<tr style="background:#{bg};">'
+                    f'<td align="center" style="padding:4px 6px;background:#1B3A5C;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #DDD;">{ri}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#00BFFF;font-weight:700;font-family:Consolas;border:1px solid #DDD;">{r.get("Ticker","")}</td>'
+                    f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #DDD;">{str(r.get("Tên Công Ty",""))[:22]}</td>'
+                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{r.get("Sector","")}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#C6EFCE;color:#1A5C2B;font-weight:700;border:1px solid #DDD;">{int(r.get("CS_Score",0))}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;border:1px solid #DDD;">{sig}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{_1y_c};font-weight:700;border:1px solid #DDD;">{_1y_s}</td>'
+                    f'</tr>')
+
+        qc_rows_html = ""
+        for ri in range(1, n_top + 1):
+            bg = "E8F8F5" if ri%2==0 else "F0FBF9"
+            if ri <= len(qc_top):
+                r = qc_top.iloc[ri-1]
+                sig = r.get("QC_Signal","") or ""
+                sfg = {"🏆 COMPOUNDER":"1A5C2B","⭐ QUALITY":"1A3A5C"}.get(sig,"000000")
+                roic = _v(r,"ROIC%")
+                roic_s = f"{roic:.1f}%" if roic is not None else "—"
+                roic_c = "276221" if roic and roic>=15 else "0070C0"
+                qc_rows_html += (f'<tr style="background:#{bg};">'
+                    f'<td align="center" style="padding:4px 6px;background:#0E6655;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #DDD;">{ri}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#00BFFF;font-weight:700;font-family:Consolas;border:1px solid #DDD;">{r.get("Ticker","")}</td>'
+                    f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #DDD;">{str(r.get("Tên Công Ty",""))[:22]}</td>'
+                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{r.get("Sector","")}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#DDEEFF;color:#1A3A5C;font-weight:700;border:1px solid #DDD;">{int(r.get("QC_Score",0))}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;border:1px solid #DDD;">{sig}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{roic_c};font-weight:700;border:1px solid #DDD;">{roic_s}</td>'
+                    f'</tr>')
+            elif not HAS_QC and ri == 1:
+                qc_rows_html += f'<tr><td colspan="7" align="center" style="padding:8px;color:#888;font-style:italic;">— Yêu cầu bật yfinance Moat —</td></tr>'
+
+        # ── ⭐ Dual Leaders ───────────────────────────────────────
+        if HAS_QC:
+            dl_df = (df[(df["CS_Score"]>=7)&(df["QC_Score"]>=4)]
+                     .sort_values(["CS_Score","QC_Score"],ascending=[False,False]))
+        else:
+            dl_df = pd.DataFrame()
+
+        DL_H = ["#","Ticker","Company","Sector","Price","CS","QC","1Y%","ROE%","ROIC%","D/E","Net Cash($B)","Signal","⚠"]
+        dl_hdr_html = "".join(
+            f'<td align="center" style="background:#4A235A;color:#FFFFFF;font-size:9px;'
+            f'font-weight:700;padding:5px 6px;border:1px solid #3A1A4A;">{h}</td>'
+            for h in DL_H)
+
+        dl_rows_html = ""
+        if dl_df.empty:
+            dl_rows_html = '<tr><td colspan="14" align="center" style="padding:10px;color:#888;font-style:italic;">— Không có mã nào đạt CS≥7 và QC≥4 —</td></tr>'
+        else:
+            for ri,(_, r) in enumerate(dl_df.iterrows(),1):
+                rbg = "F5F0FF" if ri%2==0 else "FBF7FF"
+                sig = r.get("CS_Signal","") or ""
+                sfg,sbg = {"🟢 STRONG BUY":("276221","C6EFCE"),"🔵 BUY":("1B3A5C","DDEEFF")}.get(sig,("000000","FFFFFF"))
+                _1y_v = _v(r,"1Y%"); _1y_s = _pct(_1y_v); _1y_c = "276221" if _1y_v and _1y_v>0 else "9C0006" if _1y_v and _1y_v<0 else "888"
+                roe_v = _v(r,"ROE%"); roe_s = f"{roe_v:.1f}%" if roe_v is not None else "—"; roe_c = "276221" if roe_v and roe_v>17 else "000000"
+                roic_v = _v(r,"ROIC%"); roic_s = f"{roic_v:.1f}%" if roic_v is not None else "—"
+                roic_c = "276221" if roic_v and roic_v>=15 else "0070C0" if roic_v and roic_v>=10 else "7D6608"
+                de_v = _v(r,"D/E"); de_s = f"{de_v:.1f}" if de_v is not None else "—"; de_c = "9C0006" if de_v and de_v>2 else "7D6608" if de_v and de_v>1 else "276221"
+                nc_v = _v(r,"Net Cash ($B)"); nc_s = f"{nc_v:+.1f}" if nc_v is not None else "—"
+                nc_c = "276221" if nc_v and nc_v>5 else "276221" if nc_v and nc_v>0 else "9C6500" if nc_v and nc_v>-5 else "9C0006"
+                nc_bg = "C6EFCE" if nc_v and nc_v>5 else rbg
+                px_v = _v(r,"Price ($)"); px_s = f"₫{px_v:,.0f}" if is_vn and px_v else (f"${px_v:,.2f}" if px_v else "—")
+                flags = []
+                if de_v and de_v>1: flags.append("D/E")
+                if _v(r,"P/E") and _v(r,"P/E")>50: flags.append("P/E")
+                warn_s = "⚠ "+" · ".join(flags) if flags else ""
+                td = lambda val,fg="000000",bg=None,fw="normal",fs="12px": (
+                    f'<td align="center" style="padding:4px 6px;color:#{fg};font-weight:{fw};'
+                    f'font-size:{fs};background:{"#"+bg if bg else "#"+rbg};border:1px solid #E0D8F0;">{val}</td>')
+                dl_rows_html += (f'<tr>'
+                    + f'<td align="center" style="padding:4px 6px;background:#4A235A;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #E0D8F0;">{ri}</td>'
+                    + td(r.get("Ticker",""), "00BFFF","","700","11px")
+                    + f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #E0D8F0;">{str(r.get("Tên Công Ty",""))[:24]}</td>'
+                    + f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #E0D8F0;">{r.get("Sector","")}</td>'
+                    + td(px_s)
+                    + td(int(r.get("CS_Score",0)), "276221", "C6EFCE", "700")
+                    + td(int(r.get("QC_Score",0)), "1A3A5C", "DDEEFF", "700")
+                    + td(_1y_s, _1y_c)
+                    + td(roe_s, roe_c)
+                    + td(roic_s, roic_c, None, "700")
+                    + td(de_s, de_c)
+                    + f'<td align="center" style="padding:4px 6px;color:#{nc_c};font-weight:700;background:#{nc_bg};border:1px solid #E0D8F0;">{nc_s}</td>'
+                    + f'<td align="center" style="padding:4px 6px;color:#{sfg};background:#{sbg};font-size:10px;font-weight:700;border:1px solid #E0D8F0;">{sig}</td>'
+                    + f'<td align="center" style="padding:4px 6px;color:#9C6500;background:{"#FFF2CC" if flags else "#"+rbg};font-size:10px;border:1px solid #E0D8F0;">{warn_s}</td>'
+                    + '</tr>')
+
+        # ── 🎯 Top Picks ─────────────────────────────────────────
+        # Momentum
+        mom = []
+        if "1Y%" in df.columns and "CS_Signal" in df.columns:
+            for sig_f in ["🟢 STRONG BUY", ["🟢 STRONG BUY","🔵 BUY"]]:
+                mask = df["CS_Signal"]==sig_f if isinstance(sig_f,str) else df["CS_Signal"].isin(sig_f)
+                d = df[mask][["Ticker","1Y%","Sector","CS_Signal"]].dropna(subset=["1Y%"]).sort_values("1Y%",ascending=False)
+                if not d.empty:
+                    mom = [(r["Ticker"], f"{r['1Y%']:+.1f}%  ({r['CS_Signal'].split()[1]})", r.get("Sector","")) for _,r in d.iterrows()]
+                    break
+        # Quality
+        qua = []
+        if HAS_QC and "ROIC%" in df.columns:
+            d = df[df["QC_Signal"]=="🏆 COMPOUNDER"][["Ticker","ROIC%","Sector"]].dropna(subset=["ROIC%"]).sort_values("ROIC%",ascending=False)
+            qua = [(r["Ticker"],f"ROIC {r['ROIC%']:.1f}%",r.get("Sector","")) for _,r in d.iterrows()]
+        # Value Growth
+        val = []
+        if "P/E" in df.columns and "EPS Annual%" in df.columns:
+            _w52_ok = (df["52W_High%"] < 80) if ("52W_High%" in df.columns and not df["52W_High%"].isna().all()) else True
+            tmp = df[(df["CS_Score"]>=6)&(df["P/E"]>0)&(df["P/E"]<35)&
+                     (df["EPS Annual%"]>10)&(df["EPS Annual%"]<200)&_w52_ok].dropna(subset=["P/E"]).sort_values("P/E")
+            val = [(r["Ticker"],f"P/E {r['P/E']:.1f}× | EPS +{r['EPS Annual%']:.0f}%",r.get("Sector","")) for _,r in tmp.iterrows()]
+        # Breakout
+        brk = []
+        if "52W_High%" in df.columns and not df["52W_High%"].isna().all():
+            tmp = df[(df["52W_High%"]>=90)&(df["CS_Score"]>=7)].sort_values(["CS_Score","52W_High%"],ascending=[False,False])
+            brk = [(r["Ticker"],f"52W {r['52W_High%']:.1f}% | CS {int(r['CS_Score'])}",r.get("Sector","")) for _,r in tmp.iterrows()]
+        elif "52W_High%" in df.columns:
+            brk = [("—","52W High% N/A","yfinance tắt")]
+
+        TP_GROUPS = [
+            ("🚀 Momentum  (STRONG BUY, 1Y%↓)",    "1A5276", mom),
+            ("💎 Quality  (Compounder, ROIC%↓)",    "1A5C2B", qua),
+            ("📉 Value  (P/E<35, EPS>10%, CS≥6)",   "784212", val),
+            ("💥 Breakout  (52W High≥90%, CS≥7)",   "4A235A", brk),
+        ]
+        COL_H = ["Ticker","Metric","Sector"]
+
+        tp_cols_html = ""
+        for title, bg, rows in TP_GROUPS:
+            hdr_html = "".join(
+                f'<td align="center" style="background:#{bg};color:#FFFFFF;font-size:9px;'
+                f'font-weight:700;padding:4px 6px;border:1px solid #1A2A3A;">{h}</td>'
+                for h in COL_H)
+            body_html = ""
+            for ri,(ticker,metric,sector) in enumerate(rows):
+                rbg2 = "F0F8FF" if ri%2==0 else "FFFFFF"
+                body_html += (f'<tr style="background:#{rbg2};">'
+                    f'<td align="center" style="padding:4px 6px;color:#1B3A5C;font-weight:700;font-family:Consolas;font-size:11px;border:1px solid #DDD;">{ticker}</td>'
+                    f'<td style="padding:4px 6px;color:#000;font-size:11px;border:1px solid #DDD;">{metric}</td>'
+                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{sector}</td>'
+                    f'</tr>')
+            if not body_html:
+                body_html = '<tr><td colspan="3" align="center" style="padding:6px;color:#888;font-style:italic;">— No data —</td></tr>'
+            tp_cols_html += (f'<td width="25%" style="padding:4px;vertical-align:top;">'
+                f'<table width="100%" cellspacing="0" cellpadding="0">'
+                f'<tr><td colspan="3" style="background:#{bg};color:#FFFFFF;font-size:10px;font-weight:700;padding:6px 8px;">{title}</td></tr>'
+                f'<tr>{hdr_html}</tr>{body_html}</table></td>')
+
+        # ── ❸ Chart Analysis (2×2) ────────────────────────────────
+        def _zone_tickers(zone_df, limit=10):
+            if zone_df.empty: return "<i style='color:#888;'>—</i>"
+            parts = []
+            for _, r in zone_df.head(limit).iterrows():
+                cs = int(r.get("CS_Score",0)); qc = int(r.get("QC_Score",0)) if HAS_QC else "—"
+                _1y_v2 = _v(r,"1Y%"); _1y_s2 = f"{_1y_v2:+.0f}%" if _1y_v2 is not None else ""
+                parts.append(f'<b style="color:#00BFFF;font-family:Consolas;">{r.get("Ticker","")}</b>'
+                             f'<span style="color:#888;font-size:10px;"> {cs}/{qc} {_1y_s2}</span>')
+            txt = "  ·  ".join(parts)
+            if len(zone_df)>limit: txt += f'<span style="color:#555;"> +{len(zone_df)-limit}</span>'
+            return txt
+
+        if HAS_QC:
+            _cs=df["CS_Score"]; _qc=df["QC_Score"]
+            dual_z=df[(_cs>=7)&(_qc>=4)].sort_values(["CS_Score","QC_Score"],ascending=[False,False])
+            mom_z =df[(_cs>=7)&(_qc< 4)].sort_values(["CS_Score","1Y%"],ascending=[False,False])
+            qual_z=df[(_cs< 7)&(_qc>=4)].sort_values("QC_Score",ascending=False)
+            watch_n=int(((_cs<7)&(_qc<4)).sum())
+            chart_html = f"""<table width="100%" cellspacing="3" cellpadding="0">
+              <tr>
+                <td width="50%" style="background:#1A3A20;padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#34C472;">💎 Quality
+                    <span style="font-weight:400;color:#888;"> (CS&lt;7, QC≥4) · {len(qual_z)} mã</span></p>
+                  <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(qual_z)}</p>
+                </td>
+                <td width="50%" style="background:#3A1A50;padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#CE93D8;">⭐ Dual Leaders
+                    <span style="font-weight:400;color:#888;"> (CS≥7, QC≥4) · {len(dual_z)} mã</span></p>
+                  <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(dual_z)}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="background:#202020;padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 3px;font-size:11px;font-weight:700;color:#888;">👀 Watchlist
+                    <span style="font-weight:400;"> (CS&lt;7, QC&lt;4) · {watch_n} mã</span></p>
+                  <p style="margin:0;font-size:11px;color:#555;">Xem tab CAN SLIM để lọc chi tiết</p>
+                </td>
+                <td style="background:#1A3050;padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#4FC3F7;">🚀 Momentum
+                    <span style="font-weight:400;color:#888;"> (CS≥7, QC&lt;4) · {len(mom_z)} mã</span></p>
+                  <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(mom_z)}</p>
+                </td>
+              </tr>
+            </table>"""
+        else:
+            chart_html = '<p style="color:#4A6080;font-style:italic;padding:10px;">Bật yfinance Moat để xem Chart Analysis đầy đủ.</p>'
+
+        # ── ❹ Sector Breakdown ────────────────────────────────────
+        S4_H = ["Sector","# Stocks","# Str.Buy","# Buy","# Comp.","Avg CS","Avg QC","Avg 1Y%"]
+        s4_hdr = "".join(
+            f'<td style="background:#2C4F7C;color:#FFFFFF;font-size:9px;font-weight:700;'
+            f'padding:5px 8px;border:1px solid #1A3A5C;text-align:{"left" if i==0 else "center"};">{h}</td>'
+            for i,h in enumerate(S4_H))
+        sec_pivot = []
+        if "Sector" in df.columns:
+            for sec,g in df.assign(Sector=df["Sector"].fillna("Unknown")).groupby("Sector"):
+                sec_pivot.append({
+                    "s": sec, "n": len(g),
+                    "sb": int((g["CS_Signal"]=="🟢 STRONG BUY").sum()),
+                    "b":  int((g["CS_Signal"]=="🔵 BUY").sum()),
+                    "cp": int((g["QC_Signal"]=="🏆 COMPOUNDER").sum()) if HAS_QC else 0,
+                    "acs": g["CS_Score"].mean() if "CS_Score" in g.columns else None,
+                    "aqc": g["QC_Score"].mean() if HAS_QC else None,
+                    "a1y": g["1Y%"].dropna().mean() if "1Y%" in g.columns else None,
+                })
+            sec_pivot.sort(key=lambda x: x["sb"], reverse=True)
+        TOP3 = ["FFF9C4","E8F5E9","E3F2FD"]
+        s4_rows_html = ""
+        for ri,row in enumerate(sec_pivot):
+            rbg = TOP3[ri] if ri<3 else ("F0F4FA" if ri%2==0 else "FFFFFF")
+            hi = " font-weight:700;" if ri<3 else ""
+            hl = "#7D6608" if ri==0 else "#1A5C2B" if ri==1 else "#1A3A5C" if ri==2 else "#000000"
+            a1y = _pct(row["a1y"]) if row["a1y"] is not None and not pd.isna(row["a1y"]) else "—"
+            a1y_c = "276221" if row["a1y"] and row["a1y"]>0 else "9C0006" if row["a1y"] and row["a1y"]<0 else "888"
+            aqc  = f"{row['aqc']:.1f}" if row["aqc"] is not None and not pd.isna(row["aqc"]) else "—"
+            s4_rows_html += (f'<tr style="background:#{rbg};">'
+                f'<td style="padding:5px 8px;color:#{hl};{hi}border:1px solid #DDD;">{row["s"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#555;border:1px solid #DDD;">{row["n"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#276221;font-weight:700;border:1px solid #DDD;">{row["sb"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#1B3A5C;border:1px solid #DDD;">{row["b"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#1A5C2B;border:1px solid #DDD;">{row["cp"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#5B2C6F;border:1px solid #DDD;">{"%.1f" % row["acs"] if row["acs"] is not None else "—"}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#5B2C6F;border:1px solid #DDD;">{aqc}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{a1y_c};font-weight:700;border:1px solid #DDD;">{a1y}</td>'
+                f'</tr>')
+
+        # ── Assemble ─────────────────────────────────────────────
+        qc_section = (
+            f'<tr><td colspan="100%" style="padding:8px 0 0 0;">'
+            f'<table width="100%" cellspacing="0" cellpadding="0">'
+            f'{_sec("❷  QUALITY COMPOUNDER  —  KEY METRICS")}'
+            f'<tr>{qc_kpis}</tr>'
+            f'</table></td></tr>'
+        ) if HAS_QC else ""
+
+        return f"""<html><head><style>
+          body{{background:{BG};color:#DCE4EE;
+               font-family:'Segoe UI',sans-serif;font-size:12px;margin:0;padding:10px 14px;}}
+          table{{border-collapse:collapse;width:100%;}}
+          p{{margin:0;}}
+        </style></head><body>
+
+        <table width="100%" cellspacing="0" cellpadding="0"
+               style="background:#0D2137;padding:10px 14px;margin-bottom:10px;">
+          <tr>
+            <td><span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:2px;">
+              STOCK SCREENER  ·  DECISION DASHBOARD</span></td>
+            <td align="right"><span style="font-size:10px;color:#88AACC;font-style:italic;">
+              {market}  ·  Last updated: {scan_t}</span></td>
+          </tr>
+        </table>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          {_sec("❶  CAN SLIM  —  KEY METRICS")}
+          <tr>{cs_kpis}</tr>
+          {qc_section}
+          <tr><td colspan="100%" style="background:#FFF2CC;padding:6px 10px;
+              color:#9C6500;font-size:11px;font-weight:700;">
+            ⚠️  RISK FLAGS: &nbsp;&nbsp;
+            D/E &gt; 1.5: <b>{risk_de} mã</b> &nbsp;&nbsp;|&nbsp;&nbsp;
+            P/E &gt; 50: <b>{risk_pe} mã</b> &nbsp;&nbsp;|&nbsp;&nbsp;
+            1M% &lt; −10%: <b>{risk_1m} mã</b>
+          </td></tr>
+        </table>
+
+        <p style="height:8px;"></p>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            <td width="49%" style="vertical-align:top;">
+              <table width="100%" cellspacing="0" cellpadding="0">
+                {_sec("📊  TOP CAN SLIM SCORE","1B3A5C")}
+                <tr>{cs_hdr}</tr>
+                {cs_rows_html}
+              </table>
+            </td>
+            <td width="2%" style="background:#F0F4FA;"></td>
+            <td width="49%" style="vertical-align:top;">
+              <table width="100%" cellspacing="0" cellpadding="0">
+                {_sec("📊  TOP QUALITY COMPOUNDER SCORE","0E6655")}
+                <tr>{qc_hdr}</tr>
+                {qc_rows_html}
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <p style="height:8px;"></p>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          {_sec("⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4","4A235A")}
+          <tr>{dl_hdr_html}</tr>
+          {dl_rows_html}
+        </table>
+
+        <p style="height:8px;"></p>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          {_sec("🎯  TOP PICKS","1A3A5C")}
+          <tr>{tp_cols_html}</tr>
+        </table>
+
+        <p style="height:8px;"></p>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          {_sec("❸  CHART ANALYSIS")}
+          <tr><td style="padding:6px 0;">{chart_html}</td></tr>
+        </table>
+
+        <p style="height:8px;"></p>
+
+        <table width="100%" cellspacing="0" cellpadding="0">
+          {_sec("❹  SECTOR BREAKDOWN  —  Sort: # Strong Buy ↓")}
+          <tr>{s4_hdr}</tr>
+          {s4_rows_html}
+        </table>
+
+        <p style="color:#2A3A50;font-size:10px;margin-top:12px;text-align:right;">
+          Dashboard  ·  {scan_t}</p>
+        </body></html>"""
+
+        # ── KPIs ──────────────────────────────────────────────────
+        total   = len(df)
+        sb_cnt  = int((df["CS_Signal"] == "🟢 STRONG BUY").sum())
+        buy_cnt = int((df["CS_Signal"] == "🔵 BUY").sum())
+        avg_cs  = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
+        _1y     = df["1Y%"].dropna() if "1Y%" in df.columns else pd.Series(dtype=float)
+        avg_1y  = f"{_1y.mean():+.1f}%" if len(_1y) else "—"
+        w52s    = df["52W_High%"].dropna() if "52W_High%" in df.columns else pd.Series(dtype=float)
+        near_hi = str(int((w52s >= 90).sum())) if len(w52s) else "—"
+
+        if HAS_QC:
+            comp_cnt = int((df["QC_Signal"] == "🏆 COMPOUNDER").sum())
+            qual_cnt = int((df["QC_Signal"] == "⭐ QUALITY").sum())
+            avg_qc   = f"{df['QC_Score'].mean():.1f}"
+            _roic    = df["ROIC%"].dropna() if "ROIC%" in df.columns else pd.Series(dtype=float)
+            avg_roic = f"{_roic.mean():.1f}%" if len(_roic) else "—"
+            dual_cnt = int(((df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)).sum())
+            eq_cb    = int((df["EQ_Badge"] == "💚 Cash Backed").sum()) if "EQ_Badge" in df.columns else "—"
+        else:
+            comp_cnt = qual_cnt = dual_cnt = eq_cb = "—"
+            avg_qc = avg_roic = "—"
+
+        _de  = df["D/E"].dropna()  if "D/E"  in df.columns else pd.Series(dtype=float)
+        _pe  = df["P/E"].dropna()  if "P/E"  in df.columns else pd.Series(dtype=float)
+        _1m  = df["1M%"].dropna()  if "1M%"  in df.columns else pd.Series(dtype=float)
+        de_r = str(int((_de > 1).sum()))    if len(_de) else "—"
+        pe_r = str(int((_pe > 50).sum()))   if len(_pe) else "—"
+        m1_r = str(int((_1m < -10).sum()))  if len(_1m) else "—"
+
+        # ── KPI card helper ────────────────────────────────────────
+        def _kpi(val, label, val_col, bg):
+            return (f'<td style="padding:3px;" width="16%">'
+                    f'<table width="100%" cellspacing="0" cellpadding="0">'
+                    f'<tr><td align="center" style="background:{bg};padding:10px 4px 2px 4px;'
+                    f'border-radius:3px 3px 0 0;">'
+                    f'<span style="font-size:22px;font-weight:700;color:{val_col};">{val}</span></td></tr>'
+                    f'<tr><td align="center" style="background:{bg};padding:2px 4px 8px 4px;'
+                    f'border-radius:0 0 3px 3px;filter:brightness(0.85);">'
+                    f'<span style="font-size:9px;color:{val_col};letter-spacing:1px;">{label}</span>'
+                    f'</td></tr></table></td>')
+
+        cs_kpi_row = (
+            _kpi(total,   "TOTAL STOCKS",    "#DCE4EE", "#1C2A3A") +
+            _kpi(sb_cnt,  "STRONG BUY 🟢",   "#1A5C2B", "#C6EFCE") +
+            _kpi(buy_cnt, "BUY 🔵",           "#1A3A5C", "#DDEEFF") +
+            _kpi(avg_cs,  f"AVG CS / {N_CS}", "#B8C4D0", "#1A2435") +
+            _kpi(avg_1y,  "AVG 1Y%",          "#3D8EF0", "#0D1830") +
+            _kpi(near_hi, "NEAR 52W HIGH",    "#7D6608", "#2A2010")
+        )
+        qc_kpi_row = (
+            _kpi(comp_cnt, "COMPOUNDER 🏆",   "#1A5C2B", "#C6EFCE") +
+            _kpi(qual_cnt, "QUALITY ⭐",        "#1A3A5C", "#DDEEFF") +
+            _kpi(avg_qc,   "AVG QC / 6",       "#34C472", "#0D2010") +
+            _kpi(avg_roic, "AVG ROIC%",         "#FFD700", "#1A1500") +
+            _kpi(dual_cnt, "DUAL LEADERS",      "#9B59B6", "#2A0A3A") +
+            _kpi(eq_cb,    "CASH BACKED 💚",    "#4DB6AC", "#0A2020")
+        ) if HAS_QC else ""
+        risk_row = (
+            _kpi(de_r, "D/E > 1  ⚠",    "#9C0006", "#FFC7CE") +
+            _kpi(pe_r, "P/E > 50  ⚠",   "#9C6500", "#FFF2CC") +
+            _kpi(m1_r, "1M% < −10%  ⚠", "#9C0006", "#FFE0E0") +
+            "<td></td><td></td><td></td>"
+        )
+        # [old implementation removed]
+
     def _recolor_table(self):
         """Re-apply theme-sensitive foreground colors to existing cells."""
         PCT_KEYS = {"EPS Qtr%","EPS Annual%","Rev Annual%","Rev Qtr%",
@@ -2957,7 +3497,7 @@ class MainWindow(QMainWindow):
         self._apply_filter()
 
     def _apply_filter(self):
-        if hasattr(self, "_tabs_w") and self._tabs_w.currentIndex() == 1:
+        if hasattr(self, "_tabs_w") and self._tabs_w.currentIndex() == 2:
             self._apply_qc_filter()
             return
         text      = self._filter_inp.text().strip().lower()
