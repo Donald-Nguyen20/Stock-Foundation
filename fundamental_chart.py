@@ -284,13 +284,21 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
 
 def _build_chart(ticker, name, labels, eps, gm, roe, cfps,
                  mode="quarterly", height=860, dark_mode=True):
-    """Return interactive Plotly HTML string (used by standalone viewer and screener panel)."""
+    """Return interactive Plotly HTML string — fills 100% of the WebEngineView viewport."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, cfps,
                         mode=mode, height=height, dark_mode=dark_mode)
-    return fig.to_html(
-        include_plotlyjs="cdn", full_html=True,
+    fig.update_layout(height=None, autosize=True)
+    div = fig.to_html(
+        include_plotlyjs="cdn", full_html=False,
         config={"displayModeBar": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["select2d", "lasso2d"]},
+    )
+    bg = "#06080F" if dark_mode else "#FFFFFF"
+    return (
+        f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+        f'html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{bg};}}'
+        f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}'
+        f'</style></head><body>{div}</body></html>'
     )
 
 
