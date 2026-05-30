@@ -1947,7 +1947,7 @@ class MainWindow(QMainWindow):
         )
         self._title_lbl = lbl
         h.addWidget(lbl); h.addStretch()
-        self._tag_lbl = QLabel("CAN SLIM · TradingView · yfinance")
+        self._tag_lbl = QLabel("Catalyst · TradingView · yfinance")
         self._tag_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:2px;")
         h.addWidget(self._tag_lbl)
         h.addSpacing(10)
@@ -2170,7 +2170,7 @@ class MainWindow(QMainWindow):
         self._cs_vsplit.addWidget(self._build_detail())
         self._cs_vsplit.setSizes([580, 180])
         cs_v.addWidget(self._cs_vsplit)
-        tabs.addTab(self._cs_w, "  CAN SLIM  ")
+        tabs.addTab(self._cs_w, "  Catalyst  ")
 
         # Tab 2 — Quality Compounder
         self._qc_w = QWidget(); self._qc_w.setStyleSheet(f"background:{BG};")
