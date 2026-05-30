@@ -1049,53 +1049,75 @@ class HelpDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
-    def _html(self):
+    def _html(self):  # noqa: C901
         ops = {"gt": ">", "lt": "<"}
+        # ── Light-theme palette ───────────────────────────────────────────────
+        H_ROW_E = "#F0F4FA"; H_ROW_O = "#FFFFFF"
+        H_TEXT  = "#1A202C"; H_DIM   = "#64748B"; H_SEC  = "#374151"
+        H_BLUE  = "#1E40AF"; H_GREEN = "#16A34A"; H_WARN = "#D97706"
+        H_HDR_BG = "#E2E8F0"; H_HDR_FG = "#2D3748"
+        H_CODE_BG = "#EBF4FF"
+
         full_desc = {
-            "C": ("<b>Tại sao?</b> EPS quý là tín hiệu sớm nhất — một công ty đang tăng tốc sẽ thể hiện ngay ở quý gần nhất trước khi số năm bắt kịp. "
-                  "Ngưỡng 25% loại bỏ những công ty chỉ tăng trưởng bình thường; O'Neil thống kê rằng phần lớn cổ phiếu tăng mạnh nhất trong lịch sử "
-                  "đều có EPS quý tăng ít nhất 25–50% trước breakout. <b>Nguồn:</b> TradingView — EPS diluted YoY growth FQ (so cùng quý năm trước)."),
-            "A": ("<b>Tại sao?</b> Một quý tốt có thể là may mắn; nhiều năm tốt liên tiếp là cấu trúc. Tiêu chí A xác nhận C không phải là điểm bất thường. "
-                  "Ngưỡng 20% (thấp hơn C một chút) vì tăng trưởng năm thường ổn định hơn quý, cộng thêm hiệu ứng base effect làm số năm dao động nhiều hơn. "
-                  "<b>Lưu ý:</b> EPS annual dễ bị méo bởi base effect (ví dụ: phục hồi từ năm lỗ → growth ảo 500–1000%) — cần kết hợp xem C và S."),
-            "S": ("<b>Tại sao?</b> EPS có thể tăng giả tạo từ cắt giảm chi phí, buyback cổ phiếu, hoặc thay đổi kế toán — nhưng doanh thu thì không. "
-                  "S đảm bảo tăng trưởng đến từ top-line thực sự: khách hàng đang mua nhiều hơn. O'Neil yêu cầu cả C lẫn S cùng tăng mạnh để loại bỏ "
-                  "công ty 'tối ưu hóa' lợi nhuận mà kinh doanh thực chất đang co lại."),
-            "L": ("<b>Tại sao?</b> O'Neil's L = Leader vs Laggard, đo bằng RS Rating 1–99 so toàn bộ thị trường. App dùng <b>proxy đơn giản hóa</b>: "
-                  "1Y% của cổ phiếu trừ 1Y% của index thị trường → nếu dương = outperform index. "
-                  "Ý nghĩa: cổ phiếu tốt nhất thường outperform thị trường 6–12 tháng trước khi breakout mạnh nhất — mua laggard là đang cưỡi ngựa chậm."),
-            "Q": ("<b>Tại sao?</b> Trong app này, Q được tái định nghĩa thành <b>Quality — Gross Margin &gt;40%</b> "
-                  "(O'Neil gốc dùng Q cho chất lượng sponsor tổ chức, khó đo được từ dữ liệu screener). "
-                  "<b>Gross Margin = (Revenue − Giá vốn) / Revenue</b> — tỷ lệ còn lại sau khi trừ chi phí tạo ra sản phẩm/dịch vụ. "
-                  "GM cao = pricing power: công ty có thể định giá cao hơn chi phí, có tiền cho R&amp;D và marketing. "
-                  "Ngưỡng 40% là ranh giới thực nghiệm: dưới đó thường là commodity business (cạnh tranh bằng giá thấp), trên đó thường có lợi thế khác biệt thực sự. "
-                  "<b style='color:#FFA726;'>⚠ Lưu ý sector:</b> Tech/Healthcare/Software tự nhiên có GM 50–80%; Industrials/Energy/Retail hiếm khi vượt 40% — "
-                  "đây là đặc thù ngành, không phải điểm yếu. Trong chiến lược kết hợp, tiêu chí này phản ánh độ 'lean' của business model."),
-            "R": ("<b>Tại sao?</b> ROE đo hiệu quả sinh lời trên vốn cổ đông — bao nhiêu lợi nhuận tạo ra trên mỗi đồng equity. "
-                  "ROE >17% đảm bảo công ty không chỉ tăng trưởng mà còn <b>tạo ra giá trị thực</b> cho cổ đông. "
-                  "ROE thấp + EPS growth cao thường là dấu hiệu growth nhờ pha loãng vốn (phát hành cổ phiếu mới), không bền vững."),
-            "M": ("<b>Tại sao?</b> Tiêu chí M = <b>EPS Quarterly YoY Acceleration</b> — tốc độ tăng trưởng EPS đang tăng dần qua các quý liên tiếp. "
-                  "Đây là tín hiệu mua sớm (leading indicator): thị trường thường mất 1–2 quý để định giá lại khi earnings acceleration bắt đầu — "
-                  "nhà đầu tư phát hiện sớm có lợi thế lớn.<br>"
-                  "<b>Khi bật yfinance Moat:</b> So sánh YoY% của 4 quý gần nhất (Q1: +20%, Q2: +30%, Q3: +45% = tăng tốc). "
-                  "Cần ≥2 quý liên tiếp YoY% tăng dần → True. Dữ liệu thực tế từ yfinance quarterly EPS.<br>"
-                  "<b>Khi tắt yfinance:</b> Dùng proxy EPS Qtr% &gt; EPS Annual% &amp;&amp; EPS Qtr% &gt; 0 (chỉ so 1 điểm).<br>"
-                  "<b>Cột ACC</b> trong bảng: ↑3Q = 3 quý tăng tốc liên tiếp (tín hiệu mạnh nhất), ↑2Q = 2 quý, ↑1Q = chỉ mới tăng tốc, ↓ = đang giảm tốc (cờ đỏ dù EPS vẫn tăng tuyệt đối).<br>"
-                  "<b>Lưu ý:</b> Trong O'Neil gốc, M = Market Direction — đã tách thành tiêu chí MKT. App dùng slot M cho EPS acceleration momentum."),
-            "D": ("<b>Tại sao?</b> <b>D/E = Tổng nợ / Vốn chủ sở hữu</b> — đo mức độ doanh nghiệp dùng nợ để tài trợ hoạt động. "
-                  "D/E = 1.0 nghĩa là nợ bằng vốn tự có; D/E = 2.0 nghĩa là nợ gấp đôi vốn. "
-                  "<b>Tại sao nợ nguy hiểm?</b> Lãi vay phải trả dù doanh thu giảm — đòn bẩy khuếch đại lợi nhuận khi tốt nhưng khuếch đại thua lỗ khi xấu. "
-                  "Công ty D/E cao + môi trường lãi suất tăng = rủi ro thanh khoản nghiêm trọng. "
-                  "Ngưỡng &lt;1.5 (chặt hơn phiên bản cũ 2.0) — lọc ra những công ty dùng nợ vừa phải, phù hợp chiến lược momentum+quality. "
-                  "<b style='color:#FFA726;'>⚠ Ngoại lệ Financial Services:</b> Ngân hàng/bảo hiểm có D/E cấu trúc rất cao (tiền gửi khách hàng được tính là 'nợ') — "
-                  "D/E 8–15 là bình thường với ngân hàng, không phải rủi ro. Tiêu chí D bị bỏ qua cho nhóm này."),
-            "N": ("<b>Tại sao?</b> O'Neil quan sát rằng cổ phiếu tăng mạnh nhất thường phá đỉnh 52 tuần trước khi tăng tiếp — "
-                  "không phải 'mua rẻ' từ vùng đáy. App dùng ngưỡng ≥90% thay vì phá đỉnh tuyệt đối để bắt cả những cổ phiếu đang tích lũy sát đỉnh. "
-                  "Cổ phiếu ở <70% của 52W High thường đang trong downtrend — tránh."),
-            "MKT": ("<b>Tại sao?</b> O'Neil nghiên cứu lịch sử và kết luận: 3 trong 4 cổ phiếu sẽ đi cùng xu hướng thị trường chung. "
-                    "Mua cổ phiếu tốt trong bear market = bơi ngược dòng. "
-                    "Điều kiện index > MA50 &amp; MA200 xác nhận thị trường đang uptrend bền vững, không phải chỉ là bounce ngắn. "
-                    "Mỗi market dùng index riêng: America=S&amp;P 500, NASDAQ=NDX, Vietnam=VNINDEX, Hong Kong=HSI."),
+            "C": (f"<b>Chỉ số:</b> EPS Quý YoY% — lợi nhuận mỗi cổ phiếu so cùng quý năm trước.<br>"
+                  f"<b>Ngưỡng:</b> &gt;25% — loại bỏ công ty tăng trưởng bình thường.<br>"
+                  f"<b>Lý do:</b> EPS quý là tín hiệu sớm nhất. Công ty đang tăng tốc sẽ thể hiện ngay ở quý gần nhất "
+                  f"trước khi số năm bắt kịp. O'Neil thống kê phần lớn cổ phiếu tăng mạnh nhất trong lịch sử "
+                  f"đều có EPS quý tăng ≥25–50% trước breakout.<br>"
+                  f"<span style='color:{H_DIM};font-size:11px;'>Nguồn: TradingView — EPS diluted YoY growth FQ (so cùng quý năm trước).</span>"),
+            "A": (f"<b>Chỉ số:</b> EPS Năm YoY% — lợi nhuận mỗi cổ phiếu tăng trưởng so với năm trước.<br>"
+                  f"<b>Ngưỡng:</b> &gt;20% — thấp hơn C vì tăng trưởng năm ổn định hơn quý.<br>"
+                  f"<b>Lý do:</b> Một quý tốt có thể là may mắn; nhiều năm tốt liên tiếp là cấu trúc. "
+                  f"Tiêu chí A xác nhận C không phải điểm bất thường mà là xu hướng bền vững.<br>"
+                  f"<span style='color:{H_WARN};'>⚠</span> EPS annual dễ bị méo bởi base effect (phục hồi từ năm lỗ → growth ảo 500%) "
+                  f"— kết hợp xem cả C và S để xác nhận."),
+            "S": (f"<b>Chỉ số:</b> Revenue YoY% — doanh thu tăng so với cùng kỳ năm trước.<br>"
+                  f"<b>Ngưỡng:</b> &gt;20%.<br>"
+                  f"<b>Lý do:</b> EPS có thể tăng giả tạo nhờ cắt giảm chi phí, buyback, hoặc thay đổi kế toán — nhưng doanh thu thì không. "
+                  f"S đảm bảo tăng trưởng đến từ top-line thực sự: khách hàng đang mua nhiều hơn. "
+                  f"Công ty có C+S cùng tăng mạnh = tăng trưởng toàn diện, không phải 'tối ưu hóa sổ sách'."),
+            "L": (f"<b>Chỉ số:</b> Relative Strength — hiệu suất giá so với thị trường.<br>"
+                  f"<b>Ngưỡng:</b> Outperform index (1Y% cổ phiếu &gt; 1Y% index).<br>"
+                  f"<b>Lý do:</b> O'Neil's L = Leader vs Laggard. Cổ phiếu dẫn đầu thị trường thường tiếp tục dẫn đầu "
+                  f"— mua laggard là cưỡi ngựa chậm. App dùng proxy: 1Y% cổ phiếu trừ 1Y% index thị trường; "
+                  f"nếu dương = đang outperform."),
+            "Q": (f"<b>Chỉ số:</b> Gross Margin% — biên lợi nhuận gộp = (Revenue − COGS) / Revenue.<br>"
+                  f"<b>Ngưỡng:</b> &gt;40%.<br>"
+                  f"<b>Lý do:</b> GM cao = pricing power thực sự — công ty có thể định giá cao hơn chi phí sản xuất, "
+                  f"còn tiền cho R&amp;D và marketing. Dưới 40% thường là commodity business (cạnh tranh bằng giá thấp). "
+                  f"Trên 40% thường có lợi thế khác biệt bền vững.<br>"
+                  f"<span style='color:{H_WARN};'>⚠ Lưu ý sector:</span> Tech/Software có GM 50–80% là bình thường; "
+                  f"Industrials/Retail hiếm vượt 40% — đặc thù ngành, không phải điểm yếu."),
+            "R": (f"<b>Chỉ số:</b> ROE% — Return on Equity = Lợi nhuận ròng / Vốn chủ sở hữu.<br>"
+                  f"<b>Ngưỡng:</b> &gt;17%.<br>"
+                  f"<b>Lý do:</b> ROE đo hiệu quả sinh lời trên vốn cổ đông. ROE &gt;17% = công ty không chỉ tăng trưởng "
+                  f"mà còn tạo ra giá trị thực. ROE thấp + EPS growth cao = tăng trưởng nhờ pha loãng vốn "
+                  f"(phát hành cổ phiếu mới) — không bền vững."),
+            "M": (f"<b>Chỉ số:</b> EPS Acceleration — tốc độ tăng trưởng EPS đang tăng dần qua các quý.<br>"
+                  f"<b>Ngưỡng:</b> ≥2 quý liên tiếp YoY% tăng dần (khi bật yfinance), hoặc EPS Qtr &gt; EPS Annual &gt;0 (khi tắt).<br>"
+                  f"<b>Lý do:</b> Đây là leading indicator mạnh nhất: thị trường mất 1–2 quý để định giá lại khi earnings "
+                  f"acceleration bắt đầu — phát hiện sớm có lợi thế lớn.<br>"
+                  f"<b>Cột ACC trong bảng:</b> ↑3Q = 3 quý liên tiếp (mạnh nhất) · ↑2Q = 2 quý · ↑1Q = mới bắt đầu · "
+                  f"↓ = đang giảm tốc (cờ đỏ dù EPS vẫn tăng tuyệt đối).<br>"
+                  f"<span style='color:{H_DIM};font-size:11px;'>Trong O'Neil gốc M = Market Direction — đã tách thành MKT. Slot M dùng cho acceleration.</span>"),
+            "D": (f"<b>Chỉ số:</b> D/E Ratio = Tổng nợ / Vốn chủ sở hữu.<br>"
+                  f"<b>Ngưỡng:</b> &lt;1.5 — nợ không vượt quá 1.5× vốn tự có.<br>"
+                  f"<b>Lý do:</b> Lãi vay phải trả dù doanh thu giảm — đòn bẩy khuếch đại lợi nhuận khi tốt "
+                  f"nhưng khuếch đại thua lỗ khi xấu. D/E cao + lãi suất tăng = rủi ro thanh khoản nghiêm trọng.<br>"
+                  f"<span style='color:{H_WARN};'>⚠ Financial Services:</span> Ngân hàng/bảo hiểm có D/E 8–15x là cấu trúc bình thường "
+                  f"(tiền gửi khách hàng tính là 'nợ') — tiêu chí D bị bỏ qua hoàn toàn cho nhóm này."),
+            "N": (f"<b>Chỉ số:</b> 52W High% — giá hiện tại so với đỉnh 52 tuần.<br>"
+                  f"<b>Ngưỡng:</b> ≥90% — đang tích lũy gần đỉnh.<br>"
+                  f"<b>Lý do:</b> O'Neil quan sát cổ phiếu tăng mạnh nhất thường phá đỉnh 52 tuần trước khi tăng tiếp "
+                  f"— không phải 'mua rẻ' từ vùng đáy. Khi giá gần đỉnh 52W, tất cả người mua trước đều đang có lời "
+                  f"→ không có áp lực bán cắt lỗ → giá dễ tiếp tục tăng. "
+                  f"Cổ phiếu ở &lt;70% của 52W High thường đang trong downtrend."),
+            "MKT": (f"<b>Chỉ số:</b> Market Direction — xu hướng thị trường chung (index vs MA50 &amp; MA200).<br>"
+                    f"<b>Ngưỡng:</b> Index &gt; MA50 &amp; MA200 (uptrend xác nhận).<br>"
+                    f"<b>Lý do:</b> O'Neil nghiên cứu lịch sử và kết luận: 3 trong 4 cổ phiếu đi cùng xu hướng thị trường. "
+                    f"Mua cổ phiếu tốt trong bear market = bơi ngược dòng. Điều kiện này lọc bỏ những lần bounce ngắn "
+                    f"không phải uptrend thực sự.<br>"
+                    f"<span style='color:{H_DIM};font-size:11px;'>Index theo market: America=S&amp;P 500 · NASDAQ=NDX · Vietnam=VNINDEX · HongKong=HSI.</span>"),
         }
         canslim_rows = ""
         for i, key in enumerate(CS_KEYS):
@@ -1108,16 +1130,16 @@ class HelpDialog(QDialog):
                 op  = ops[cfg["op"]]
                 thr = f"{op}&nbsp;{cfg['thr']}%"
             name = cfg["label"].split("—")[1].strip() if "—" in cfg["label"] else cfg["label"]
-            bg   = "#0E1220" if i % 2 == 0 else "#0B0E18"
+            bg   = H_ROW_E if i % 2 == 0 else H_ROW_O
             canslim_rows += f"""
               <tr style="background-color:{bg};">
-                <td style="color:#3D8EF0;font-weight:700;font-family:Consolas,monospace;
+                <td style="color:{H_BLUE};font-weight:700;font-family:Consolas,monospace;
                            font-size:15px;padding:9px 13px;width:36px;">{key}</td>
-                <td style="color:#DCE4EE;padding:9px 13px;width:120px;">{name}</td>
-                <td style="color:#B8C4D0;font-family:Consolas,monospace;font-size:11px;
-                           padding:9px 13px;width:115px;">{cfg['field']}</td>
-                <td style="color:#34C472;font-weight:700;padding:9px 13px;width:70px;">{thr}</td>
-                <td style="color:#DCE4EE;font-size:12px;padding:9px 13px;">{full_desc[key]}</td>
+                <td style="color:{H_TEXT};padding:9px 13px;width:110px;">{name}</td>
+                <td style="color:{H_SEC};font-family:Consolas,monospace;font-size:11px;
+                           padding:9px 13px;width:110px;">{cfg['field']}</td>
+                <td style="color:{H_GREEN};font-weight:700;padding:9px 13px;width:70px;">{thr}</td>
+                <td style="color:{H_TEXT};font-size:12px;padding:9px 13px;line-height:1.6;">{full_desc[key]}</td>
               </tr>"""
 
         signal_rows = "".join([
@@ -1134,7 +1156,7 @@ class HelpDialog(QDialog):
                 ("🟡", "WATCH",      f"≥{round(N_CS*0.375)} / {N_CS}", "#7D6608", "#FFF2CC",
                  f"Đạt ≥37.5% tiêu chí (≥{round(N_CS*0.375)}/{N_CS} điểm). Tiềm năng nhưng chưa đủ điều kiện. Đưa vào watchlist, scan lại sau 2–4 tuần để xem có cải thiện không."),
                 ("🔴", "SKIP",       f"< {round(N_CS*0.375)} / {N_CS}", "#9C0006", "#FFC7CE",
-                 f"Dưới {round(N_CS*0.375)}/{N_CS} điểm. Không đủ điều kiện CAN SLIM — bỏ qua. Không nên ép mua chỉ vì thích tên công ty; chờ fundamental xoay chiều rõ ràng."),
+                 f"Dưới {round(N_CS*0.375)}/{N_CS} điểm. Không đủ điều kiện — bỏ qua. Không nên ép mua chỉ vì thích tên công ty; chờ fundamental xoay chiều rõ ràng."),
             ]
         ])
 
@@ -1158,11 +1180,11 @@ class HelpDialog(QDialog):
 
         proxy_sector_rows = ""
         for i, (sector, proxy) in enumerate(MOAT_PROXY_MAP.items()):
-            bg = "#0E1220" if i % 2 == 0 else "#0B0E18"
+            bg = H_ROW_E if i % 2 == 0 else H_ROW_O
             proxy_sector_rows += (
                 f'<tr style="background-color:{bg};">'
-                f'<td style="color:#DCE4EE;font-size:12px;padding:7px 13px;">{sector}</td>'
-                f'<td style="color:#DCE4EE;font-size:12px;padding:7px 13px;">{proxy}</td>'
+                f'<td style="color:{H_TEXT};font-size:12px;padding:7px 13px;">{sector}</td>'
+                f'<td style="color:{H_SEC};font-size:12px;padding:7px 13px;">{proxy}</td>'
                 f'</tr>'
             )
 
@@ -1198,52 +1220,57 @@ class HelpDialog(QDialog):
         ]
         proxy_type_rows = ""
         for i, (ptype, pdesc) in enumerate(proxy_types):
-            bg = "#0E1220" if i % 2 == 0 else "#0B0E18"
+            bg = H_ROW_E if i % 2 == 0 else H_ROW_O
             proxy_type_rows += (
                 f'<tr style="background-color:{bg};">'
-                f'<td style="color:#3D8EF0;font-weight:600;font-size:12px;padding:8px 13px;">{ptype}</td>'
-                f'<td style="color:#DCE4EE;font-size:12px;padding:8px 13px;">{pdesc}</td>'
+                f'<td style="color:{H_BLUE};font-weight:600;font-size:12px;padding:8px 13px;width:200px;">{ptype}</td>'
+                f'<td style="color:{H_TEXT};font-size:12px;padding:8px 13px;">{pdesc}</td>'
                 f'</tr>'
             )
 
         # ── Quality Compounder criteria rows ──────────────────────────────────
         qc_full_desc = {
-            "ROIC": ("<b>Tại sao?</b> ROIC = Net Income / (Debt + Equity) — đo lợi nhuận tạo ra trên <i>toàn bộ</i> vốn đầu tư vào doanh nghiệp, "
-                     "không phân biệt vốn đến từ cổ đông hay chủ nợ. Đây là tiêu chí cốt lõi nhất của compounder: "
-                     "nếu ROIC > WACC (chi phí vốn bình quân ~8–10%), công ty đang tạo ra giá trị thực — mỗi đồng tái đầu tư sinh thêm lợi nhuận. "
-                     "Ngưỡng 15% tạo biên an toàn rõ ràng so với chi phí vốn. "
-                     "<b style='color:#FFA726;'>⚠ Financial Services:</b> Ngân hàng/bảo hiểm có Debt rất lớn (tiền gửi khách hàng) nên ROIC luôn thấp — "
-                     "thay thế bằng <b>ROE &gt; 12%</b> để đánh giá đúng hiệu quả vốn chủ sở hữu."),
-            "OPGM": ("<b>Tại sao?</b> Operating Margin = EBIT / Revenue — đo hiệu quả vận hành core business, loại bỏ ảnh hưởng của cấu trúc vốn (lãi vay) và thuế. "
-                     "Margin cao và ổn định = pricing power thực sự: công ty có thể tăng giá mà không mất khách, hoặc kiểm soát chi phí tốt hơn đối thủ. "
-                     "Ngưỡng 15% phân biệt premium business (software, pharma, luxury) với commodity business. "
-                     "OpMgn giảm dần qua nhiều năm là cảnh báo sớm áp lực cạnh tranh tăng."),
-            "GM":   ("<b>Tại sao?</b> Gross Margin = (Revenue − COGS) / Revenue — biên lợi nhuận trước mọi chi phí hoạt động. "
-                     "GM cao là nền tảng của mọi thứ tốt khác: "
-                     "công ty GM 70% (như phần mềm) có nhiều tiền hơn để chi cho R&D, sales, và vẫn còn lãi; "
-                     "công ty GM 15% (như bán lẻ) phải vận hành cực kỳ hiệu quả mới tồn tại. "
-                     "Ngưỡng 40% là ranh giới thực nghiệm giữa <i>business cần scale mới sống</i> và <i>business tự tạo ra lợi thế</i>."),
-            "FCF":  ("<b>Tại sao?</b> FCF/share &gt; 0 nghĩa là sau khi trả hết chi phí vận hành và đầu tư tài sản cố định (capex), "
-                     "vẫn còn tiền mặt thực về tay. Đây là điều kiện tối thiểu để một compounder hoạt động: "
-                     "buyback cổ phiếu, trả dividend, thực hiện M&A — tất cả đều cần FCF dương. "
-                     "EPS dương nhưng FCF âm = lợi nhuận kế toán, không phải tiền thật. "
-                     "FCF &gt; EPS trong nhiều năm = earnings quality cao, rất hiếm và rất quý."),
-            "DE":   ("<b>Tại sao?</b> D/E &lt; 1.0 — tiêu chuẩn chặt hơn CAN SLIM (&lt;2.0) vì compounder cần bền vững qua nhiều chu kỳ. "
-                     "Compounder thực sự tăng trưởng bằng FCF tái đầu tư, không cần vay nợ nhiều. "
-                     "Balance sheet sạch = linh hoạt tài chính khi khủng hoảng (2008, 2020): "
-                     "trong khi đối thủ overleveraged phải bán tài sản để trả nợ, compounder có thể mua lại đối thủ hoặc buyback cổ phiếu. "
-                     "<b style='color:#FFA726;'>⚠ Financial Services:</b> Ngân hàng/bảo hiểm có D/E 8–15x là cấu trúc bình thường (tiền gửi = nợ) — "
-                     "tiêu chí này bị <b>bỏ qua hoàn toàn</b> cho sector này."),
-            "MOAT": ("<b>Tại sao?</b> Moat là lý do duy nhất ROIC cao có thể <i>duy trì</i> dài hạn. "
-                     "Không có moat: đối thủ thấy ROIC cao → đầu tư vào ngành → cạnh tranh tăng → ROIC giảm về mức trung bình trong 3–7 năm. "
-                     "Có moat: rào cản cạnh tranh (switching cost, network effect, brand, patent) bảo vệ ROIC khỏi bị xói mòn. "
-                     "Trong app: Moat tính từ ROE 5yr avg + GM 5yr avg qua yfinance — ổn định qua 5 năm là bằng chứng moat thực sự. "
-                     "Chỉ Wide ★★★ hoặc Narrow ★★ mới đủ điều kiện; Uncertain và Weak = chưa chứng minh được."),
+            "ROIC": (f"<b>Chỉ số:</b> ROIC% = Net Income / (Debt + Equity) — lợi nhuận trên toàn bộ vốn đầu tư.<br>"
+                     f"<b>Ngưỡng:</b> &gt;15% (biên an toàn rõ ràng so với chi phí vốn bình quân ~8–10%).<br>"
+                     f"<b>Lý do:</b> Nếu ROIC &gt; WACC, công ty đang tạo ra giá trị thực — mỗi đồng tái đầu tư sinh thêm lợi nhuận. "
+                     f"Đây là tiêu chí cốt lõi nhất của compounder: phân biệt 'công ty vĩ đại' (ROIC cao bền vững) "
+                     f"với 'công ty bình thường' (ROIC tăng nhờ đòn bẩy hoặc may mắn).<br>"
+                     f"<span style='color:{H_WARN};'>⚠ Financial Services:</span> ROIC bị méo bởi leverage cấu trúc → "
+                     f"thay bằng <b>ROE &gt;12%</b> cho ngân hàng/bảo hiểm."),
+            "OPGM": (f"<b>Chỉ số:</b> Operating Margin% = EBIT / Revenue — biên lợi nhuận vận hành.<br>"
+                     f"<b>Ngưỡng:</b> &gt;15%.<br>"
+                     f"<b>Lý do:</b> Loại bỏ ảnh hưởng cấu trúc vốn (lãi vay) và thuế, đo thuần hiệu quả core business. "
+                     f"Margin cao + ổn định = pricing power thực sự: tăng giá mà không mất khách. "
+                     f"OpMgn giảm dần qua nhiều năm là cảnh báo sớm áp lực cạnh tranh tăng."),
+            "GM":   (f"<b>Chỉ số:</b> Gross Margin% = (Revenue − COGS) / Revenue — biên lợi nhuận gộp.<br>"
+                     f"<b>Ngưỡng:</b> &gt;40%.<br>"
+                     f"<b>Lý do:</b> GM cao là nền tảng của mọi thứ tốt khác. Công ty GM 70% (software) có thể "
+                     f"chi nhiều cho R&amp;D và sales mà vẫn còn lãi; GM 15% (retail) phải vận hành cực kỳ hiệu quả mới tồn tại. "
+                     f"Ngưỡng 40% phân biệt business tự tạo ra lợi thế với business cần scale mới sống."),
+            "FCF":  (f"<b>Chỉ số:</b> FCF/share — Free Cash Flow trên mỗi cổ phiếu.<br>"
+                     f"<b>Ngưỡng:</b> &gt;0 (tiền mặt thực về tay sau capex).<br>"
+                     f"<b>Lý do:</b> Sau khi trả chi phí vận hành và đầu tư tài sản cố định, vẫn còn tiền mặt thực. "
+                     f"Đây là điều kiện tối thiểu để compounder hoạt động: buyback, dividend, M&amp;A — tất cả cần FCF dương. "
+                     f"EPS dương nhưng FCF âm = lợi nhuận kế toán, không phải tiền thật. "
+                     f"FCF &gt; EPS nhiều năm liên tiếp = earnings quality rất cao."),
+            "DE":   (f"<b>Chỉ số:</b> D/E Ratio = Tổng nợ / Vốn chủ sở hữu.<br>"
+                     f"<b>Ngưỡng:</b> &lt;1.0 — chặt hơn tab Catalyst (1.5) vì compounder cần bền vững qua nhiều chu kỳ.<br>"
+                     f"<b>Lý do:</b> Compounder thực sự tăng trưởng bằng FCF tái đầu tư, không cần vay nợ nhiều. "
+                     f"Balance sheet sạch = linh hoạt khi khủng hoảng: khi đối thủ phải bán tài sản trả nợ, "
+                     f"compounder có thể mua lại đối thủ hoặc buyback cổ phiếu.<br>"
+                     f"<span style='color:{H_WARN};'>⚠ Financial Services:</span> D/E 8–15x là cấu trúc bình thường → "
+                     f"tiêu chí này bị <b>bỏ qua hoàn toàn</b> cho sector này."),
+            "MOAT": (f"<b>Chỉ số:</b> Moat Score từ ROE 5yr avg + GM 5yr avg (yfinance).<br>"
+                     f"<b>Ngưỡng:</b> Wide ★★★ hoặc Narrow ★★ mới đủ điều kiện.<br>"
+                     f"<b>Lý do:</b> Moat là lý do duy nhất ROIC cao có thể duy trì dài hạn. "
+                     f"Không có moat: đối thủ thấy ROIC cao → đầu tư vào ngành → cạnh tranh → ROIC giảm về mức trung bình trong 3–7 năm. "
+                     f"Có moat: rào cản cạnh tranh (switching cost, network effect, brand, patent) bảo vệ ROIC. "
+                     f"Ổn định ROE+GM qua 5 năm = bằng chứng moat thực sự, không phải may mắn."),
         }
         qc_criteria_rows = ""
         for i, key in enumerate(QC_KEYS):
             cfg  = QC_CRITERIA[key]
-            bg   = "#0E1220" if i % 2 == 0 else "#0B0E18"
+            bg   = H_ROW_E if i % 2 == 0 else H_ROW_O
             if cfg["op"] == "in":
                 thr_str = "Wide / Narrow"
             elif cfg["op"] == "gt":
@@ -1252,11 +1279,11 @@ class HelpDialog(QDialog):
                 thr_str = f"&lt;&nbsp;{cfg['thr']}"
             qc_criteria_rows += f"""
               <tr style="background-color:{bg};">
-                <td style="color:#34C472;font-weight:700;font-family:Consolas,monospace;
+                <td style="color:{H_GREEN};font-weight:700;font-family:Consolas,monospace;
                            font-size:13px;padding:9px 13px;width:56px;">{key}</td>
-                <td style="color:#DCE4EE;padding:9px 13px;width:130px;">{cfg['label']}</td>
-                <td style="color:#34C472;font-weight:700;padding:9px 13px;width:120px;">{thr_str}</td>
-                <td style="color:#DCE4EE;font-size:12px;padding:9px 13px;">{qc_full_desc[key]}</td>
+                <td style="color:{H_TEXT};padding:9px 13px;width:130px;">{cfg['label']}</td>
+                <td style="color:{H_GREEN};font-weight:700;padding:9px 13px;width:110px;">{thr_str}</td>
+                <td style="color:{H_TEXT};font-size:12px;padding:9px 13px;line-height:1.6;">{qc_full_desc[key]}</td>
               </tr>"""
 
         qc_signal_rows = "".join([
@@ -1279,16 +1306,15 @@ class HelpDialog(QDialog):
 
         _sb = round(N_CS * 0.80); _buy = round(N_CS * 0.625)
         conviction_html = f"""<h2>③ CONVICTION — ĐIỂM TỰ TIN TỔNG HỢP</h2>
-<p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">
-  Cột <b style="color:#4FC3F7;">Conviction</b> xuất hiện trong cả hai tab (CAN SLIM và Quality Compounder),
-  đứng ngay sau cột <b>Score</b> và trước cột <b>Signal</b>. Đây là
-  <b>CS&nbsp;Score đã điều chỉnh theo chất lượng hào kinh tế (Moat)</b>
-  — phản ánh mức độ tự tin của hệ thống vào tín hiệu, không chỉ dựa vào momentum thuần túy.
-  Cùng CS&nbsp;Score nhưng Moat khác nhau → Conviction khác nhau → mức ưu tiên khác nhau.
+<p style="color:{H_DIM};font-size:12px;margin:0 0 10px 0;">
+  Cột <b style="color:{H_BLUE};">Conviction</b> xuất hiện trong cả hai tab (Catalyst và Quality Compounder),
+  đứng ngay sau cột Score. Đây là <b>CS Score đã điều chỉnh theo chất lượng Moat</b>
+  — phản ánh mức độ tự tin của hệ thống. Cùng CS Score nhưng Moat khác nhau → Conviction khác nhau → mức ưu tiên khác nhau.
 </p>
-<p style="color:#DCE4EE;font-size:12px;margin:0 0 4px 0;font-weight:700;">Công thức:</p>
-<p style="color:#4FC3F7;font-size:13px;font-family:Consolas,monospace;
-          background:#0D1C2E;padding:8px 14px;border-radius:4px;margin:0 0 12px 0;">
+<p style="color:{H_TEXT};font-size:12px;margin:0 0 4px 0;font-weight:700;">Công thức:</p>
+<p style="color:{H_BLUE};font-size:13px;font-family:Consolas,monospace;
+          background:{H_CODE_BG};padding:8px 14px;border-radius:4px;margin:0 0 12px 0;
+          border-left:3px solid #2563EB;">
   Conviction&nbsp; = &nbsp;CS_Score &nbsp;×&nbsp; Moat_Multiplier
 </p>
 <table>
@@ -1302,91 +1328,95 @@ class HelpDialog(QDialog):
     <td style="color:#1A5C2B;font-weight:700;font-size:12px;padding:9px 13px;">WIDE ★★★</td>
     <td style="color:#1A5C2B;font-weight:700;padding:9px 13px;text-align:center;">× 1.2</td>
     <td style="color:#1A5C2B;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*1.2, 1)}&nbsp; (CS = {N_CS})</td>
-    <td style="color:#0D2010;font-size:12px;padding:9px 13px;">Hệ thống rất tự tin: momentum mạnh + lợi thế cạnh tranh bền vững. Ưu tiên cao nhất — đây là nhóm đáng nghiên cứu đầu tiên.</td>
+    <td style="color:#0D2010;font-size:12px;padding:9px 13px;">Hệ thống rất tự tin: momentum mạnh + lợi thế cạnh tranh bền vững. Ưu tiên cao nhất — nghiên cứu nhóm này đầu tiên.</td>
   </tr>
   <tr style="background-color:#DDEEFF;">
     <td style="color:#1B3A5C;font-weight:700;font-size:12px;padding:9px 13px;">NARROW ★★</td>
     <td style="color:#1B3A5C;font-weight:700;padding:9px 13px;text-align:center;">× 1.1</td>
     <td style="color:#1B3A5C;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*1.1, 1)}&nbsp; (CS = {N_CS})</td>
-    <td style="color:#0D1C30;font-size:12px;padding:9px 13px;">Tự tin cao: moat tốt nhưng hẹp hơn WIDE. Duy trì được 5–10 năm. Cần theo dõi áp lực cạnh tranh ngành định kỳ.</td>
+    <td style="color:#0D1C30;font-size:12px;padding:9px 13px;">Tự tin cao: moat tốt nhưng hẹp hơn WIDE. Duy trì được 5–10 năm. Cần theo dõi áp lực cạnh tranh định kỳ.</td>
   </tr>
   <tr style="background-color:#FFF2CC;">
     <td style="color:#7D6608;font-weight:700;font-size:12px;padding:9px 13px;">UNCERTAIN ★</td>
     <td style="color:#7D6608;font-weight:700;padding:9px 13px;text-align:center;">× 1.0</td>
     <td style="color:#7D6608;font-weight:700;padding:9px 13px;text-align:center;">{float(N_CS):.1f}&nbsp; (CS = {N_CS})</td>
-    <td style="color:#3D2E00;font-size:12px;padding:9px 13px;">Bằng CS&nbsp;Score thuần: chưa xác định được moat. Cần phân tích định tính thêm về mô hình kinh doanh, sản phẩm, ban lãnh đạo.</td>
+    <td style="color:#3D2E00;font-size:12px;padding:9px 13px;">Bằng CS Score thuần: chưa xác định được moat. Cần phân tích định tính thêm về mô hình kinh doanh.</td>
   </tr>
   <tr style="background-color:#FFC7CE;">
     <td style="color:#9C0006;font-weight:700;font-size:12px;padding:9px 13px;">WEAK</td>
     <td style="color:#9C0006;font-weight:700;padding:9px 13px;text-align:center;">× 0.85</td>
     <td style="color:#9C0006;font-weight:700;padding:9px 13px;text-align:center;">{round(N_CS*0.85, 1)}&nbsp; (CS = {N_CS})</td>
-    <td style="color:#5C0000;font-size:12px;padding:9px 13px;">Giảm điểm: không có lợi thế cạnh tranh. CS cao nhưng Conviction thấp = momentum ngắn hạn, dễ đảo chiều khi thị trường yếu. Thận trọng hơn khi vào tiền.</td>
+    <td style="color:#5C0000;font-size:12px;padding:9px 13px;">Giảm điểm: không có lợi thế cạnh tranh. CS cao nhưng Conviction thấp = momentum ngắn hạn, dễ đảo chiều. Thận trọng khi vào tiền.</td>
   </tr>
 </table>
-<p style="color:#DCE4EE;font-size:12px;margin:10px 0 5px 0;font-weight:700;">Ví dụ thực tế — hai cổ phiếu cùng CS&nbsp;Score = 8:</p>
+<p style="color:{H_TEXT};font-size:12px;margin:10px 0 5px 0;font-weight:700;">Ví dụ thực tế — hai cổ phiếu cùng CS Score = 8:</p>
 <table>
   <tr>
     <th style="width:80px;">Cổ phiếu</th>
-    <th style="width:90px;">CS&nbsp;Score</th>
+    <th style="width:90px;">CS Score</th>
     <th style="width:140px;">Moat</th>
     <th style="width:120px;">Conviction</th>
     <th>Nhận xét</th>
   </tr>
-  <tr style="background-color:#0E1220;">
-    <td style="color:#4FC3F7;font-weight:700;padding:8px 13px;">Cổ A</td>
-    <td style="color:#DCE4EE;padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
+  <tr style="background-color:{H_ROW_E};">
+    <td style="color:{H_BLUE};font-weight:700;padding:8px 13px;">Cổ A</td>
+    <td style="color:{H_TEXT};padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
     <td style="color:#1A5C2B;font-weight:700;padding:8px 13px;">WIDE ★★★</td>
-    <td style="color:#34C472;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*1.2, 1)}</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 13px;">Mạnh cả ngắn hạn (CS) lẫn dài hạn (Moat) → ưu tiên nghiên cứu sâu</td>
+    <td style="color:#16A34A;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*1.2, 1)}</td>
+    <td style="color:{H_TEXT};font-size:12px;padding:8px 13px;">Mạnh cả ngắn hạn (CS) lẫn dài hạn (Moat) → ưu tiên nghiên cứu sâu</td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#4FC3F7;font-weight:700;padding:8px 13px;">Cổ B</td>
-    <td style="color:#DCE4EE;padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
+  <tr style="background-color:{H_ROW_O};">
+    <td style="color:{H_BLUE};font-weight:700;padding:8px 13px;">Cổ B</td>
+    <td style="color:{H_TEXT};padding:8px 13px;text-align:center;">8&nbsp;/&nbsp;{N_CS}</td>
     <td style="color:#9C0006;font-weight:700;padding:8px 13px;">WEAK</td>
-    <td style="color:#FFC7CE;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*0.85, 1)}</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 13px;">Momentum tốt nhưng không có nền tảng bền vững → dễ bị xói mòn, theo dõi sát hơn</td>
+    <td style="color:#9C0006;font-weight:700;font-size:15px;padding:8px 13px;text-align:center;">{round(8*0.85, 1)}</td>
+    <td style="color:{H_TEXT};font-size:12px;padding:8px 13px;">Momentum tốt nhưng không có nền tảng bền vững → dễ bị xói mòn, theo dõi sát hơn</td>
   </tr>
 </table>
-<p class="tip">💡 Khi hai mã có CS&nbsp;Score gần bằng nhau, dùng <b>Conviction</b> để phân biệt: mã nào Conviction cao hơn thì hệ thống tự tin hơn cả ngắn lẫn dài hạn.
+<p class="tip">💡 Khi hai mã có CS Score gần bằng nhau, dùng <b>Conviction</b> để phân biệt: mã nào Conviction cao hơn thì hệ thống tự tin hơn cả ngắn lẫn dài hạn.
 Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat ước tính từ TTM ROE&amp;GM nên Conviction kém chính xác hơn.</p>"""
 
         return f"""<html><head><style>
-  body  {{ background-color:#0B0E18; color:#DCE4EE;
+  body  {{ background-color:#F8FAFC; color:#1A202C;
            font-family:'Segoe UI',sans-serif; font-size:13px;
            margin:0; padding:0; }}
-  h1    {{ color:#3D8EF0; font-size:20px; letter-spacing:4px;
+  h1    {{ color:#1E40AF; font-size:20px; letter-spacing:4px;
            font-weight:700; margin:0 0 5px 0; }}
-  .sub  {{ color:#7A8899; font-size:11px; letter-spacing:2px;
+  .sub  {{ color:#64748B; font-size:11px; letter-spacing:2px;
            margin:0 0 20px 0; }}
-  h2    {{ color:#B8C4D0; font-size:12px; letter-spacing:3px;
+  h2    {{ color:#374151; font-size:12px; letter-spacing:3px;
            font-weight:700; margin:26px 0 9px 0;
-           border-bottom:1px solid #1A2133; padding-bottom:5px; }}
+           border-bottom:2px solid #CBD5E0; padding-bottom:5px; }}
   table {{ border-collapse:collapse; width:100%; margin-bottom:10px; }}
-  th    {{ background-color:#0E1220; color:#B8C4D0; text-align:left;
+  th    {{ background-color:#E2E8F0; color:#2D3748; text-align:left;
            padding:8px 13px; font-size:11px; letter-spacing:1px;
-           font-weight:600; border-bottom:1px solid #1A2133; }}
-  .tip  {{ color:#7A8899; font-size:11px; font-style:italic;
+           font-weight:700; border-bottom:2px solid #CBD5E0; }}
+  .tip  {{ color:#64748B; font-size:11px; font-style:italic;
            margin:5px 0 0 0; }}
-  li    {{ margin:7px 0; color:#DCE4EE; font-size:12px; }}
-  b     {{ color:#FFFFFF; font-weight:600; }}
+  li    {{ margin:7px 0; color:#1A202C; font-size:12px; }}
+  b     {{ color:#0F172A; font-weight:700; }}
 </style></head><body>
 <h1>FUNDAMENTAL SCREENER</h1>
-<p class="sub">HƯỚNG DẪN SỬ DỤNG  ·  CAN SLIM · QUALITY COMPOUNDER · EQ BADGE · MOAT · SIGNAL</p>
+<p class="sub">HƯỚNG DẪN SỬ DỤNG  ·  CATALYST · QUALITY COMPOUNDER · EQ BADGE · MOAT · SIGNAL</p>
 
-<h2>① CAN SLIM — 8 TIÊU CHÍ LỌC CỔ PHIẾU</h2>
+<h2>① CATALYST — TIÊU CHÍ LỌC CỔ PHIẾU (dựa trên phương pháp CAN SLIM)</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  Mỗi tiêu chí cho 1 điểm nếu đạt. Cột <b>Chỉ số</b> là tên dữ liệu từ TradingView/yfinance.
+  Cột <b>Ngưỡng</b> là điều kiện cụ thể để đạt điểm. Cột <b>Lý do chọn</b> giải thích tại sao ngưỡng đó được dùng.
+</p>
 <table>
   <tr>
     <th style="width:36px;">Key</th>
-    <th style="width:120px;">Tên</th>
-    <th style="width:115px;">Chỉ số</th>
+    <th style="width:110px;">Tên</th>
+    <th style="width:110px;">Chỉ số (nguồn)</th>
     <th style="width:70px;">Ngưỡng</th>
-    <th>Ý nghĩa</th>
+    <th>Lý do chọn giá trị này</th>
   </tr>
   {canslim_rows}
 </table>
 <p class="tip">⚠  Dữ liệu từ TradingView (TTM/FY). EPS &amp; Revenue là YoY growth %. ROE &amp; Gross Margin là trailing twelve months.</p>
 
-<h2>② CAN SLIM SIGNAL — KẾT QUẢ TỔNG HỢP</h2>
+<h2>② CATALYST SIGNAL — KẾT QUẢ TỔNG HỢP</h2>
 <table>
   <tr>
     <th style="width:140px;">Tín hiệu</th>
@@ -1400,18 +1430,18 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
 {conviction_html}
 
 <h2>④ QUALITY COMPOUNDER — 6 TIÊU CHÍ CHẤT LƯỢNG BỀN VỮNG</h2>
-<p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">Tab <b style="color:#34C472;">Quality Compounder</b> tìm doanh nghiệp có khả năng tăng trưởng kép bền vững dài hạn — không chỉ tốt về momentum mà còn mạnh về chất lượng nền tảng.</p>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">Tab <b style="color:#16A34A;">Quality Compounder</b> tìm doanh nghiệp có khả năng tăng trưởng kép bền vững dài hạn — không chỉ tốt về momentum mà còn mạnh về chất lượng nền tảng thực sự.</p>
 <table>
   <tr>
     <th style="width:52px;">Key</th>
     <th style="width:130px;">Chỉ số</th>
     <th style="width:110px;">Ngưỡng</th>
-    <th>Ý nghĩa</th>
+    <th>Lý do chọn giá trị này</th>
   </tr>
   {qc_criteria_rows}
 </table>
 <p class="tip">⚠  Tiêu chí MOAT yêu cầu bật "yfinance Moat" để có dữ liệu 5 năm chính xác. Khi tắt, Moat được ước tính từ TTM ROE &amp; GM.<br>
-⚠  <b>Financial Services</b> (ngân hàng, bảo hiểm): ROIC được thay bằng <b>ROE &gt; 12%</b> (ROIC bị méo bởi leverage cấu trúc); D/E bị <b>bỏ qua</b> hoàn toàn (D/E cao là bình thường với ngân hàng). Điểm tối đa cho Financial Services vẫn là 6 (5 tiêu chí còn lại + Moat).</p>
+⚠  <b>Financial Services</b> (ngân hàng, bảo hiểm): ROIC được thay bằng <b>ROE &gt; 12%</b>; D/E bị <b>bỏ qua</b> hoàn toàn. Điểm tối đa cho Financial Services vẫn là 6 (5 tiêu chí còn lại + Moat).</p>
 
 <h2>⑤ QUALITY COMPOUNDER SIGNAL</h2>
 <table>
@@ -1425,13 +1455,13 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
 <p class="tip">Score = số trong 6 tiêu chí đạt. Quick Filter "🟢 STRONG BUY" trên tab Quality Compounder sẽ lọc cột 🏆 COMPOUNDER.</p>
 
 <h2>⑥ EQ BADGE — CHẤT LƯỢNG LỢI NHUẬN (Earnings Quality)</h2>
-<p style="color:#7A8899;font-size:12px;margin:0 0 10px 0;">
-  Cột <b style="color:#4DB6AC;">EQ</b> trong bảng Quality Compounder trả lời câu hỏi:
-  <b style="color:#FFFFFF;">Lợi nhuận công ty báo cáo có phải là tiền mặt thực hay chỉ là con số kế toán?</b>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  Cột <b style="color:#0D9488;">EQ</b> trong bảng Quality Compounder trả lời câu hỏi:
+  <b>Lợi nhuận công ty báo cáo có phải là tiền mặt thực hay chỉ là con số kế toán?</b>
 </p>
 
-<p style="color:#DCE4EE;font-size:12px;margin:0 0 6px 0;font-weight:700;">Tại sao cần chỉ số này?</p>
-<p style="color:#B8C4D0;font-size:12px;margin:0 0 12px 0;line-height:1.7;">
+<p style="color:#1A202C;font-size:12px;margin:0 0 6px 0;font-weight:700;">Tại sao cần chỉ số này?</p>
+<p style="color:#374151;font-size:12px;margin:0 0 12px 0;line-height:1.7;">
   Net Income (lợi nhuận ròng) là con số kế toán — có thể bị <b>tô vẽ</b> bằng cách ghi nhận doanh thu sớm,
   trì hoãn chi phí, hoặc thay đổi ước tính kế toán. Trong khi đó,
   <b>Free Cash Flow (FCF)</b> là tiền mặt thực sự chảy vào tài khoản công ty sau khi đã trừ chi phí đầu tư —
@@ -1439,9 +1469,10 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
   không phải kinh doanh thực chất.
 </p>
 
-<p style="color:#DCE4EE;font-size:12px;margin:0 0 6px 0;font-weight:700;">Công thức tính:</p>
-<p style="color:#4DB6AC;font-size:13px;font-family:Consolas,monospace;
-          background:#0D2020;padding:8px 14px;border-radius:4px;margin:0 0 12px 0;">
+<p style="color:#1A202C;font-size:12px;margin:0 0 6px 0;font-weight:700;">Công thức tính:</p>
+<p style="color:#0D6E6E;font-size:13px;font-family:Consolas,monospace;
+          background:#E6FFFA;padding:8px 14px;border-radius:4px;margin:0 0 12px 0;
+          border-left:3px solid #0D9488;">
   FCF / Net Income Ratio &nbsp;=&nbsp; Free Cash Flow &nbsp;÷&nbsp; Net Income &nbsp;(TTM, từ yfinance)
 </p>
 
@@ -1451,37 +1482,37 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
     <th style="width:130px;">Điều kiện</th>
     <th>Ý nghĩa &amp; Hành động</th>
   </tr>
-  <tr style="background-color:#0E1220;">
+  <tr style="background-color:#F0FFF4;">
     <td style="color:#1A5C2B;font-weight:700;font-size:13px;padding:10px 14px;background:#C6EFCE;">💚 Cash Backed</td>
     <td style="color:#1A5C2B;font-weight:700;padding:10px 14px;background:#C6EFCE;">Ratio ≥ 0.80</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       Mỗi 1 đồng lợi nhuận kế toán, công ty thực thu ≥ 0.8 đồng tiền mặt.
       Lợi nhuận <b>đáng tin cậy cao</b> — tài chính minh bạch, ít rủi ro kế toán.
       Compounder thực sự thường có chỉ số này ≥ 1.0 (FCF &gt; Net Income).
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
+  <tr style="background-color:#FFFBEB;">
     <td style="color:#7D6608;font-weight:700;font-size:13px;padding:10px 14px;background:#FFF2CC;">🟡 Mixed</td>
     <td style="color:#7D6608;font-weight:700;padding:10px 14px;background:#FFF2CC;">0.30 ≤ Ratio &lt; 0.80</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       Tiền mặt thu về chỉ bằng 30–80% lợi nhuận báo cáo. Có thể do đầu tư mở rộng nặng (capex cao),
       hoặc tốc độ ghi nhận doanh thu nhanh hơn thu tiền. <b>Cần xem thêm</b> bối cảnh ngành
-      và xu hướng nhiều năm — một số công ty tăng trưởng nhanh có FCF thấp tạm thời là bình thường.
+      — một số công ty tăng trưởng nhanh có FCF thấp tạm thời là bình thường.
     </td>
   </tr>
-  <tr style="background-color:#0E1220;">
+  <tr style="background-color:#FFF5F5;">
     <td style="color:#9C0006;font-weight:700;font-size:13px;padding:10px 14px;background:#FFC7CE;">🔴 Accrual Heavy</td>
     <td style="color:#9C0006;font-weight:700;padding:10px 14px;background:#FFC7CE;">Ratio &lt; 0.30</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       Lợi nhuận chủ yếu là con số kế toán, tiền mặt thực thu rất ít.
       <b>Cảnh báo đỏ</b> — đặc biệt nguy hiểm nếu kết hợp D/E cao.
-      Rủi ro: công ty có thể phải huy động vốn mới (dilution), hoặc lợi nhuận sẽ bị điều chỉnh giảm trong tương lai.
+      Rủi ro: công ty có thể phải huy động vốn mới (dilution), hoặc lợi nhuận sẽ bị điều chỉnh giảm.
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#7A8899;font-weight:700;font-size:13px;padding:10px 14px;">— (không có)</td>
-    <td style="color:#7A8899;padding:10px 14px;">yfinance tắt</td>
-    <td style="color:#7A8899;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#F8FAFC;">
+    <td style="color:#64748B;font-weight:700;font-size:13px;padding:10px 14px;">— (không có)</td>
+    <td style="color:#64748B;padding:10px 14px;">yfinance tắt</td>
+    <td style="color:#64748B;font-size:12px;padding:10px 14px;">
       EQ Badge chỉ tính được khi bật checkbox "yfinance Moat" vì cần cashflow statement từ yfinance.
       Khi tắt yfinance, cột EQ hiển thị "—" cho tất cả.
     </td>
@@ -1491,6 +1522,9 @@ Conviction chính xác nhất khi bật <b>yfinance Moat</b> — khi tắt, Moat
 Một số ngành có FCF tự nhiên thấp hơn Net Income do capex lớn (bán dẫn, pharma R&amp;D) — cần so sánh trong ngành, không áp dụng ngưỡng cứng cho mọi sector.</p>
 
 <h2>⑦ MOAT SCORE — LỢI THẾ CẠNH TRANH (Economic Moat)</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 8px 0;">
+  Moat Score được tính từ ROE 5yr avg + GM 5yr avg (từ yfinance). Ổn định cao qua 5 năm = bằng chứng moat thực sự.
+</p>
 <table>
   <tr>
     <th style="width:160px;">Moat</th>
@@ -1499,39 +1533,37 @@ Một số ngành có FCF tự nhiên thấp hơn Net Income do capex lớn (bá
   </tr>
   {moat_rows}
 </table>
-<p class="tip">Moat Score dựa trên ROE 5yr avg + GM 5yr avg từ yfinance (hoặc TTM từ TradingView nếu tắt checkbox).
-Khi tắt "yfinance Moat", dùng TV TTM ROE &amp; GM thay thế (nhanh hơn nhưng kém chính xác hơn).</p>
+<p class="tip">Khi tắt "yfinance Moat", dùng TTM ROE &amp; GM từ TradingView thay thế (nhanh hơn nhưng kém chính xác — chỉ 1 điểm thay vì trung bình 5 năm).</p>
 
-<h2>⑧ MOAT PROXY — LOẠI LỢI THẾ CẠNH TRANH</h2>
-<p style="color:#DCE4EE;font-size:12px;margin:0 0 9px 0;">Moat Proxy được gán tự động theo <b>ngành (Sector)</b> của cổ phiếu.</p>
+<h2>⑧ MOAT PROXY — LOẠI LỢI THẾ CẠNH TRANH THEO NGÀNH</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 9px 0;">Moat Proxy được gán tự động theo <b>ngành (Sector)</b> — giúp bạn hiểu loại lợi thế cạnh tranh điển hình của từng ngành để phân tích sâu hơn.</p>
 <table>
   <tr>
     <th style="width:200px;">Sector</th>
-    <th>Moat Proxy</th>
+    <th>Moat Proxy (loại lợi thế điển hình)</th>
   </tr>
   {proxy_sector_rows}
 </table>
 
-<p style="color:#B8C4D0;font-size:12px;margin:16px 0 8px 0;font-weight:700;letter-spacing:1px;">GIẢI THÍCH CÁC LOẠI LỢI THẾ</p>
+<p style="color:#374151;font-size:12px;margin:16px 0 8px 0;font-weight:700;letter-spacing:1px;">GIẢI THÍCH CÁC LOẠI LỢI THẾ CẠNH TRANH</p>
 <table>
   <tr>
-    <th style="width:220px;">Loại lợi thế</th>
-    <th>Ý nghĩa &amp; Ví dụ</th>
+    <th style="width:200px;">Loại lợi thế</th>
+    <th>Ý nghĩa &amp; Ví dụ thực tế</th>
   </tr>
   {proxy_type_rows}
 </table>
-<p class="tip">Moat Proxy chỉ là ước tính định tính theo ngành — không thay thế phân tích sâu từng công ty.
-Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
+<p class="tip">Moat Proxy chỉ là ước tính định tính theo ngành — không thay thế phân tích sâu từng công ty. Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
 
-<h2>⑨ CÁCH SỬ DỤNG</h2>
+<h2>⑨ CÁCH SỬ DỤNG APP</h2>
 <ul>
-  <li><b>SCAN</b> — Lấy top N cổ phiếu theo Market Cap từ TradingView. Tự động tính CAN SLIM Score, Conviction, Quality Compounder Score cho tất cả. Sau khi scan xong, kết quả hiển thị ngay trong bảng.</li>
-  <li><b>Tab CAN SLIM</b> — Hiển thị tất cả cổ phiếu với 10 tiêu chí (C/A/S/L/Q/R/M/D/N/MKT), CS Score, Conviction và Signal. Click vào tiêu đề cột để sort. Cột Conviction nằm sau Score — dùng cột này để ưu tiên khi nhiều mã có cùng Signal.</li>
+  <li><b>SCAN</b> — Lấy top N cổ phiếu theo Market Cap từ TradingView. Tự động tính Catalyst Score, Conviction, Quality Compounder Score cho tất cả. Sau khi scan xong, tự chuyển sang Dashboard.</li>
+  <li><b>Tab Catalyst</b> — Hiển thị tất cả cổ phiếu với 10 tiêu chí (C/A/S/L/Q/R/M/D/N/MKT), CS Score, Conviction và Signal. Click tiêu đề cột để sort. Cột Conviction nằm sau Score — dùng cột này để ưu tiên khi nhiều mã có cùng Signal.</li>
   <li><b>Tab Quality Compounder</b> — Góc nhìn dài hạn: ROIC, Op Margin, Gross Margin, FCF/sh, D/E, Moat. Cũng có cột Conviction. Hai tab dùng chung chart panel bên phải.</li>
   <li><b>yfinance Moat</b> — Bật checkbox này trước khi SCAN để:
-    (1) Tính Moat chính xác từ ROE/GM trung bình 5 năm (thay vì chỉ TTM),
+    (1) Tính Moat chính xác từ ROE/GM trung bình 5 năm (thay vì TTM),
     (2) Tính <b>Conviction</b> chính xác hơn (WIDE/NARROW/WEAK có cơ sở thực tế),
-    (3) Tính <b>EQ Badge</b> (chất lượng lợi nhuận FCF/Net Income).
+    (3) Tính <b>EQ Badge</b> (FCF/Net Income — chất lượng lợi nhuận).
     Chậm hơn ~0.3 giây/cổ phiếu do gọi API yfinance.
   </li>
   <li><b>TICKER lookup</b> — Nhập mã (ví dụ: NVDA, AAPL) vào ô Ticker rồi Enter hoặc nhấn LOOKUP. Hữu ích khi muốn tra nhanh 1–2 mã mà không cần scan toàn bộ.</li>
@@ -1545,291 +1577,269 @@ Hai công ty cùng ngành có thể có moat type khác nhau hoàn toàn.</p>
 
 <h2>⑩ DASHBOARD EXCEL — HƯỚNG DẪN ĐỌC ĐẦY ĐỦ</h2>
 
-<p style="color:#7A8899;font-size:12px;margin:0 0 14px 0;">
-  Sheet <b style="color:#3D8EF0;">Dashboard</b> là bản tóm tắt toàn bộ kết quả scan, được thiết kế để đọc
-  <b style="color:#FFC000;">từ trên xuống</b> theo mức độ ưu tiên. Bạn không cần biết nhiều về chứng khoán —
-  hướng dẫn này giải thích từng khái niệm từ đầu.
+<p style="color:#64748B;font-size:12px;margin:0 0 14px 0;">
+  Tab <b style="color:#1E40AF;">Dashboard</b> là bản tóm tắt toàn bộ kết quả scan, được thiết kế để đọc
+  <b>từ trên xuống</b> theo mức độ ưu tiên.
 </p>
 
 <!-- ══ GIẢI THÍCH KHÁI NIỆM CƠ BẢN ══ -->
-<p style="color:#B8C4D0;font-size:12px;margin:10px 0 6px 0;font-weight:700;letter-spacing:1px;">① HIỂU CÁC KHÁI NIỆM CƠ BẢN TRƯỚC</p>
+<p style="color:#374151;font-size:12px;margin:10px 0 6px 0;font-weight:700;letter-spacing:1px;">① HIỂU CÁC KHÁI NIỆM CƠ BẢN</p>
 <table>
-  <tr style="background-color:#0D1526;">
-    <td style="color:#4FC3F7;font-weight:700;font-size:12px;padding:8px 12px;width:160px;">CS Score (0–10)</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>CAN SLIM Score</b> — thước đo tổng hợp dựa trên 7 tiêu chí của William O'Neil (tác giả "How to Make Money in Stocks").
+  <tr style="background-color:#EFF6FF;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;width:160px;">CS Score (0–{N_CS})</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Catalyst Score</b> — số tiêu chí đạt được trong {N_CS} tiêu chí tăng trưởng + momentum.<br>
       Điểm càng cao, cổ phiếu càng mạnh cả về cơ bản lẫn kỹ thuật.<br>
-      <span style="color:#888;font-size:11px;">Score ≥ 7 = tốt · Score 5–6 = trung bình · Score &lt; 5 = yếu</span>
+      <span style="color:#6B7280;font-size:11px;">Score ≥ 7 = tốt · Score 5–6 = trung bình · Score &lt; 5 = yếu</span>
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#34C472;font-weight:700;font-size:12px;padding:8px 12px;">QC Score (0–6)</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>Quality Compounder Score</b> — đo chất lượng dài hạn của công ty: lợi nhuận có bền vững không?
-      Dựa trên ROIC, biên lợi nhuận, tăng trưởng đều đặn. Cần bật <b>yfinance Moat</b> để tính.<br>
-      <span style="color:#888;font-size:11px;">Score ≥ 4 = chất lượng cao · Score 2–3 = ổn · Score &lt; 2 = yếu</span>
+  <tr style="background-color:#F0FFF4;">
+    <td style="color:#16A34A;font-weight:700;font-size:12px;padding:8px 12px;">QC Score (0–6)</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Quality Compounder Score</b> — số tiêu chí chất lượng dài hạn đạt được (ROIC, margin, FCF, D/E, Moat).<br>
+      Cần bật <b>yfinance Moat</b> để tính đầy đủ.<br>
+      <span style="color:#6B7280;font-size:11px;">Score ≥ 4 = chất lượng cao · Score 2–3 = ổn · Score &lt; 2 = yếu</span>
     </td>
   </tr>
-  <tr style="background-color:#0D1526;">
-    <td style="color:#FFD700;font-weight:700;font-size:12px;padding:8px 12px;">ROIC%</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>Return on Invested Capital</b> — tỷ suất sinh lời trên vốn đầu tư. Hiểu đơn giản:
-      nếu công ty đầu tư 100 đồng, họ tạo ra bao nhiêu đồng lợi nhuận mỗi năm?<br>
-      ROIC 20% nghĩa là mỗi 100đ đầu tư → tạo ra 20đ lợi nhuận/năm. Đây là thước đo
-      "công ty kiếm tiền hiệu quả" tốt nhất.<br>
-      <span style="color:#888;font-size:11px;">ROIC &gt;15% = xuất sắc · 10–15% = tốt · &lt;10% = trung bình</span>
+  <tr style="background-color:#FFFBEB;">
+    <td style="color:#B45309;font-weight:700;font-size:12px;padding:8px 12px;">ROIC%</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Return on Invested Capital</b> — tỷ suất sinh lời trên toàn bộ vốn đầu tư.<br>
+      ROIC 20% = mỗi 100đ đầu tư tạo ra 20đ lợi nhuận/năm. Thước đo "công ty kiếm tiền hiệu quả" tốt nhất.<br>
+      <span style="color:#6B7280;font-size:11px;">ROIC &gt;15% = xuất sắc · 10–15% = tốt · &lt;10% = trung bình</span>
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">P/E Ratio</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>Price-to-Earnings</b> — giá cổ phiếu chia cho lợi nhuận/cổ phiếu. Đây là thước đo "giá đắt hay rẻ".
-      P/E = 20 nghĩa là bạn trả 20 đồng để mua 1 đồng lợi nhuận/năm.<br>
-      <span style="color:#888;font-size:11px;">P/E &lt; 15 = rẻ · 15–35 = hợp lý · &gt;50 = đắt/rủi ro cao · Âm = đang lỗ</span>
+  <tr style="background-color:#FFF5F5;">
+    <td style="color:#B45309;font-weight:700;font-size:12px;padding:8px 12px;">P/E Ratio</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Price-to-Earnings</b> — giá cổ phiếu / lợi nhuận mỗi cổ phiếu. Thước đo "giá đắt hay rẻ".<br>
+      P/E = 20 nghĩa là bạn trả 20đ để mua 1đ lợi nhuận/năm.<br>
+      <span style="color:#6B7280;font-size:11px;">P/E &lt; 15 = rẻ · 15–35 = hợp lý · &gt;50 = đắt/rủi ro cao · Âm = đang lỗ</span>
     </td>
   </tr>
-  <tr style="background-color:#0D1526;">
-    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">EPS%</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>Earnings Per Share growth</b> — tốc độ tăng trưởng lợi nhuận mỗi cổ phiếu so với cùng kỳ năm ngoái.
-      EPS Annual 30% nghĩa là lợi nhuận tăng 30% so với năm trước — đây là dấu hiệu công ty đang tăng trưởng mạnh.<br>
-      <span style="color:#888;font-size:11px;">EPS &gt;25% YoY = rất tốt · 10–25% = tốt · &lt;10% = yếu · Âm = lỗ</span>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#B45309;font-weight:700;font-size:12px;padding:8px 12px;">EPS YoY%</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Earnings Per Share growth</b> — tốc độ tăng trưởng lợi nhuận mỗi cổ phiếu so cùng kỳ năm ngoái.<br>
+      EPS Annual +30% = lợi nhuận tăng 30% — dấu hiệu công ty đang tăng trưởng mạnh.<br>
+      <span style="color:#6B7280;font-size:11px;">EPS &gt;25% YoY = rất tốt · 10–25% = tốt · &lt;10% = yếu · Âm = lỗ</span>
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#FFC000;font-weight:700;font-size:12px;padding:8px 12px;">D/E Ratio</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>Debt-to-Equity</b> — tỷ lệ nợ so với vốn chủ sở hữu. D/E = 0.5 nghĩa là cứ 1 đồng vốn tự có,
-      công ty vay thêm 0.5 đồng. D/E cao = rủi ro cao khi lãi suất tăng.<br>
-      <span style="color:#888;font-size:11px;">D/E &lt; 0.5 = an toàn · 0.5–1 = chấp nhận được · &gt;1 = ⚠ cảnh báo</span>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#B45309;font-weight:700;font-size:12px;padding:8px 12px;">D/E Ratio</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>Debt-to-Equity</b> — tỷ lệ nợ / vốn chủ sở hữu. D/E = 0.5 nghĩa là cứ 1đ vốn tự có, vay thêm 0.5đ.<br>
+      D/E cao = rủi ro cao khi lãi suất tăng.<br>
+      <span style="color:#6B7280;font-size:11px;">D/E &lt; 0.5 = an toàn · 0.5–1 = chấp nhận được · &gt;1 = ⚠ cảnh báo</span>
     </td>
   </tr>
-  <tr style="background-color:#0D1526;">
-    <td style="color:#4FC3F7;font-weight:700;font-size:12px;padding:8px 12px;">1Y% / 52W High%</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
-      <b>1Y%</b> = hiệu suất giá trong 1 năm qua. +60% nghĩa là giá tăng 60% trong 12 tháng.<br>
-      <b>52W High%</b> = giá hiện tại so với đỉnh cao nhất 52 tuần. 95% nghĩa là giá đang ở 95% đỉnh —
-      tức là rất gần đỉnh, cổ phiếu đang rất mạnh.<br>
-      <span style="color:#888;font-size:11px;">52W High &gt;90% = gần đỉnh (tích cực) · &lt;50% = đang thấp (cẩn thận)</span>
+  <tr style="background-color:#EFF6FF;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">1Y% / 52W High%</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
+      <b>1Y%</b> = hiệu suất giá trong 1 năm qua. +60% = giá tăng 60% trong 12 tháng.<br>
+      <b>52W High%</b> = giá hiện tại / đỉnh 52 tuần. 95% = đang rất gần đỉnh = cổ phiếu đang rất mạnh.<br>
+      <span style="color:#6B7280;font-size:11px;">52W High &gt;90% = gần đỉnh (tích cực) · &lt;50% = đang thấp (cẩn thận)</span>
     </td>
   </tr>
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#E040FB;font-weight:700;font-size:12px;padding:8px 12px;">Signal (tín hiệu)</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:8px 12px;">
+  <tr style="background-color:#F5F0FF;">
+    <td style="color:#6D28D9;font-weight:700;font-size:12px;padding:8px 12px;">Signal (tín hiệu)</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">
       Kết quả phân loại tự động dựa trên tổng hợp tất cả tiêu chí:<br>
-      🟢 <b>STRONG BUY</b> — CS Score cao, đủ điều kiện mạnh nhất<br>
-      🔵 <b>BUY</b> — CS Score khá, đủ điều kiện cơ bản<br>
-      🏆 <b>COMPOUNDER</b> — QC Score cao, công ty chất lượng xuất sắc dài hạn<br>
-      ⭐ <b>QUALITY</b> — QC Score tốt, nền tảng vững chắc<br>
-      🟡 <b>WATCH</b> — Chưa đủ điều kiện, cần theo dõi thêm<br>
-      🔴 <b>SKIP</b> — Điểm thấp, không khuyến nghị lúc này
+      🟢 <b>STRONG BUY</b> — CS Score cao ≥80%, đủ điều kiện mạnh nhất<br>
+      🔵 <b>BUY</b> — CS Score khá ≥62.5%, đủ điều kiện cơ bản<br>
+      🏆 <b>COMPOUNDER</b> — QC Score ≥5/6, công ty chất lượng xuất sắc dài hạn<br>
+      ⭐ <b>QUALITY</b> — QC Score 3–4/6, nền tảng vững chắc<br>
+      🟡 <b>WATCH</b> — CS Score trung bình, cần theo dõi thêm<br>
+      🔴 <b>SKIP</b> — CS Score thấp, không khuyến nghị lúc này
     </td>
   </tr>
 </table>
 
 <!-- ══ TỪNG VÙNG DASHBOARD ══ -->
-<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">② TỪNG VÙNG TRONG DASHBOARD</p>
+<p style="color:#374151;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">② TỪNG VÙNG TRONG DASHBOARD</p>
 <table>
   <tr>
     <th style="width:180px;">Vùng</th>
     <th>Nội dung &amp; Cách đọc</th>
   </tr>
 
-  <tr style="background-color:#0E1220;">
-    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">❶ CAN SLIM KPIs</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#EFF6FF;">
+    <td style="color:#1E40AF;font-weight:700;font-size:13px;padding:10px 14px;">❶ Catalyst KPIs</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       <b>Hàng thẻ tổng quan — đọc đầu tiên để biết thị trường đang như thế nào.</b><br><br>
-      • <b>Total Stocks</b>: tổng số mã được scan (thường là top 100–300 vốn hóa lớn nhất)<br>
-      • <b># Strong Buy</b>: có bao nhiêu mã đạt tín hiệu STRONG BUY. Nếu con số này &gt;10% tổng → thị trường đang tốt<br>
-      • <b># Buy</b>: số mã tín hiệu BUY — chất lượng khá, không xuất sắc như Strong Buy<br>
-      • <b>Avg CS Score</b>: điểm CAN SLIM trung bình toàn thị trường. &gt;6 = thị trường đang chất lượng cao<br>
+      • <b>Total Stocks</b>: tổng số mã được scan<br>
+      • <b># Strong Buy</b>: số mã đạt STRONG BUY. &gt;10% tổng → thị trường đang tốt<br>
+      • <b># Buy</b>: số mã tín hiệu BUY — chất lượng khá<br>
+      • <b>Avg CS Score</b>: điểm Catalyst trung bình. &gt;6 = thị trường đang chất lượng cao<br>
       • <b>Avg 1Y%</b>: hiệu suất trung bình 1 năm của toàn bộ cổ phiếu scan<br>
-      • <b># Near 52W High</b>: bao nhiêu mã đang gần đỉnh 52 tuần (&gt;90%) — nhiều mã gần đỉnh = thị trường đang tăng mạnh
+      • <b># Near 52W High</b>: số mã gần đỉnh (&gt;90%) — nhiều = thị trường đang tăng mạnh
     </td>
   </tr>
 
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#34C472;font-weight:700;font-size:13px;padding:10px 14px;">❷ QC KPIs</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#F0FFF4;">
+    <td style="color:#16A34A;font-weight:700;font-size:13px;padding:10px 14px;">❷ QC KPIs</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       <b>Hàng thẻ chất lượng dài hạn — cần bật yfinance Moat để hiện đầy đủ.</b><br><br>
-      • <b># Compounder</b>: số mã đạt QC Signal "COMPOUNDER" (chất lượng cao nhất, giữ 5–10 năm)<br>
+      • <b># Compounder</b>: số mã QC Signal "COMPOUNDER" — giữ 5–10 năm<br>
       • <b># Quality</b>: số mã QC tốt nhưng chưa đến mức Compounder<br>
       • <b>Avg QC Score</b>: điểm QC trung bình — &gt;3 là thị trường có nhiều công ty chất lượng<br>
-      • <b>Avg ROIC%</b>: ROIC trung bình toàn thị trường scan. &gt;15% = doanh nghiệp đang rất hiệu quả<br>
-      • <b># Dual Leaders</b>: số mã đạt cả CS≥7 và QC≥4 — đây là "tinh hoa" của toàn bộ danh sách<br>
-      • <b># Cash Backed</b>: trong nhóm QC, số mã có lượng tiền mặt lớn bảo vệ khi thị trường xấu<br>
-      <span style="color:#888;font-size:11px;">Hiển thị — nếu chưa tích ✓ yfinance Moat trước khi scan.</span>
+      • <b>Avg ROIC%</b>: ROIC trung bình. &gt;15% = doanh nghiệp đang rất hiệu quả<br>
+      • <b># Dual Leaders</b>: số mã đạt cả CS≥7 và QC≥4 — "tinh hoa" của danh sách<br>
+      • <b># Cash Backed</b>: trong nhóm QC, số mã có FCF/NI ≥ 0.8
     </td>
   </tr>
 
-  <tr style="background-color:#0E1220;">
-    <td style="color:#FFC000;font-weight:700;font-size:13px;padding:10px 14px;">⚠ Risk Flags</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#FFFBEB;">
+    <td style="color:#B45309;font-weight:700;font-size:13px;padding:10px 14px;">⚠ Risk Flags</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       <b>Đèn cảnh báo — đọc dòng này trước khi đưa ra quyết định mua.</b><br><br>
-      • <b># D/E &gt; 1</b>: bao nhiêu mã có nợ &gt; vốn chủ sở hữu. Nhiều mã D/E cao = rủi ro lãi suất tăng<br>
-      • <b># P/E &gt; 50</b>: bao nhiêu mã đang định giá rất cao. Thị trường đang "kỳ vọng nhiều" — nếu kỳ vọng sai, giảm mạnh<br>
-      • <b># 1M% &lt; −10%</b>: bao nhiêu mã giảm &gt;10% trong tháng vừa rồi — thị trường đang yếu<br><br>
-      <b style="color:#FFC000;">Cách đọc:</b> Nếu Risk Flags nhiều → tăng tiêu chuẩn lọc (chọn CS ≥ 8 thay vì ≥ 7) hoặc đợi thêm tín hiệu trước khi vào tiền.
+      • <b># D/E &gt; 1</b>: số mã có nợ &gt; vốn chủ sở hữu — rủi ro lãi suất tăng<br>
+      • <b># P/E &gt; 50</b>: số mã định giá rất cao — nếu kỳ vọng sai, giảm mạnh<br>
+      • <b># 1M% &lt; −10%</b>: số mã giảm &gt;10% trong tháng vừa rồi — thị trường đang yếu<br><br>
+      <b>Cách đọc:</b> Risk Flags nhiều → tăng tiêu chuẩn lọc (CS ≥ 8) hoặc đợi thêm tín hiệu.
     </td>
   </tr>
 
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#3D8EF0;font-weight:700;font-size:13px;padding:10px 14px;">📊 Bảng CS Top / QC Top</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1E40AF;font-weight:700;font-size:13px;padding:10px 14px;">📊 Top CS / Top QC</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       <b>Hai bảng đặt cạnh nhau — danh sách đầy đủ các mã đủ tiêu chuẩn.</b><br><br>
-      <b style="color:#3D8EF0;">Trái — Top CAN SLIM:</b> tất cả mã có tín hiệu STRONG BUY hoặc BUY, sắp xếp theo CS Score cao nhất.<br>
-      Cột màu xanh lá = CS Score (càng xanh càng cao). Cột 1Y% màu xanh/đỏ theo chiều tăng/giảm.<br><br>
-      <b style="color:#34C472;">Phải — Top Quality Compounder:</b> tất cả mã COMPOUNDER hoặc QUALITY, sắp xếp theo QC Score.<br>
-      Cột ROIC% màu xanh đậm nếu &gt;15% — đây là mức ROIC của các công ty vĩ đại.<br><br>
-      <b style="color:#FFC000;">Mẹo:</b> Mã nào xuất hiện trong <u>cả hai bảng</u> = đáng chú ý nhất — vừa mạnh ngắn hạn, vừa chất lượng dài hạn.
+      <b style="color:#1E40AF;">Trái — Top Catalyst:</b> tất cả mã STRONG BUY hoặc BUY, sắp xếp theo CS Score cao nhất.<br>
+      Cột xanh lá = CS Score cao. Cột 1Y% màu xanh/đỏ theo chiều tăng/giảm.<br><br>
+      <b style="color:#16A34A;">Phải — Top Quality Compounder:</b> tất cả mã COMPOUNDER hoặc QUALITY, sắp xếp theo QC Score.<br>
+      Cột ROIC% xanh đậm nếu &gt;15% — mức ROIC của các công ty vĩ đại.<br><br>
+      <b>Mẹo:</b> Mã xuất hiện trong <u>cả hai bảng</u> = đáng chú ý nhất — vừa mạnh ngắn hạn, vừa chất lượng dài hạn.
     </td>
   </tr>
 
-  <tr style="background-color:#0E1220;">
-    <td style="color:#FFD700;font-weight:700;font-size:13px;padding:10px 14px;">⭐ Dual Leaders</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
+  <tr style="background-color:#F5F0FF;">
+    <td style="color:#6D28D9;font-weight:700;font-size:13px;padding:10px 14px;">⭐ Dual Leaders</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
       <b>Bảng "tinh hoa" — shortlist đáng nghiên cứu kỹ nhất.</b><br><br>
-      Điều kiện: <b>CS Score ≥ 7</b> (CAN SLIM tốt) <b>VÀ QC Score ≥ 4</b> (chất lượng dài hạn tốt).<br>
-      Đây là giao điểm giữa "đang chạy mạnh" và "công ty thực sự tốt" — tránh được cả hai bẫy phổ biến:
-      mua cổ phiếu kém chất lượng chỉ vì đang hot, hoặc mua công ty tốt nhưng không ai quan tâm.<br><br>
-      Các cột cần chú ý:<br>
-      • <b>1Y%</b> — thanh màu xanh (data bar): thanh dài hơn = hiệu suất tốt hơn, so sánh nhanh giữa các mã<br>
+      Điều kiện: <b>CS Score ≥ 7</b> VÀ <b>QC Score ≥ 4</b> — giao điểm "đang chạy mạnh" và "công ty thực sự tốt".<br>
+      Tránh được cả hai bẫy phổ biến: mua cổ phiếu kém chất lượng chỉ vì đang hot,
+      hoặc mua công ty tốt nhưng không ai quan tâm.<br><br>
+      • <b>1Y%</b> — data bar: thanh dài hơn = hiệu suất tốt hơn<br>
       • <b>ROE%</b> — lợi nhuận trên vốn cổ đông, &gt;17% là tốt<br>
-      • <b>ROIC%</b> — màu xanh đậm nếu &gt;15%, màu vàng nếu 10–15%, cam nếu thấp hơn<br>
-      • <b>D/E</b> — màu đỏ nếu &gt;1 (nhiều nợ), màu xanh nếu &lt;0.5 (ít nợ)<br>
-      • <b>⚠</b> — cảnh báo nếu D/E &gt;1 hoặc P/E &gt;50 — cần nghiên cứu thêm trước khi mua<br><br>
-      <span style="color:#888;font-size:11px;">Hiển thị TẤT CẢ mã thỏa điều kiện, không giới hạn số lượng.</span>
+      • <b>ROIC%</b> — xanh &gt;15%, vàng 10–15%, cam thấp hơn<br>
+      • <b>D/E</b> — đỏ nếu &gt;1, xanh nếu &lt;0.5<br>
+      • <b>⚠</b> — cảnh báo D/E &gt;1 hoặc P/E &gt;50 — cần nghiên cứu thêm
     </td>
   </tr>
 
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#E040FB;font-weight:700;font-size:13px;padding:10px 14px;">🎯 Top Picks</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      <b>4 bảng cạnh nhau — mỗi bảng là một chiến lược đầu tư khác nhau.</b><br>
-      Không có chiến lược nào "đúng hơn" — tùy vào mục tiêu và thời gian bạn muốn nắm giữ.<br><br>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#6D28D9;font-weight:700;font-size:13px;padding:10px 14px;">🎯 Top Picks</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
+      <b>4 bảng chiến lược — mỗi bảng phù hợp một mục tiêu đầu tư khác nhau.</b><br><br>
 
-      <b style="color:#4FC3F7;">🚀 Momentum — ngắn hạn 3–12 tháng</b><br>
-      <span style="color:#B8C4D0;font-size:11px;">
-        Chọn những mã đang tăng mạnh nhất trong 1 năm qua (sort 1Y% cao nhất), trong số STRONG BUY.<br>
-        <b>Tại sao?</b> Nghiên cứu học thuật (Jegadeesh &amp; Titman 1993) chứng minh: cổ phiếu outperform trong
-        12 tháng qua có xu hướng tiếp tục outperform 3–12 tháng tiếp theo. Đây là hiện tượng tâm lý thị trường —
-        nhà đầu tư tiếp tục mua vào những gì đang "win". Yêu cầu STRONG BUY để lọc bỏ "rác đang chạy".<br>
-        ⚠ <b>Rủi ro:</b> Nếu thị trường đảo chiều đột ngột, những mã tăng mạnh nhất sẽ giảm mạnh nhất.
+      <b style="color:#1E40AF;">🚀 Momentum — ngắn hạn 3–12 tháng</b><br>
+      <span style="color:#374151;font-size:11px;">
+        STRONG BUY sắp xếp theo 1Y% cao nhất. Nghiên cứu (Jegadeesh &amp; Titman 1993) chứng minh:
+        cổ phiếu outperform 12 tháng qua có xu hướng tiếp tục outperform 3–12 tháng tới.<br>
+        ⚠ Nếu thị trường đảo chiều, những mã tăng mạnh nhất sẽ giảm mạnh nhất.
       </span><br><br>
 
-      <b style="color:#4DB6AC;">💎 Quality — dài hạn 5–10 năm</b><br>
-      <span style="color:#B8C4D0;font-size:11px;">
-        Chọn những mã COMPOUNDER có ROIC cao nhất. Cần bật yfinance Moat.<br>
-        <b>Tại sao?</b> ROIC &gt;15% liên tục nhiều năm = công ty có "lợi thế cạnh tranh bền vững" (moat) —
-        đối thủ khó copy được mô hình kinh doanh. Những công ty này tự động sinh lời và tái đầu tư hiệu quả,
-        không cần bạn timing thị trường. Warren Buffett và Charlie Munger đầu tư theo triết lý này.<br>
-        ⚠ <b>Rủi ro:</b> P/E thường cao (bạn trả giá đắt cho chất lượng), nhạy cảm khi lãi suất tăng.
+      <b style="color:#0D9488;">💎 Quality — dài hạn 5–10 năm</b><br>
+      <span style="color:#374151;font-size:11px;">
+        COMPOUNDER sắp xếp theo ROIC% cao nhất. ROIC &gt;15% bền vững = công ty có moat thực sự,
+        đối thủ khó copy được. Triết lý của Warren Buffett và Charlie Munger.<br>
+        ⚠ P/E thường cao, nhạy cảm khi lãi suất tăng.
       </span><br><br>
 
-      <b style="color:#FFD54F;">📉 Value Growth — trung hạn 1–3 năm</b><br>
-      <span style="color:#B8C4D0;font-size:11px;">
-        Chọn mã có P/E &lt;35, EPS tăng &gt;10%/năm, CS Score ≥6. Sort theo P/E thấp nhất trước.<br>
-        <b>Tại sao?</b> Đây là chiến lược GARP (Growth at a Reasonable Price) của huyền thoại Peter Lynch:
-        tìm công ty đang tăng trưởng tốt nhưng giá chưa phản ánh hết tiềm năng đó. Công thức đơn giản:
-        nếu P/E thấp hơn tốc độ tăng EPS → cổ phiếu đang bị định giá thấp.<br>
-        ⚠ <b>Rủi ro:</b> "Bẫy giá rẻ" — P/E thấp có thể vì công ty đang gặp vấn đề mà dữ liệu chưa phản ánh.
+      <b style="color:#B45309;">📉 Value Growth — trung hạn 1–3 năm</b><br>
+      <span style="color:#374151;font-size:11px;">
+        P/E &lt;35, EPS &gt;10%/năm, CS ≥6 — sắp xếp theo P/E thấp nhất. Chiến lược GARP của Peter Lynch:
+        tăng trưởng tốt nhưng giá chưa phản ánh hết tiềm năng.<br>
+        ⚠ "Bẫy giá rẻ" — P/E thấp đôi khi vì công ty đang gặp vấn đề.
       </span><br><br>
 
-      <b style="color:#CE93D8;">💥 Breakout — rất ngắn hạn, cần theo dõi sát</b><br>
-      <span style="color:#B8C4D0;font-size:11px;">
-        Chọn mã đang gần đỉnh 52 tuần (&gt;90%) và CS Score ≥7. Sort theo CS cao nhất.<br>
-        <b>Tại sao?</b> William O'Neil và Mark Minervini — hai trader huyền thoại — chỉ mua cổ phiếu
-        đang phá đỉnh lịch sử, không mua cổ phiếu đang "rẻ" hay "hồi phục". Lý do: khi giá gần đỉnh 52W,
-        tất cả người mua trước đó đều đang có lời → không có áp lực bán từ người cần cắt lỗ → giá dễ tiếp tục tăng.<br>
-        ⚠ <b>Rủi ro:</b> Nếu thị trường chung yếu, breakout thất bại và giá quay về rất nhanh.
+      <b style="color:#6D28D9;">💥 Breakout — ngắn hạn, cần theo dõi sát</b><br>
+      <span style="color:#374151;font-size:11px;">
+        52W High ≥90% và CS ≥7. O'Neil và Minervini chỉ mua cổ phiếu đang phá đỉnh lịch sử:
+        khi giá gần đỉnh 52W, không có áp lực bán cắt lỗ → giá dễ tiếp tục tăng.<br>
+        ⚠ Nếu thị trường yếu, breakout thất bại và giá quay về rất nhanh.
       </span>
     </td>
   </tr>
 
-  <tr style="background-color:#0E1220;">
-    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❸ Chart Analysis</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      <b>Bảng 2×2 phân vùng — thay scatter chart bằng danh sách tên mã có thể đọc.</b><br><br>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#374151;font-weight:700;font-size:13px;padding:10px 14px;">❸ Chart Analysis</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
+      <b>Bảng 2×2 phân vùng — danh sách mã theo vị trí CS/QC.</b><br><br>
       Trục ngang: CS Score (trái &lt;7, phải ≥7) — Trục dọc: QC Score (trên ≥4, dưới &lt;4)<br><br>
       <table style="border-collapse:collapse;font-size:11px;width:100%;">
         <tr>
-          <td style="padding:6px 10px;background:#1A5C2B;color:#FFF;font-weight:700;border:1px solid #444;width:50%;">
+          <td style="padding:6px 10px;background:#1A5C2B;color:#FFF;font-weight:700;border:1px solid #CBD5E0;width:50%;">
             💎 Quality (CS&lt;7, QC≥4)<br>
-            <span style="font-weight:400;font-size:10px;color:#C8E6C9;">Công ty tốt về cơ bản, chưa được thị trường chú ý nhiều. Mua để giữ dài hạn, không cần timing.</span>
+            <span style="font-weight:400;font-size:10px;color:#C8E6C9;">Cơ bản tốt, chưa được thị trường chú ý. Phù hợp giữ dài hạn.</span>
           </td>
-          <td style="padding:6px 10px;background:#4A235A;color:#FFF;font-weight:700;border:1px solid #444;width:50%;">
-            ⭐ Dual Leaders (CS≥7 &amp; QC≥4)<br>
+          <td style="padding:6px 10px;background:#4A235A;color:#FFF;font-weight:700;border:1px solid #CBD5E0;width:50%;">
+            ⭐ Dual Leaders (CS≥7, QC≥4)<br>
             <span style="font-weight:400;font-size:10px;color:#E1BEE7;">Tốt nhất cả hai chiều. Ưu tiên nghiên cứu nhóm này đầu tiên.</span>
           </td>
         </tr>
         <tr>
-          <td style="padding:6px 10px;background:#3A3A3A;color:#CCC;font-weight:700;border:1px solid #444;">
+          <td style="padding:6px 10px;background:#E2E8F0;color:#374151;font-weight:700;border:1px solid #CBD5E0;">
             👀 Watchlist (CS&lt;7, QC&lt;4)<br>
-            <span style="font-weight:400;font-size:10px;">Chưa đủ điều kiện. Chỉ hiển thị số lượng — xem sheet chính để lọc thêm.</span>
+            <span style="font-weight:400;font-size:10px;">Chưa đủ điều kiện. Hiển thị tên mã — theo dõi và scan lại.</span>
           </td>
-          <td style="padding:6px 10px;background:#1A5276;color:#FFF;font-weight:700;border:1px solid #444;">
+          <td style="padding:6px 10px;background:#1A5276;color:#FFF;font-weight:700;border:1px solid #CBD5E0;">
             🚀 Momentum (CS≥7, QC&lt;4)<br>
-            <span style="font-weight:400;font-size:10px;color:#BBDEFB;">Đang tăng mạnh ngắn hạn, chưa đủ chất lượng dài hạn. Phù hợp nếu bạn theo dõi sát.</span>
+            <span style="font-weight:400;font-size:10px;color:#BBDEFB;">Đang tăng mạnh ngắn hạn, chưa đủ chất lượng dài hạn.</span>
           </td>
         </tr>
       </table><br>
-      Mỗi ô hiển thị: <b>Ticker · CS · QC · 1Y%</b> — đọc nhanh mà không cần mở sheet chính.
+      Mỗi ô: <b>Ticker · CS/QC · 1Y%</b> — đọc nhanh không cần mở sheet chính.
     </td>
   </tr>
 
-  <tr style="background-color:#0B0E18;">
-    <td style="color:#B8C4D0;font-weight:700;font-size:13px;padding:10px 14px;">❹ Sector Breakdown</td>
-    <td style="color:#DCE4EE;font-size:12px;padding:10px 14px;">
-      <b>Phân tích theo ngành — tìm ngành nào đang dẫn đầu thị trường.</b><br><br>
-      Bảng thống kê theo từng sector: # Stocks · # Strong Buy · # Buy · # Compounder · Avg CS · Avg QC · Avg 1Y%<br>
-      Sắp xếp theo # Strong Buy giảm dần. Top 3 ngành được tô màu vàng / xanh lá / xanh dương.<br><br>
-      <b style="color:#FFC000;">Tại sao sector quan trọng?</b><br>
-      Thị trường thường di chuyển theo nhóm ngành (sector rotation). Khi Technology dẫn đầu,
-      hầu hết cổ phiếu công nghệ đều tăng — ngay cả mã bình thường cũng được "kéo theo".
-      Ưu tiên chọn mã trong sector có nhiều Strong Buy nhất, vì "thủy triều nâng tất cả thuyền".<br><br>
-      <b style="color:#FFC000;">Mẹo đọc:</b> Nếu một ngành có Avg 1Y% cao và nhiều Strong Buy → đây là sector đang trending.
-      Tìm Dual Leaders trong sector đó để có xác suất thành công cao nhất.
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#374151;font-weight:700;font-size:13px;padding:10px 14px;">❹ Sector Breakdown</td>
+    <td style="color:#1A202C;font-size:12px;padding:10px 14px;">
+      <b>Phân tích theo ngành — tìm ngành đang dẫn đầu thị trường.</b><br><br>
+      Thống kê theo sector: # Stocks · # Strong Buy · # Compounder · Avg CS · Avg QC · Avg 1Y%<br>
+      Sắp xếp theo # Strong Buy giảm dần. Top 3 ngành được tô màu nổi bật.<br><br>
+      <b>Tại sao sector quan trọng?</b> Thị trường di chuyển theo nhóm ngành (sector rotation).
+      Khi Technology dẫn đầu, hầu hết cổ phiếu công nghệ đều tăng — ngay cả mã bình thường cũng được kéo theo.<br><br>
+      <b>Mẹo:</b> Ngành có Avg 1Y% cao + nhiều Strong Buy = sector đang trending.
+      Tìm Dual Leaders trong sector đó để có xác suất tốt cao nhất.
     </td>
   </tr>
 </table>
 
 <!-- ══ QUY TRÌNH ĐỌC ══ -->
-<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">③ QUY TRÌNH ĐỌC DASHBOARD — 5 BƯỚC (dành cho người mới)</p>
+<p style="color:#374151;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">③ QUY TRÌNH ĐỌC DASHBOARD — 5 BƯỚC</p>
 <ol style="padding-left:20px;margin:0;">
-  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
-    <b>Bắt đầu từ ❶+❷ KPIs</b> — Nhìn 2 hàng thẻ đầu tiên. Câu hỏi cần trả lời:
-    "Thị trường hôm nay đang tốt hay xấu?" Nếu # Strong Buy &lt;5% tổng → thị trường đang yếu,
-    nên thận trọng. Nếu Avg CS &gt;6 và # Dual Leaders &gt;5 → thị trường đang chất lượng.
+  <li style="margin:8px 0;color:#1A202C;font-size:12px;">
+    <b>Bắt đầu từ ❶+❷ KPIs</b> — "Thị trường hôm nay tốt hay xấu?"
+    # Strong Buy &lt;5% tổng → thận trọng. Avg CS &gt;6 và # Dual Leaders &gt;5 → thị trường đang chất lượng.
   </li>
-  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
-    <b>Kiểm tra ⚠ Risk Flags</b> — Nếu có nhiều cảnh báo (D/E cao, 1M% âm nhiều), đừng vội vào tiền.
-    Đợi thêm 1–2 tuần rồi scan lại. Thị trường tốt sẽ quay lại — kiên nhẫn quan trọng hơn hành động nhanh.
+  <li style="margin:8px 0;color:#1A202C;font-size:12px;">
+    <b>Kiểm tra ⚠ Risk Flags</b> — Nhiều cảnh báo (D/E cao, 1M% âm) → đừng vội vào tiền.
+    Kiên nhẫn đợi thêm 1–2 tuần rồi scan lại.
   </li>
-  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
-    <b>Xem ⭐ Dual Leaders</b> — Đây là danh sách ngắn nhất và chất lượng nhất.
-    Nếu bạn chỉ có thời gian nghiên cứu 2–3 mã, hãy lấy từ bảng này. Chú ý cột ⚠ — mã có cảnh báo
-    D/E hoặc P/E cao cần đọc thêm báo cáo tài chính trước khi quyết định.
+  <li style="margin:8px 0;color:#1A202C;font-size:12px;">
+    <b>Xem ⭐ Dual Leaders</b> — Danh sách ngắn, chất lượng cao nhất.
+    Chỉ có thời gian nghiên cứu 2–3 mã → lấy từ bảng này. Chú ý cột ⚠.
   </li>
-  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
+  <li style="margin:8px 0;color:#1A202C;font-size:12px;">
     <b>Dùng 🎯 Top Picks theo chiến lược của bạn</b> —
-    Nếu bạn muốn giao dịch ngắn hạn → xem 🚀 Momentum hoặc 💥 Breakout.
-    Nếu bạn muốn đầu tư dài hạn, ít theo dõi → xem 💎 Quality (Compounder) hoặc 📉 Value Growth.
-    Không cần chọn tất cả 4 nhóm — chọn 1 nhóm phù hợp với bạn nhất.
+    Ngắn hạn → 🚀 Momentum hoặc 💥 Breakout.
+    Dài hạn, ít theo dõi → 💎 Quality hoặc 📉 Value Growth.
   </li>
-  <li style="margin:8px 0;color:#DCE4EE;font-size:12px;">
-    <b>Xác nhận bằng ❸+❹</b> — Trong ❸ Chart Analysis, kiểm tra mã bạn chọn đang ở vùng nào
-    (Dual Leader, Momentum, hay Quality?). Trong ❹ Sector Breakdown, kiểm tra ngành của mã đó có
-    đang trong top 3 ngành dẫn đầu không? Nếu có → xác suất tốt cao hơn.
+  <li style="margin:8px 0;color:#1A202C;font-size:12px;">
+    <b>Xác nhận bằng ❸+❹</b> — Mã bạn chọn đang ở vùng nào trong Chart Analysis?
+    Ngành của mã đó có trong top 3 Sector Breakdown không? Có → xác suất tốt cao hơn.
   </li>
 </ol>
 
-<p style="color:#B8C4D0;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">④ LỖI PHỔ BIẾN CẦN TRÁNH</p>
+<p style="color:#374151;font-size:12px;margin:14px 0 6px 0;font-weight:700;letter-spacing:1px;">④ LỖI PHỔ BIẾN CẦN TRÁNH</p>
 <ul style="padding-left:20px;margin:0;">
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Chỉ nhìn 1Y% cao mà mua ngay</b> — Cổ phiếu tăng 200% trong 1 năm không có nghĩa là tiếp tục tăng. Phải kết hợp CS Score và Risk Flags.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Bỏ qua D/E và cột ⚠</b> — Công ty nợ nhiều, khi lãi suất tăng hoặc doanh thu giảm, có thể sụp đổ rất nhanh.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Mua tất cả mã trong Dual Leaders</b> — Dual Leaders là shortlist để nghiên cứu sâu hơn, không phải lệnh mua tự động. Hãy đọc thêm về từng công ty trước khi quyết định.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Bỏ qua Sector Breakdown</b> — Một mã tốt trong ngành đang yếu vẫn có thể bị kéo xuống theo ngành. Luôn kiểm tra sector trend.</li>
-  <li style="margin:6px 0;color:#DCE4EE;font-size:12px;"><b>❌ Dùng dữ liệu cũ</b> — Dashboard phản ánh thời điểm scan gần nhất. Thị trường thay đổi nhanh — scan lại ít nhất mỗi tuần 1 lần.</li>
+  <li style="margin:6px 0;color:#1A202C;font-size:12px;"><b>❌ Chỉ nhìn 1Y% cao mà mua ngay</b> — Cổ phiếu tăng 200%/năm không có nghĩa là tiếp tục tăng. Phải kết hợp CS Score và Risk Flags.</li>
+  <li style="margin:6px 0;color:#1A202C;font-size:12px;"><b>❌ Bỏ qua D/E và cột ⚠</b> — Công ty nợ nhiều, khi lãi suất tăng hoặc doanh thu giảm, có thể sụp đổ rất nhanh.</li>
+  <li style="margin:6px 0;color:#1A202C;font-size:12px;"><b>❌ Mua tất cả mã trong Dual Leaders</b> — Dual Leaders là shortlist để nghiên cứu sâu hơn, không phải lệnh mua tự động.</li>
+  <li style="margin:6px 0;color:#1A202C;font-size:12px;"><b>❌ Bỏ qua Sector Breakdown</b> — Mã tốt trong ngành đang yếu vẫn có thể bị kéo xuống. Luôn kiểm tra sector trend.</li>
+  <li style="margin:6px 0;color:#1A202C;font-size:12px;"><b>❌ Dùng dữ liệu cũ</b> — Dashboard phản ánh thời điểm scan gần nhất. Scan lại ít nhất mỗi tuần 1 lần.</li>
 </ul>
 
 <p class="tip">⚠ Dashboard chỉ xuất hiện khi nhấn <b>Export Excel</b>. Thanh tiến trình xanh ở status bar cho biết quá trình xuất — UI không bị đơ. Dữ liệu phản ánh thời điểm scan gần nhất — nên scan lại ít nhất mỗi tuần 1 lần để cập nhật thị trường.</p>
