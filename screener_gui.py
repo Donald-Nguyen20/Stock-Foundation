@@ -93,12 +93,14 @@ TABLE_COLS = [
     ("Moat",        "Moat Score",  110,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Moat Proxy",  "Moat Proxy",  180,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("EPS Q%",      "EPS Qtr%",     62,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("ACC",         "EPS_Acc",      48,  Qt.AlignCenter | Qt.AlignVCenter),
     ("EPS A%",      "EPS Annual%",  62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Rev Q%",      "Rev Qtr%",     62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("GM%",         "Gross Margin%",60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ROE%",        "ROE%",         60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("D/E",         "D/E",          52,  Qt.AlignRight  | Qt.AlignVCenter),
     ("P/E",         "P/E",          52,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("PEG",         "PEG",          55,  Qt.AlignRight  | Qt.AlignVCenter),
     ("3M%",         "3M%",          52,  Qt.AlignRight  | Qt.AlignVCenter),
     ("1Y%",         "1Y%",          52,  Qt.AlignRight  | Qt.AlignVCenter),
     ("C",           "CS_C",         32,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -148,7 +150,9 @@ QC_COLS = [
     ("Op Mgn%",   "Op Margin%",    70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ROIC%",     "ROIC%",         62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("D/E",       "D/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Net Cash",  "Net Cash ($B)", 75,  Qt.AlignRight  | Qt.AlignVCenter),
     ("FCF/sh",    "FCF/sh",        65,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("FCF Mgn%",  "FCF_Margin%",   68,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Curr.R",    "Current Ratio", 60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("EV/EBITDA", "EV/EBITDA",     78,  Qt.AlignRight  | Qt.AlignVCenter),
     ("P/E",       "P/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
@@ -222,14 +226,10 @@ def compute_qc_score(row: dict) -> dict:
             score += 1
 
     result["QC_Score"] = score
-    if score >= 5:
-        result["QC_Signal"] = "🏆 COMPOUNDER"
-    elif score >= 3:
-        result["QC_Signal"] = "⭐ QUALITY"
-    elif score >= 1:
-        result["QC_Signal"] = "○ AVERAGE"
-    else:
-        result["QC_Signal"] = "✗ WEAK"
+    if   score >= 5: result["QC_Signal"] = "🏆 COMPOUNDER"
+    elif score >= 4: result["QC_Signal"] = "⭐ QUALITY"    # ≥4/6 = 67% (trước là ≥3 = 50%)
+    elif score >= 1: result["QC_Signal"] = "○ AVERAGE"
+    else:            result["QC_Signal"] = "✗ WEAK"
     return result
 
 
@@ -507,8 +507,12 @@ class NumItem(QTableWidgetItem):
             text = f"{val:+.1f}%" if val != 0 else "—"
         elif fmt == "price":
             text = f"${val:,.2f}"
+        elif fmt == "vnd":
+            text = f"₫{val:,.0f}"
         elif fmt == "mcap":
             text = f"{val:,.1f}"
+        elif fmt == "mcap_vnd":
+            text = f"₫{val:,.0f} tỷ"
         elif fmt == "int":
             text = str(int(val))
         else:
@@ -563,8 +567,8 @@ class ScanWorker(QThread):
                         self.failed.emit("Cancelled.")
                         return
                     sector = sectors.get(ticker, "")
-                    proxy, score, w52_pct, eq_badge = fetch_moat_yfinance(ticker, sector)
-                    moat_cache[ticker] = (proxy, score, w52_pct, eq_badge)
+                    proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = fetch_moat_yfinance(ticker, sector)
+                    moat_cache[ticker] = (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)
                     self.ticker_update.emit(i, total, ticker, score)
                     time.sleep(0.3)
 
@@ -597,9 +601,9 @@ class TickerWorker(QThread):
                 self.failed.emit(f"'{self.ticker}' not found on TradingView.")
                 return
             df = clean_df(raw)
-            proxy, score, w52_pct, eq_badge = fetch_moat_yfinance(
+            proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = fetch_moat_yfinance(
                 self.ticker, df["Sector"].iloc[0] if "Sector" in df.columns else "")
-            moat_cache = {self.ticker: (proxy, score, w52_pct, eq_badge)}
+            moat_cache = {self.ticker: (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)}
             market_ok, index_1y = fetch_market_direction(self.market)
             df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
             self.done.emit(df)
@@ -1069,12 +1073,14 @@ class HelpDialog(QDialog):
             "R": ("<b>Tại sao?</b> ROE đo hiệu quả sinh lời trên vốn cổ đông — bao nhiêu lợi nhuận tạo ra trên mỗi đồng equity. "
                   "ROE >17% đảm bảo công ty không chỉ tăng trưởng mà còn <b>tạo ra giá trị thực</b> cho cổ đông. "
                   "ROE thấp + EPS growth cao thường là dấu hiệu growth nhờ pha loãng vốn (phát hành cổ phiếu mới), không bền vững."),
-            "M": ("<b>Tại sao?</b> Tiêu chí M được chuyển từ momentum giá 3 tháng sang <b>EPS Acceleration</b>: "
-                  "EPS quý (YoY) &gt; EPS năm (YoY) VÀ EPS quý &gt; 0. "
-                  "<b>Ý nghĩa:</b> Khi tốc độ tăng EPS quý vượt qua tốc độ tăng EPS năm, nghĩa là tăng trưởng đang tăng tốc — "
-                  "không chỉ duy trì mà còn đang bứt phá. Đây là tín hiệu động lực earnings thực sự, khác với momentum giá có thể bị ảnh hưởng bởi yếu tố kỹ thuật. "
-                  "Điều kiện EPS quý &gt; 0 loại bỏ trường hợp acceleration từ vùng âm (phục hồi từ thua lỗ — có thể là base effect, không phải sức mạnh thực). "
-                  "<b>Lưu ý:</b> Trong O'Neil gốc, M = Market Direction (đã tách riêng thành tiêu chí MKT). App dùng slot M cho EPS momentum tăng tốc."),
+            "M": ("<b>Tại sao?</b> Tiêu chí M = <b>EPS Quarterly YoY Acceleration</b> — tốc độ tăng trưởng EPS đang tăng dần qua các quý liên tiếp. "
+                  "Đây là tín hiệu mua sớm (leading indicator): thị trường thường mất 1–2 quý để định giá lại khi earnings acceleration bắt đầu — "
+                  "nhà đầu tư phát hiện sớm có lợi thế lớn.<br>"
+                  "<b>Khi bật yfinance Moat:</b> So sánh YoY% của 4 quý gần nhất (Q1: +20%, Q2: +30%, Q3: +45% = tăng tốc). "
+                  "Cần ≥2 quý liên tiếp YoY% tăng dần → True. Dữ liệu thực tế từ yfinance quarterly EPS.<br>"
+                  "<b>Khi tắt yfinance:</b> Dùng proxy EPS Qtr% &gt; EPS Annual% &amp;&amp; EPS Qtr% &gt; 0 (chỉ so 1 điểm).<br>"
+                  "<b>Cột ACC</b> trong bảng: ↑3Q = 3 quý tăng tốc liên tiếp (tín hiệu mạnh nhất), ↑2Q = 2 quý, ↑1Q = chỉ mới tăng tốc, ↓ = đang giảm tốc (cờ đỏ dù EPS vẫn tăng tuyệt đối).<br>"
+                  "<b>Lưu ý:</b> Trong O'Neil gốc, M = Market Direction — đã tách thành tiêu chí MKT. App dùng slot M cho EPS acceleration momentum."),
             "D": ("<b>Tại sao?</b> <b>D/E = Tổng nợ / Vốn chủ sở hữu</b> — đo mức độ doanh nghiệp dùng nợ để tài trợ hoạt động. "
                   "D/E = 1.0 nghĩa là nợ bằng vốn tự có; D/E = 2.0 nghĩa là nợ gấp đôi vốn. "
                   "<b>Tại sao nợ nguy hiểm?</b> Lãi vay phải trả dù doanh thu giảm — đòn bẩy khuếch đại lợi nhuận khi tốt nhưng khuếch đại thua lỗ khi xấu. "
@@ -2253,8 +2259,8 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor(_qc_bg)); item.setForeground(QColor(_qc_fg))
             elif key == "Moat Score":
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
-            elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "D/E",
-                         "FCF/sh", "Current Ratio", "EV/EBITDA", "P/E", "1Y%"):
+            elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "D/E",
+                         "Net Cash ($B)", "FCF/sh", "Current Ratio", "EV/EBITDA", "P/E", "1Y%"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
             elif key == "EQ_Badge":
                 _eq_hbg = "#0D2020" if dark else "#E0F7FA"
@@ -2269,7 +2275,8 @@ class MainWindow(QMainWindow):
         self._qc_table.setRowCount(len(df))
 
         # Columns that are %-type and get green/red coloring
-        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%"}
+        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%"}
+        is_vn = self._market.currentText().lower() == "vietnam"
 
         for ri, (_, row) in enumerate(df.iterrows()):
             rd = row.to_dict()
@@ -2340,9 +2347,37 @@ class MainWindow(QMainWindow):
                         cell = QTableWidgetItem("—")
                         cell.setForeground(QColor(TEXT3))
                 elif key == "Price ($)":
-                    cell = NumItem(val, "price")
+                    cell = NumItem(val, "vnd" if is_vn else "price")
                 elif key == "MCap ($B)":
-                    cell = NumItem(val, "mcap")
+                    cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
+                elif key == "Net Cash ($B)":
+                    cell = NumItem(val)
+                    if isinstance(val, float) and val == val:
+                        if val > 5:
+                            cell.setForeground(QColor("#1A5C2B"))
+                            cell.setBackground(QColor("#C6EFCE"))
+                        elif val > 0:
+                            cell.setForeground(QColor("#1A5C2B"))
+                        elif val > -5:
+                            cell.setForeground(QColor("#7D6608"))
+                        else:
+                            cell.setForeground(QColor(RED))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+
+                elif key == "FCF_Margin%":
+                    cell = NumItem(val, "pct")
+                    if isinstance(val, float):
+                        if val >= 25:
+                            cell.setForeground(QColor("#1A5C2B"))
+                            cell.setBackground(QColor("#D5F5E3"))
+                        elif val >= 15:
+                            cell.setForeground(QColor("#1A5C2B"))
+                        elif val < 0:
+                            cell.setForeground(QColor(RED))
+                        else:
+                            cell.setForeground(QColor(TEXT3))
+
                 elif key in PCT_GREEN_RED:
                     cell = NumItem(val, "pct")
                     if isinstance(val, float):
@@ -2360,7 +2395,7 @@ class MainWindow(QMainWindow):
         self._apply_qc_filter()
 
     def _recolor_qc_table(self):
-        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%"}
+        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%"}
         for ri in range(self._qc_table.rowCount()):
             for ci, (_, key, _, _) in enumerate(QC_COLS):
                 item = self._qc_table.item(ri, ci)
@@ -2768,6 +2803,7 @@ class MainWindow(QMainWindow):
         PCT_KEYS = {"EPS Qtr%","EPS Annual%","Rev Annual%","Rev Qtr%",
                     "Gross Margin%","Net Margin%","ROE%",
                     "1W%","1M%","3M%","6M%","1Y%"}
+        is_vn = self._market.currentText().lower() == "vietnam"
 
         for ri, (_, row) in enumerate(df.iterrows()):
             for ci, (hdr, key, _, align) in enumerate(TABLE_COLS):
@@ -2829,10 +2865,42 @@ class MainWindow(QMainWindow):
                     else:
                         cell = QTableWidgetItem("—"); cell.setForeground(QColor(TEXT3))
 
+                elif key == "PEG":
+                    cell = NumItem(val)
+                    if isinstance(val, float) and val == val:
+                        if val <= 1.0:
+                            cell.setForeground(QColor("#1A5C2B"))
+                            cell.setBackground(QColor("#C6EFCE"))
+                        elif val <= 1.5:
+                            cell.setForeground(QColor("#1A3A5C"))
+                            cell.setBackground(QColor("#DDEEFF"))
+                        elif val <= 2.5:
+                            cell.setForeground(QColor("#7D6608"))
+                        else:
+                            cell.setForeground(QColor(RED))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+
+                elif key == "EPS_Acc":
+                    text = str(val) if val else "—"
+                    cell = QTableWidgetItem(text)
+                    _acc_colors = {
+                        "↑3Q": ("#1A5C2B", "#C6EFCE"),
+                        "↑2Q": ("#1A5C2B", "#D8F5E5"),
+                        "↑1Q": ("#7D6608", "#FFF2CC"),
+                        "↓":   ("#9C0006", "#FFC7CE"),
+                    }
+                    if val in _acc_colors:
+                        fg_a, bg_a = _acc_colors[val]
+                        cell.setForeground(QColor(fg_a))
+                        cell.setBackground(QColor(bg_a))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+
                 elif key == "Price ($)":
-                    cell = NumItem(val, "price")
+                    cell = NumItem(val, "vnd" if is_vn else "price")
                 elif key == "MCap ($B)":
-                    cell = NumItem(val, "mcap")
+                    cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
                 elif key in PCT_KEYS:
                     cell = NumItem(val, "pct")
                     if isinstance(val, float):
@@ -2847,6 +2915,18 @@ class MainWindow(QMainWindow):
                     self._table.setItem(ri, ci, cell)
 
         self._table.setSortingEnabled(True)
+        # Đổi header label theo market
+        _keys = [c[1] for c in TABLE_COLS]
+        if is_vn:
+            if "Price ($)" in _keys:
+                self._table.horizontalHeaderItem(_keys.index("Price ($)")).setText("Giá (₫)")
+            if "MCap ($B)" in _keys:
+                self._table.horizontalHeaderItem(_keys.index("MCap ($B)")).setText("MCap (tỷ₫)")
+        else:
+            if "Price ($)" in _keys:
+                self._table.horizontalHeaderItem(_keys.index("Price ($)")).setText("Price($)")
+            if "MCap ($B)" in _keys:
+                self._table.horizontalHeaderItem(_keys.index("MCap ($B)")).setText("MCap($B)")
         self._apply_filter()
 
     def _recolor_table(self):

@@ -81,17 +81,17 @@ RENAME = {
 DATA_HEADERS = [
     "Ticker", "Tên Công Ty", "Sector", "Price ($)", "MCap ($B)",
     "Moat Proxy", "Moat Score",
-    "EPS Annual%", "EPS Qtr%", "Rev Annual%", "Rev Qtr%",
+    "EPS Annual%", "EPS Qtr%", "EPS_Acc", "Rev Annual%", "Rev Qtr%",
     "Gross Margin%", "Net Margin%", "ROE%", "D/E",
-    "P/E", "P/S", "Rel Vol",
+    "P/E", "PEG", "P/S", "Rel Vol",
     "1W%", "1M%", "3M%", "6M%", "1Y%",
 ]
 # 1=Ticker,2=TênCT,3=Sector,4=Price,5=MCap
 # 6=MoatProxy,7=MoatScore
-# 8=EPS_A,9=EPS_Q,10=Rev_A,11=Rev_Q
-# 12=GM,13=NM,14=ROE,15=DE,16=PE,17=PS,18=RVol
-# 19=1W,20=1M,21=3M,22=6M,23=1Y
-PCT_COLS = {8,9,10,11,12,13,14,19,20,21,22,23}
+# 8=EPS_A,9=EPS_Q,10=EPS_Acc,11=Rev_A,12=Rev_Q
+# 13=GM,14=NM,15=ROE,16=DE,17=PE,18=PEG,19=PS,20=RVol
+# 21=1W,22=1M,23=3M,24=6M,25=1Y
+PCT_COLS = {8,9,11,12,13,14,15,21,22,23,24,25}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -224,41 +224,100 @@ def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
         w52_pct = (round(cur_price / w52_high * 100, 1)
                    if w52_high and cur_price and w52_high > 0 else None)
 
-        # Earnings quality — FCF / Net Income ratio (TTM)
-        eq_badge = None
+        # ── EQ Badge + FCF Margin% (shared data fetch) ───────────
+        eq_badge   = None
+        fcf_margin = None
         try:
-            cf   = tk.cashflow.sort_index(axis=1, ascending=False)
-            inc3 = tk.income_stmt.sort_index(axis=1, ascending=False)
-            fcf_row = _get_row(cf,   "Free Cash Flow",     "FreeCashFlow")
-            ni_row  = _get_row(inc3, "Net Income",          "NetIncome")
+            cf_s   = tk.cashflow.sort_index(axis=1, ascending=False)
+            inc_s  = tk.income_stmt.sort_index(axis=1, ascending=False)
+
+            # FCF (TTM) — prefer direct row, fallback OCF−CapEx
+            fcf_row = _get_row(cf_s,  "Free Cash Flow",        "FreeCashFlow")
             if fcf_row.empty:
-                ocf = _get_row(cf, "Operating Cash Flow",  "OperatingCashFlow")
-                cex = _get_row(cf, "Capital Expenditure",  "CapitalExpenditure")
+                ocf = _get_row(cf_s, "Operating Cash Flow",    "OperatingCashFlow")
+                cex = _get_row(cf_s, "Capital Expenditure",    "CapitalExpenditure")
                 ocf_v = _sv(ocf, 0); cex_v = _sv(cex, 0)
                 fcf_v = (ocf_v + (cex_v or 0)) if ocf_v is not None else None
             else:
                 fcf_v = _sv(fcf_row, 0)
-            ni_v = _sv(ni_row, 0)
+
+            # Net Income (TTM) → EQ Badge
+            ni_row = _get_row(inc_s, "Net Income", "NetIncome")
+            ni_v   = _sv(ni_row, 0)
             if fcf_v is not None and ni_v is not None and ni_v != 0:
-                ratio = fcf_v / ni_v
-                eq_badge = ("💚 Cash Backed"  if ratio >= 0.8
-                            else "🟡 Mixed"       if ratio >= 0.3
+                ratio    = fcf_v / ni_v
+                eq_badge = ("💚 Cash Backed"   if ratio >= 0.8
+                            else "🟡 Mixed"     if ratio >= 0.3
                             else "🔴 Accrual Heavy")
-        except:
+
+            # Revenue (TTM) → FCF Margin%
+            rev_row = _get_row(inc_s, "Total Revenue", "TotalRevenue")
+            rev_v   = _sv(rev_row, 0)
+            if fcf_v is not None and rev_v is not None and rev_v != 0:
+                fcf_margin = round(fcf_v / rev_v * 100, 1)
+        except Exception:
             pass
 
-        return proxy, score, w52_pct, eq_badge
+        # ── Net Cash = Cash + STI − Total Debt ───────────────────
+        net_cash = None
+        try:
+            bal_nc = tk.balance_sheet.sort_index(axis=1, ascending=False)
+            cash_r = _get_row(bal_nc, "Cash And Cash Equivalents",
+                              "CashAndCashEquivalents",
+                              "Cash Cash Equivalents And Short Term Investments", "Cash")
+            sti_r  = _get_row(bal_nc, "Short Term Investments",
+                              "OtherShortTermInvestments")
+            debt_r = _get_row(bal_nc, "Total Debt", "TotalDebt")
+            cash_v = _sv(cash_r, 0) or 0
+            sti_v  = _sv(sti_r,  0) or 0
+            debt_v = _sv(debt_r, 0)
+            if debt_v is None:
+                ltd = _sv(_get_row(bal_nc, "Long Term Debt", "LongTermDebt"), 0) or 0
+                std = _sv(_get_row(bal_nc, "Current Debt", "CurrentDebt",
+                                   "Short Long Term Debt"), 0) or 0
+                debt_v = ltd + std
+            net_cash = round((cash_v + sti_v - (debt_v or 0)) / 1e9, 2)
+        except Exception:
+            pass
+
+        # ── EPS Quarterly YoY Acceleration ───────────────────────
+        eps_acc = (0, [])   # (consecutive_acc_qtrs, yoy_list oldest→newest)
+        try:
+            qfin_acc = tk.quarterly_financials.sort_index(axis=1, ascending=True)
+            if "Diluted EPS" in qfin_acc.index:
+                eps_s = qfin_acc.loc["Diluted EPS"].dropna()
+                n = len(eps_s)
+                if n >= 6:  # cần ≥6 quý để có ≥2 điểm YoY (ít nhất 2 quý so sánh được)
+                    start = max(4, n - 4)
+                    yoy_list = []
+                    for _i in range(start, n):
+                        curr   = eps_s.iloc[_i]
+                        yr_ago = eps_s.iloc[_i - 4]
+                        if yr_ago != 0:
+                            yoy_list.append(round((curr - yr_ago) / abs(yr_ago) * 100, 1))
+                    # Count consecutive acceleration streak from most recent quarter
+                    consec = 0
+                    for _j in range(len(yoy_list) - 1, 0, -1):
+                        if yoy_list[_j] > yoy_list[_j - 1]:
+                            consec += 1
+                        else:
+                            break
+                    eps_acc = (consec, yoy_list)
+        except Exception:
+            pass
+
+        return proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash
 
     except Exception as e:
         # Fallback: sector hardcode + UNCERTAIN
         proxy = MOAT_PROXY_MAP.get(sector, "Cost Advantage")
-        return proxy, "UNCERTAIN ★", None, None
+        return proxy, "UNCERTAIN ★", None, None, (0, []), None, None
 
 
 def build_moat_cache(tickers: list, sectors: dict) -> dict:
     """
     Fetch moat cho toàn bộ danh sách tickers từ yfinance.
-    Trả về dict: {ticker: (proxy, score)}
+    Trả về dict: {ticker: (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)}
     """
     cache = {}
     total = len(tickers)
@@ -266,10 +325,13 @@ def build_moat_cache(tickers: list, sectors: dict) -> dict:
     for i, ticker in enumerate(tickers, 1):
         sector = sectors.get(ticker, "")
         print(f"  [{i:>3}/{total}] {ticker:<8}", end="", flush=True)
-        proxy, score, w52_pct, eq_badge = fetch_moat_yfinance(ticker, sector)
-        cache[ticker] = (proxy, score, w52_pct, eq_badge)
-        eq_str = f" [{eq_badge}]" if eq_badge else ""
-        print(f" {score}{eq_str}")
+        proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = fetch_moat_yfinance(ticker, sector)
+        cache[ticker] = (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)
+        eq_str  = f" [{eq_badge}]" if eq_badge else ""
+        acc_str = f" [ACC:{eps_acc[0]}Q]" if eps_acc and eps_acc[0] > 0 else ""
+        fcf_str = f" [FCF:{fcf_margin:.0f}%]" if fcf_margin is not None else ""
+        nc_str  = f" [NC:{net_cash:+.1f}B]" if net_cash is not None else ""
+        print(f" {score}{eq_str}{acc_str}{fcf_str}{nc_str}")
         time.sleep(0.4)   # tránh rate limit
     print()
     return cache
@@ -333,7 +395,7 @@ def CL(i): return get_column_letter(i)
 # SCORING
 # ═══════════════════════════════════════════════════════════════
 def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
-    # Populate 52W_High% from moat_cache (3rd element of tuple)
+    # Populate 52W_High%: yfinance cache (US) → None cho non-US (VN không có fallback TV)
     if moat_cache:
         def _get_w52(ticker):
             t = moat_cache.get(ticker)
@@ -356,6 +418,14 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
         if key == "D" and row.get("Sector", "") in ("Financial Services", "Finance"):
             return None  # D/E không áp dụng cho ngành tài chính (banks/insurance dùng leverage cấu trúc)
         if key == "M":
+            # Priority: multi-quarter YoY acceleration from yfinance (≥2 consecutive)
+            ticker = row.get("Ticker", "")
+            if moat_cache:
+                t = moat_cache.get(ticker)
+                if t and len(t) >= 5 and t[4] is not None:
+                    acc_qtrs = t[4][0] if isinstance(t[4], (tuple, list)) else int(t[4])
+                    return int(acc_qtrs) >= 2
+            # Fallback: EPS Qtr% > EPS Annual% AND positive (basic proxy)
             qtr = row.get("EPS Qtr%"); ann = row.get("EPS Annual%")
             if qtr is None or (isinstance(qtr, float) and pd.isna(qtr)): return None
             if ann is None or (isinstance(ann, float) and pd.isna(ann)): return None
@@ -404,11 +474,117 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
     else:
         df["EQ_Badge"] = None
 
+    # PEG Ratio = P/E ÷ EPS Annual% (chỉ tính khi cả hai > 0)
+    def _peg(row):
+        pe  = row.get("P/E");       eps = row.get("EPS Annual%")
+        if pe is None or eps is None: return None
+        if pd.isna(pe) or pd.isna(eps): return None
+        if pe <= 0 or eps < 5: return None   # EPS% < 5% → PEG vô nghĩa (phóng đại)
+        peg = pe / eps
+        return round(peg, 2) if peg <= 50 else None  # cap tại 50 — trên đó không có ý nghĩa
+    df["PEG"] = df.apply(_peg, axis=1)
+
+    # Net Cash ($B) column (from yfinance)
+    def _get_net_cash(ticker):
+        if not moat_cache:
+            return None
+        t = moat_cache.get(ticker)
+        return t[6] if t and len(t) >= 7 else None
+    df["Net Cash ($B)"] = df["Ticker"].apply(_get_net_cash)
+
+    # FCF Margin% column (from yfinance)
+    def _get_fcf_margin(ticker):
+        if not moat_cache:
+            return None
+        t = moat_cache.get(ticker)
+        return t[5] if t and len(t) >= 6 else None
+    df["FCF_Margin%"] = df["Ticker"].apply(_get_fcf_margin)
+
+    # EPS Acceleration display column
+    def _acc_label(ticker):
+        if not moat_cache:
+            return "—"
+        t = moat_cache.get(ticker)
+        if not t or len(t) < 5 or t[4] is None:
+            return "—"
+        acc_qtrs = t[4][0] if isinstance(t[4], (tuple, list)) else int(t[4])
+        if acc_qtrs >= 3: return "↑3Q"
+        if acc_qtrs == 2: return "↑2Q"
+        if acc_qtrs == 1: return "↑1Q"
+        return "↓"
+    df["EPS_Acc"] = df["Ticker"].apply(_acc_label)
+
     _MW = {"WIDE  ★★★": 1.2, "NARROW ★★": 1.1, "UNCERTAIN ★": 1.0, "WEAK": 0.85}
     df["Conviction"] = df.apply(
         lambda r: round(r["CS_Score"] * _MW.get(r.get("Moat Score", ""), 1.0), 1),
         axis=1)
     return df
+
+
+# ═══════════════════════════════════════════════════════════════
+# QUALITY COMPOUNDER SCORING
+# (mirrors screener_gui.py — kept in sync manually)
+# ═══════════════════════════════════════════════════════════════
+def compute_qc_score(row: dict) -> dict:
+    """Return QC pass/fail flags + Score + Signal for one stock row dict.
+
+    Criteria (6 total):
+      ROIC > 15%    — earns above cost of capital (non-financial)
+      ROE  > 12%    — replaces ROIC for Financial Services
+      Op Mgn > 15%  — operational leverage / pricing power
+      GM > 40%      — structural margin advantage
+      FCF/sh > 0    — actually generating free cash
+      D/E < 1.0     — clean balance sheet (skip for Financial Services)
+      Moat Wide/Narrow — confirmed competitive advantage
+
+    Score thresholds:
+      COMPOUNDER ≥ 5  |  QUALITY ≥ 4  |  AVERAGE ≥ 1  |  WEAK 0
+    """
+    result = {}
+    score  = 0
+    moat_good    = {"WIDE  ★★★", "NARROW ★★"}
+    is_financial = row.get("Sector", "") in ("Financial Services", "Finance")
+
+    for key, field, op, thr in [
+        ("QC_ROIC", "ROIC%",         "gt", 15),
+        ("QC_OPGM", "Op Margin%",    "gt", 15),
+        ("QC_GM",   "Gross Margin%", "gt", 40),
+        ("QC_FCF",  "FCF/sh",        "gt", 0),
+        ("QC_DE",   "D/E",           "lt", 1.0),
+    ]:
+        if key == "QC_DE" and is_financial:
+            result[key] = None   # D/E không áp dụng cho banks/insurance
+            continue
+        if key == "QC_ROIC" and is_financial:
+            val = row.get("ROE%")
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                result[key] = None
+            else:
+                result[key] = val > 12
+                if result[key]: score += 1
+            continue
+        val = row.get(field)
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            result[key] = None
+        else:
+            passed = (val > thr) if op == "gt" else (val < thr)
+            result[key] = passed
+            if passed: score += 1
+
+    moat = row.get("Moat Score")
+    if moat is None or (isinstance(moat, float) and pd.isna(moat)):
+        result["QC_MOAT"] = None
+    else:
+        passed = moat in moat_good
+        result["QC_MOAT"] = passed
+        if passed: score += 1
+
+    result["QC_Score"] = score
+    if   score >= 5: result["QC_Signal"] = "🏆 COMPOUNDER"
+    elif score >= 4: result["QC_Signal"] = "⭐ QUALITY"
+    elif score >= 1: result["QC_Signal"] = "○ AVERAGE"
+    else:            result["QC_Signal"] = "✗ WEAK"
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -916,12 +1092,12 @@ def _dashboard_sheet(wb, df):
     ws.row_dimensions[9].height = 6
 
     # RISK FLAGS (row 10)
-    risk_de = int((df["D/E"].fillna(0)  > 1).sum())  if "D/E"  in df.columns else 0
-    risk_pe = int((df["P/E"].fillna(0)  > 50).sum()) if "P/E"  in df.columns else 0
-    risk_1m = int((df["1M%"].fillna(0) < -10).sum()) if "1M%"  in df.columns else 0
+    risk_de = int((df["D/E"].fillna(0)  > 1.5).sum()) if "D/E"  in df.columns else 0  # ≥ CAN SLIM D threshold
+    risk_pe = int((df["P/E"].fillna(0)  > 50).sum())  if "P/E"  in df.columns else 0
+    risk_1m = int((df["1M%"].fillna(0) < -10).sum())  if "1M%"  in df.columns else 0
     ws.merge_cells("A10:X10")
     c = ws.cell(10, 1,
-        f"⚠️  RISK FLAGS:   D/E > 1: {risk_de} mã   |   P/E > 50: {risk_pe} mã   |   1M% < −10%: {risk_1m} mã")
+        f"⚠️  RISK FLAGS:   D/E > 1.5: {risk_de} mã   |   P/E > 50: {risk_pe} mã   |   1M% < −10%: {risk_1m} mã")
     c.font = F(True, 9, "9C6500"); c.fill = BG("FFF2CC"); c.alignment = AL()
     ws.row_dimensions[10].height = 18
     ws.row_dimensions[11].height = 8
@@ -1036,8 +1212,9 @@ def _dashboard_sheet(wb, df):
     dl_sec = cs_end + 2
     _sec(dl_sec, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
     DL_HDRS = ["#", "Ticker", "Company", "Sector", "Price", "CS", "QC",
-               "1Y%", "ROE%", "ROIC%", "D/E", "Signal", "⚠"]
-    ws.column_dimensions["M"].width = 11
+               "1Y%", "ROE%", "ROIC%", "D/E", "Net Cash($B)", "Signal", "⚠"]
+    ws.column_dimensions["L"].width = 10
+    ws.column_dimensions["N"].width = 11
     dl_hdr_row = dl_sec + 1
     for ci, h in enumerate(DL_HDRS, 1):
         c = ws.cell(dl_hdr_row, ci, h)
@@ -1051,7 +1228,7 @@ def _dashboard_sheet(wb, df):
 
     dl_end = dl_hdr_row
     if dl_df.empty:
-        ws.merge_cells(f"A{dl_hdr_row+1}:M{dl_hdr_row+1}")
+        ws.merge_cells(f"A{dl_hdr_row+1}:N{dl_hdr_row+1}")
         c = ws.cell(dl_hdr_row + 1, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
         c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
         ws.row_dimensions[dl_hdr_row + 1].height = 18; dl_end = dl_hdr_row + 1
@@ -1097,7 +1274,20 @@ def _dashboard_sheet(wb, df):
                     else:            c.font = F(size=9, color="9C0006" if fv > 2 else "7D6608" if fv > 1 else "276221")
                 else:
                     c.value = "—"; c.font = F(size=9, color="BBBBBB")
-            _w(12, sig, True, fg_s, bg_s)
+            # Col 12: Net Cash ($B)
+            nc_v = row.get("Net Cash ($B)")
+            c12 = ws.cell(er, 12)
+            c12.border = BD(); c12.alignment = AL(); c12.fill = BG(rbg)
+            if nc_v is not None and not (isinstance(nc_v, float) and pd.isna(nc_v)):
+                c12.value = float(nc_v); c12.number_format = '+#,##0.0;-#,##0.0;"-"'
+                if nc_v > 5:   c12.font = F(True,9,"276221"); c12.fill = BG("C6EFCE")
+                elif nc_v > 0: c12.font = F(size=9,color="276221")
+                elif nc_v > -5:c12.font = F(size=9,color="9C6500")
+                else:          c12.font = F(True,9,"9C0006")
+            else:
+                c12.value = "—"; c12.font = F(size=9,color="BBBBBB")
+
+            _w(13, sig, True, fg_s, bg_s)
             de_v = row.get("D/E"); pe_v = row.get("P/E")
             flags = []
             if de_v is not None and not (isinstance(de_v, float) and pd.isna(de_v)) and float(de_v) > 1:
@@ -1105,9 +1295,9 @@ def _dashboard_sheet(wb, df):
             if pe_v is not None and not (isinstance(pe_v, float) and pd.isna(pe_v)) and float(pe_v) > 50:
                 flags.append("P/E")
             if flags:
-                _w(13, "⚠️ " + " · ".join(flags), True, "9C6500", "FFF2CC")
+                _w(14, "⚠️ " + " · ".join(flags), True, "9C6500", "FFF2CC")
             else:
-                _w(13, "", bgc=rbg)
+                _w(14, "", bgc=rbg)
             dl_end = er
         ws.conditional_formatting.add(
             f"H{dl_hdr_row+1}:H{dl_end}",
@@ -1153,13 +1343,15 @@ def _dashboard_sheet(wb, df):
             qua = [(r["Ticker"], f"ROIC {r['ROIC%']:.1f}%", r.get("Sector",""))
                    for _, r in d.iterrows()]
 
-        # Value: P/E<35 + EPS growth + CS≥6, sort P/E asc
+        # Value: P/E<35 + EPS growth + CS≥6 + giá chưa gần đỉnh (<80% 52W High), sort P/E asc
         val = []
         if "P/E" in df.columns and "EPS Annual%" in df.columns and "CS_Score" in df.columns:
+            _w52_ok = (df["52W_High%"] < 80) if ("52W_High%" in df.columns and not df["52W_High%"].isna().all()) else True
             tmp = (df[
                 (df["CS_Score"] >= 6) &
                 (df["P/E"] > 0) & (df["P/E"] < 35) &
-                (df["EPS Annual%"] > 10) & (df["EPS Annual%"] < 200)
+                (df["EPS Annual%"] > 10) & (df["EPS Annual%"] < 200) &
+                _w52_ok
             ].dropna(subset=["P/E"]).sort_values("P/E"))
             val = [(r["Ticker"],
                     f"P/E {r['P/E']:.1f}× | EPS +{r['EPS Annual%']:.0f}%",
@@ -1433,9 +1625,9 @@ def _main_sheet(wb, df, market, top):
         (3,3,"SECTOR","2C4F7C"),
         (4,5,"PRICE","2E5E8E"),
         (6,7,"🏰  MOAT (yfinance 5yr)","4A235A"),
-        (8,11,"GROWTH","1A5276"),
-        (12,15,"QUALITY","154360"),(16,18,"VALUATION","1B2631"),
-        (19,23,"PERFORMANCE","0E3251"),
+        (8,12,"GROWTH","1A5276"),
+        (13,16,"QUALITY","154360"),(17,20,"VALUATION","1B2631"),
+        (21,25,"PERFORMANCE","0E3251"),
         (CS_START, CI_SCORE-1, "✅  CAN SLIM  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
         (CI_SCORE, CI_SCORE, "SCORE", "0D3B1A"),
         (CI_CONV, CI_CONV, "CONVICTION", "0D3B1A"),
@@ -1478,10 +1670,25 @@ def _main_sheet(wb, df, market, top):
             elif h=="Moat Score":
                 fg,bg = MOAT_SCORE_STYLE.get(val, ("000000",C_WHITE))
                 c.value=val; c.font=F(True,9,fg); c.fill=BG(bg); c.alignment=AL()
+            elif h=="PEG":
+                c.value=val; c.number_format='0.00'; c.alignment=AL()
+                if val <= 1.0:   c.font=F(True,9,CG_FG);  c.fill=BG("C6EFCE")
+                elif val <= 1.5: c.font=F(True,9,"1A5276"); c.fill=BG("DDEEFF")
+                elif val <= 2.5: c.font=F(size=9,color=CY_FG)
+                else:            c.font=F(size=9,color=CR_FG)
+            elif h=="EPS_Acc":
+                _acc_style = {
+                    "↑3Q": ("1A5C2B","C6EFCE"), "↑2Q": ("1A5C2B","D8F5E5"),
+                    "↑1Q": ("7D6608","FFF2CC"),  "↓":   ("9C0006","FFC7CE"),
+                }
+                fg2,bg2 = _acc_style.get(val, ("888888","F5F5F5"))
+                c.value=val; c.font=F(True,9,fg2); c.fill=BG(bg2); c.alignment=AL()
             elif h=="Price ($)":
-                c.value=val; c.number_format='"$"#,##0.00'; c.font=F(size=9)
+                c.value=val; c.font=F(size=9)
+                c.number_format = '#,##0' if market.lower()=="vietnam" else '"$"#,##0.00'
             elif h=="MCap ($B)":
-                c.value=val; c.number_format='#,##0.0'; c.font=F(size=9)
+                c.value=val; c.font=F(size=9)
+                c.number_format = '#,##0.0' if market.lower()=="vietnam" else '#,##0.0'
             elif ci in PCT_COLS:
                 c.value=val/100; c.number_format='+0.0%;(0.0%);"-"'
                 c.font = F(size=9,color=CG_FG,bold=(val>25)) if val>0 else (F(size=9,color=CR_FG) if val<0 else F(size=9))
@@ -1520,7 +1727,7 @@ def _main_sheet(wb, df, market, top):
                  6:28,7:13,
                  8:8,9:8,10:8,11:8,12:8,13:7,14:7,15:6,
                  16:6,17:6,18:6,
-                 19:6,20:6,21:6,22:6,23:7}.items():
+                 19:6,20:6,21:6,22:6,23:7,24:7,25:7}.items():
         ws.column_dimensions[CL(ci)].width=w
     for i in range(N_CS): ws.column_dimensions[CL(CS_START+i)].width=9
     ws.column_dimensions[CL(CI_SCORE)].width=7
@@ -1560,8 +1767,10 @@ def _qc_sheet(wb, df):
         ("GM%",         "Gross Margin%",  7),
         ("Op Margin%",  "Op Margin%",     9),
         ("ROIC%",       "ROIC%",          7),
-        ("D/E",         "D/E",            6),
-        ("FCF/sh",      "FCF/sh",         7),
+        ("D/E",          "D/E",              6),
+        ("Net Cash($B)", "Net Cash ($B)",   9),
+        ("FCF/sh",       "FCF/sh",          7),
+        ("FCF Mgn%",     "FCF_Margin%",     8),
         ("Curr.R",      "Current Ratio",  7),
         ("EV/EBITDA",   "EV/EBITDA",      9),
         ("P/E",         "P/E",            6),
@@ -1585,7 +1794,7 @@ def _qc_sheet(wb, df):
     NQC  = len(QC_CHECK_HDRS)
     NR   = len(RESULT_HDRS)
     TOTAL = ND + NQC + NR
-    PCT_COLS = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%"}
+    PCT_COLS = {"Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "1Y%"}
     DR = 5
 
     # ── Title ─────────────────────────────────────────────────────────────────
@@ -1608,11 +1817,11 @@ def _qc_sheet(wb, df):
         (1,       3,        "IDENTITY",                                    "1C3550"),
         (4,       5,        "PRICE & SIZE",                                "2E5E8E"),
         (6,       6,        "🏰  MOAT",                                    "4A235A"),
-        (7,       15,       "📊  QC METRICS",                              "0E3251"),
-        (16,      21,       "✅  QC CRITERIA  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
-        (22,      22,       "SCORE",                                       "0D3B1A"),
-        (23,      23,       "QUALITY",                                     "0D3B1A"),
-        (24,      24,       "EQ BADGE",                                    "0D2020"),
+        (7,       17,       "📊  QC METRICS",                              "0E3251"),
+        (18,      23,       "✅  QC CRITERIA  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
+        (24,      24,       "SCORE",                                       "0D3B1A"),
+        (25,      25,       "QUALITY",                                     "0D3B1A"),
+        (26,      26,       "EQ BADGE",                                    "0D2020"),
     ]
     ws.row_dimensions[3].height = 14
     for cs, ce, lbl, bg_hex in groups:
@@ -1672,6 +1881,25 @@ def _qc_sheet(wb, df):
                 c.value = val; c.number_format = '"$"#,##0.00'; c.font = F(size=9)
             elif key == "MCap ($B)":
                 c.value = val; c.number_format = "#,##0.0"; c.font = F(size=9)
+            elif key == "Net Cash ($B)":
+                c.value = val; c.number_format = '+#,##0.0;-#,##0.0;"-"'
+                if val > 0:
+                    c.font = F(True,9,CG_FG) if val > 5 else F(size=9,color=CG_FG)
+                    if val > 5: c.fill = BG("C6EFCE")
+                elif val > -5:
+                    c.font = F(size=9,color=CY_FG)
+                else:
+                    c.font = F(True,9,CR_FG)
+            elif key == "FCF_Margin%":
+                c.value = val / 100; c.number_format = '+0.0%;(0.0%);"-"'
+                if val >= 25:
+                    c.font = F(True, 9, CG_FG); c.fill = BG("D5F5E3")
+                elif val >= 15:
+                    c.font = F(size=9, color=CG_FG)
+                elif val < 0:
+                    c.font = F(size=9, color=CR_FG)
+                else:
+                    c.font = F(size=9, color="888888")
             elif key in PCT_COLS:
                 c.value = val / 100; c.number_format = '+0.0%;(0.0%);"-"'
                 c.font = (F(size=9, color=CG_FG, bold=(val > 25)) if val > 0
@@ -1753,6 +1981,14 @@ def main():
     # 3. Market direction + Score + Moat
     market_ok, index_1y = fetch_market_direction(a.market)
     df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
+
+    # 4. Quality Compounder scoring (áp dụng sau khi Moat đã được gán)
+    print("  🏆 Tính QC Score...", end="", flush=True)
+    qc_results = df.apply(lambda r: compute_qc_score(r.to_dict()), axis=1)
+    qc_df      = pd.DataFrame(list(qc_results))
+    df         = pd.concat([df.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
+    print(f" ✅  ({int((df['QC_Signal'] == '🏆 COMPOUNDER').sum())} COMPOUNDER, "
+          f"{int((df['QC_Signal'] == '⭐ QUALITY').sum())} QUALITY)")
 
     # Preview
     prev = ["Ticker","Moat Proxy","Moat Score","EPS Qtr%","ROE%","CS_Score","CS_Signal"]
