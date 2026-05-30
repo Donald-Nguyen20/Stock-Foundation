@@ -43,20 +43,20 @@ RENAME              = _m.RENAME
 # ─────────────────────────────────────────────────────────────────────────────
 # Design tokens
 # ─────────────────────────────────────────────────────────────────────────────
-BG       = "#06080F"
-SURFACE  = "#0B0E18"
-PANEL    = "#0E1220"
-INPUT_BG = "#131928"
-BORDER   = "#1A2133"
-BORDER2  = "#243044"
-BLUE     = "#3D8EF0"
-BLUE_HV  = "#2463B4"
-TEXT1    = "#DCE4EE"
-TEXT2    = "#7A8899"
-TEXT3    = "#3D4D60"
-GREEN    = "#34C472"
-RED      = "#E8483D"
-AMBER    = "#E8A93D"
+BG       = "#F0F4F9"
+SURFACE  = "#FFFFFF"
+PANEL    = "#E8EDF5"
+INPUT_BG = "#FFFFFF"
+BORDER   = "#D1D9E6"
+BORDER2  = "#A8B8CC"
+BLUE     = "#2563EB"
+BLUE_HV  = "#1D4ED8"
+TEXT1    = "#1A202C"
+TEXT2    = "#4A5568"
+TEXT3    = "#94A3B8"
+GREEN    = "#16A34A"
+RED      = "#DC2626"
+AMBER    = "#D97706"
 SPINNER  = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
 
 DARK_THEME = dict(
@@ -786,7 +786,8 @@ class DetailCard(QWidget):
             f"color:{TEXT3}; font-size:12px; font-style:italic;"
             f" font-family:'Segoe UI',sans-serif;")
         for lbl in self._cs_labels.values():
-            if lbl.text() == "—":
+            # Update tất cả labels không phân biệt text — đảm bảo theme luôn đúng
+            if lbl.text() in ("—", "✓", "✗"):
                 lbl.setStyleSheet(
                     f"color:{TEXT1}; font-size:13px; font-weight:700;"
                     f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
@@ -988,7 +989,7 @@ class QualityDetailCard(QWidget):
             f"color:{TEXT3}; font-size:12px; font-style:italic;"
             f" font-family:'Segoe UI',sans-serif;")
         for lbl in self._qc_labels.values():
-            if lbl.text() == "—":
+            if lbl.text() in ("—", "✓", "✗"):
                 lbl.setStyleSheet(
                     f"color:{TEXT1}; font-size:13px; font-weight:700;"
                     f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
@@ -1870,7 +1871,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Fundamental Screener")
         self.resize(1700, 960)
-        self._is_dark     = True
+        self._is_dark     = False
+        globals().update(LIGHT_THEME)
         self._df          = None
         self._worker      = None
         self._ticker_wkr  = None
@@ -1924,6 +1926,8 @@ class MainWindow(QMainWindow):
         h_split.addWidget(self._tabs_w)
         h_split.addWidget(self._chart_panel)
         h_split.setSizes([920, 580])
+        # Dashboard là tab mặc định (index 0) → ẩn chart panel ngay từ đầu
+        self._chart_panel.setVisible(False)
         vbox.addWidget(h_split, stretch=1)
 
         vbox.addWidget(self._sep())
@@ -2157,28 +2161,28 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_dashboard_panel(), "  📊 Dashboard  ")
 
         # Tab 1 — CAN SLIM
-        cs_w = QWidget(); cs_w.setStyleSheet(f"background:{BG};")
-        cs_v = QVBoxLayout(cs_w)
+        self._cs_w = QWidget(); self._cs_w.setStyleSheet(f"background:{BG};")
+        cs_v = QVBoxLayout(self._cs_w)
         cs_v.setContentsMargins(0, 0, 0, 0); cs_v.setSpacing(0)
-        v_split = QSplitter(Qt.Vertical)
-        v_split.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
-        v_split.addWidget(self._build_table())
-        v_split.addWidget(self._build_detail())
-        v_split.setSizes([580, 180])
-        cs_v.addWidget(v_split)
-        tabs.addTab(cs_w, "  CAN SLIM  ")
+        self._cs_vsplit = QSplitter(Qt.Vertical)
+        self._cs_vsplit.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
+        self._cs_vsplit.addWidget(self._build_table())
+        self._cs_vsplit.addWidget(self._build_detail())
+        self._cs_vsplit.setSizes([580, 180])
+        cs_v.addWidget(self._cs_vsplit)
+        tabs.addTab(self._cs_w, "  CAN SLIM  ")
 
         # Tab 2 — Quality Compounder
-        qc_w = QWidget(); qc_w.setStyleSheet(f"background:{BG};")
-        qc_v = QVBoxLayout(qc_w)
+        self._qc_w = QWidget(); self._qc_w.setStyleSheet(f"background:{BG};")
+        qc_v = QVBoxLayout(self._qc_w)
         qc_v.setContentsMargins(0, 0, 0, 0); qc_v.setSpacing(0)
-        v_split2 = QSplitter(Qt.Vertical)
-        v_split2.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
-        v_split2.addWidget(self._build_qc_table())
-        v_split2.addWidget(self._build_qc_detail())
-        v_split2.setSizes([580, 180])
-        qc_v.addWidget(v_split2)
-        tabs.addTab(qc_w, "  Quality Compounder  ")
+        self._qc_vsplit = QSplitter(Qt.Vertical)
+        self._qc_vsplit.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
+        self._qc_vsplit.addWidget(self._build_qc_table())
+        self._qc_vsplit.addWidget(self._build_qc_detail())
+        self._qc_vsplit.setSizes([580, 180])
+        qc_v.addWidget(self._qc_vsplit)
+        tabs.addTab(self._qc_w, "  Quality Compounder  ")
 
         return tabs
 
@@ -2658,8 +2662,27 @@ class MainWindow(QMainWindow):
         self._qc_detail.apply_theme()
         # ── Tab widget ──
         self._tabs_w.setStyleSheet(self._tab_style())
+        # ── Tab containers + splitters ──
+        if hasattr(self, "_cs_w"):
+            self._cs_w.setStyleSheet(f"background:{BG};")
+        if hasattr(self, "_qc_w"):
+            self._qc_w.setStyleSheet(f"background:{BG};")
+        if hasattr(self, "_cs_vsplit"):
+            self._cs_vsplit.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
+        if hasattr(self, "_qc_vsplit"):
+            self._qc_vsplit.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
         # ── Chart panel ──
         self._chart_panel.set_theme(dark)
+        # ── Dashboard — regenerate HTML theo theme mới ──
+        self._dash_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background:{BG}; color:{TEXT1};
+                border:none; padding:16px 20px;
+                font-family:'Segoe UI',sans-serif;
+            }}
+        """)
+        if hasattr(self, "_df") and self._df is not None and len(self._df) > 0:
+            self._update_dashboard(self._df)
         # ── Status bar ──
         self._status_w.setStyleSheet(f"background:{SURFACE};")
         self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
@@ -2805,11 +2828,24 @@ class MainWindow(QMainWindow):
 
     def _on_scan_done(self, df: pd.DataFrame):
         self._spin_tmr.stop()
-        self._df = df
         self._btn_scan.setText("▶  SCAN")
         self._btn_export.setEnabled(True)
         self._populate_table(df)
         self._populate_qc_table(df)
+
+        # Áp QC scores vào df để Dashboard và Export đọc được HAS_QC
+        try:
+            qc_results = df.apply(lambda r: compute_qc_score(r.to_dict()), axis=1)
+            qc_df = pd.DataFrame(list(qc_results))
+            # Drop QC cols cũ (nếu có) trước khi concat — tránh duplicate column labels
+            qc_cols = [c for c in qc_df.columns if c in df.columns]
+            df = df.drop(columns=qc_cols, errors="ignore")
+            df = pd.concat([df.reset_index(drop=True),
+                            qc_df.reset_index(drop=True)], axis=1)
+        except Exception:
+            pass
+
+        self._df = df
         self._update_dashboard(df)
         self._tabs_w.setCurrentIndex(0)   # tự chuyển sang Dashboard
         self._set_status(
@@ -2977,6 +3013,49 @@ class MainWindow(QMainWindow):
         market = self._market.currentText()
         is_vn  = market.lower() == "vietnam"
         scan_t = datetime.now().strftime("%Y-%m-%d  %H:%M")
+        dark   = self._is_dark
+
+        # ── Theme color palette ───────────────────────────────────
+        if dark:
+            T_ROW_E   = "0E1820";  T_ROW_O   = "0B1218"
+            T_HDR_BG  = "0A1422";  T_HDR_FG  = "5A7A9A"
+            T_TEXT    = "DCE4EE";  T_DIM     = "7A8899"
+            T_TICKER  = "00BFFF";  T_CO      = "B8C4D0"
+            T_SECTOR  = "9AAFCC";  T_BDR     = "1px solid #1A2A3A"
+            T_NUM     = "888888"
+            # Value colors — bright for dark backgrounds
+            T_GREEN   = "34C472";  T_BLUE    = "5D9EFF"
+            T_RED     = "FF6B6B";  T_ORANGE  = "FFB347"
+            T_PURPLE  = "CE93D8";  T_TEAL    = "4DB6AC"
+            TOP3_BG  = ["1A2800","0A1F10","0A1530"]
+            TOP3_FG  = ["FFC000","34C472","3D8EF0"]
+            T_SEC_OE  = "0E1820";  T_SEC_OO  = "0B1218"
+            T_SEC_TXT = "DCE4EE"
+            CHART_Q   = "1A3A20";  CHART_DL  = "3A1A50"
+            CHART_W   = "202020";  CHART_MOM = "1A3050"
+            CHART_Q_F = "34C472";  CHART_DL_F = "CE93D8"
+            CHART_W_F = "888888";  CHART_MOM_F = "4FC3F7"
+            CHART_SUB = "555555"
+        else:
+            T_ROW_E   = "F5F8FC";  T_ROW_O   = "FFFFFF"
+            T_HDR_BG  = "E8EDF5";  T_HDR_FG  = "4A5568"
+            T_TEXT    = "1A202C";  T_DIM     = "64748B"
+            T_TICKER  = "0055CC";  T_CO      = "374151"
+            T_SECTOR  = "4A5568";  T_BDR     = "1px solid #D1D9E6"
+            T_NUM     = "6B7280"
+            # Value colors — dark for light backgrounds
+            T_GREEN   = "276221";  T_BLUE    = "1B3A5C"
+            T_RED     = "9C0006";  T_ORANGE  = "9C6500"
+            T_PURPLE  = "6B21A8";  T_TEAL    = "0E6655"
+            TOP3_BG  = ["FFF8E1","E8F5E9","E3F2FD"]
+            TOP3_FG  = ["7B5900","1B5E20","0D3B7A"]
+            T_SEC_OE  = "F5F8FC";  T_SEC_OO  = "FFFFFF"
+            T_SEC_TXT = "1A202C"
+            CHART_Q   = "E8F5E8";  CHART_DL  = "F3E8FF"
+            CHART_W   = "F0F0F0";  CHART_MOM = "E8F0FF"
+            CHART_Q_F = "1B5E20";  CHART_DL_F = "6B21A8"
+            CHART_W_F = "6B7280";  CHART_MOM_F = "1E3A8A"
+            CHART_SUB = "9CA3AF"
 
         def _v(row, key):
             v = row.get(key)
@@ -3070,41 +3149,41 @@ class MainWindow(QMainWindow):
 
         cs_rows_html = ""
         for ri in range(1, n_top + 1):
-            bg = "EBF5FB" if ri%2==0 else "F4F9FD"
+            bg = T_ROW_E if ri%2==0 else T_ROW_O
             if ri <= len(cs_top):
                 r = cs_top.iloc[ri-1]
                 sig = r.get("CS_Signal","") or ""
-                sfg = {"🟢 STRONG BUY":"276221","🔵 BUY":"1B3A5C"}.get(sig,"000000")
+                sfg = {"🟢 STRONG BUY": T_GREEN, "🔵 BUY": T_BLUE}.get(sig, T_DIM)
                 _1y_v = _v(r,"1Y%"); _1y_s = _pct(_1y_v)
-                _1y_c = "276221" if _1y_v and _1y_v>0 else "9C0006" if _1y_v and _1y_v<0 else "888888"
+                _1y_c = T_GREEN if _1y_v and _1y_v>0 else T_RED if _1y_v and _1y_v<0 else T_NUM
                 cs_rows_html += (f'<tr style="background:#{bg};">'
-                    f'<td align="center" style="padding:4px 6px;background:#1B3A5C;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #DDD;">{ri}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#00BFFF;font-weight:700;font-family:Consolas;border:1px solid #DDD;">{r.get("Ticker","")}</td>'
-                    f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #DDD;">{str(r.get("Tên Công Ty",""))[:22]}</td>'
-                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{r.get("Sector","")}</td>'
-                    f'<td align="center" style="padding:4px 6px;background:#C6EFCE;color:#1A5C2B;font-weight:700;border:1px solid #DDD;">{int(r.get("CS_Score",0))}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;border:1px solid #DDD;">{sig}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#{_1y_c};font-weight:700;border:1px solid #DDD;">{_1y_s}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#1B3A5C;color:#FFFFFF;font-weight:700;font-size:9px;{T_BDR}">{ri}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{T_TICKER};font-weight:700;font-family:Consolas;{T_BDR}">{r.get("Ticker","")}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_CO};font-size:11px;{T_BDR}">{str(r.get("Tên Công Ty",""))[:22]}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_SECTOR};font-size:10px;font-style:italic;{T_BDR}">{r.get("Sector","")}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#C6EFCE;color:#1A5C2B;font-weight:700;{T_BDR}">{int(r.get("CS_Score",0))}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;{T_BDR}">{sig}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{_1y_c};font-weight:700;{T_BDR}">{_1y_s}</td>'
                     f'</tr>')
 
         qc_rows_html = ""
         for ri in range(1, n_top + 1):
-            bg = "E8F8F5" if ri%2==0 else "F0FBF9"
+            bg = T_ROW_E if ri%2==0 else T_ROW_O
             if ri <= len(qc_top):
                 r = qc_top.iloc[ri-1]
                 sig = r.get("QC_Signal","") or ""
                 sfg = {"🏆 COMPOUNDER":"1A5C2B","⭐ QUALITY":"1A3A5C"}.get(sig,"000000")
                 roic = _v(r,"ROIC%")
                 roic_s = f"{roic:.1f}%" if roic is not None else "—"
-                roic_c = "276221" if roic and roic>=15 else "0070C0"
+                roic_c = T_GREEN if roic and roic>=15 else T_BLUE
                 qc_rows_html += (f'<tr style="background:#{bg};">'
-                    f'<td align="center" style="padding:4px 6px;background:#0E6655;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #DDD;">{ri}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#00BFFF;font-weight:700;font-family:Consolas;border:1px solid #DDD;">{r.get("Ticker","")}</td>'
-                    f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #DDD;">{str(r.get("Tên Công Ty",""))[:22]}</td>'
-                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{r.get("Sector","")}</td>'
-                    f'<td align="center" style="padding:4px 6px;background:#DDEEFF;color:#1A3A5C;font-weight:700;border:1px solid #DDD;">{int(r.get("QC_Score",0))}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;border:1px solid #DDD;">{sig}</td>'
-                    f'<td align="center" style="padding:4px 6px;color:#{roic_c};font-weight:700;border:1px solid #DDD;">{roic_s}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#0E6655;color:#FFFFFF;font-weight:700;font-size:9px;{T_BDR}">{ri}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{T_TICKER};font-weight:700;font-family:Consolas;{T_BDR}">{r.get("Ticker","")}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_CO};font-size:11px;{T_BDR}">{str(r.get("Tên Công Ty",""))[:22]}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_SECTOR};font-size:10px;font-style:italic;{T_BDR}">{r.get("Sector","")}</td>'
+                    f'<td align="center" style="padding:4px 6px;background:#DDEEFF;color:#1A3A5C;font-weight:700;{T_BDR}">{int(r.get("QC_Score",0))}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{sfg};font-size:10px;{T_BDR}">{sig}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{roic_c};font-weight:700;{T_BDR}">{roic_s}</td>'
                     f'</tr>')
             elif not HAS_QC and ri == 1:
                 qc_rows_html += f'<tr><td colspan="7" align="center" style="padding:8px;color:#888;font-style:italic;">— Yêu cầu bật yfinance Moat —</td></tr>'
@@ -3127,30 +3206,30 @@ class MainWindow(QMainWindow):
             dl_rows_html = '<tr><td colspan="14" align="center" style="padding:10px;color:#888;font-style:italic;">— Không có mã nào đạt CS≥7 và QC≥4 —</td></tr>'
         else:
             for ri,(_, r) in enumerate(dl_df.iterrows(),1):
-                rbg = "F5F0FF" if ri%2==0 else "FBF7FF"
+                rbg = T_ROW_E if ri%2==0 else T_ROW_O
                 sig = r.get("CS_Signal","") or ""
                 sfg,sbg = {"🟢 STRONG BUY":("276221","C6EFCE"),"🔵 BUY":("1B3A5C","DDEEFF")}.get(sig,("000000","FFFFFF"))
-                _1y_v = _v(r,"1Y%"); _1y_s = _pct(_1y_v); _1y_c = "276221" if _1y_v and _1y_v>0 else "9C0006" if _1y_v and _1y_v<0 else "888"
-                roe_v = _v(r,"ROE%"); roe_s = f"{roe_v:.1f}%" if roe_v is not None else "—"; roe_c = "276221" if roe_v and roe_v>17 else "000000"
+                _1y_v = _v(r,"1Y%"); _1y_s = _pct(_1y_v); _1y_c = T_GREEN if _1y_v and _1y_v>0 else T_RED if _1y_v and _1y_v<0 else T_NUM
+                roe_v = _v(r,"ROE%"); roe_s = f"{roe_v:.1f}%" if roe_v is not None else "—"; roe_c = T_GREEN if roe_v and roe_v>17 else T_TEXT
                 roic_v = _v(r,"ROIC%"); roic_s = f"{roic_v:.1f}%" if roic_v is not None else "—"
-                roic_c = "276221" if roic_v and roic_v>=15 else "0070C0" if roic_v and roic_v>=10 else "7D6608"
-                de_v = _v(r,"D/E"); de_s = f"{de_v:.1f}" if de_v is not None else "—"; de_c = "9C0006" if de_v and de_v>2 else "7D6608" if de_v and de_v>1 else "276221"
+                roic_c = T_GREEN if roic_v and roic_v>=15 else T_BLUE if roic_v and roic_v>=10 else T_ORANGE
+                de_v = _v(r,"D/E"); de_s = f"{de_v:.1f}" if de_v is not None else "—"; de_c = T_RED if de_v and de_v>2 else T_ORANGE if de_v and de_v>1 else T_GREEN
                 nc_v = _v(r,"Net Cash ($B)"); nc_s = f"{nc_v:+.1f}" if nc_v is not None else "—"
-                nc_c = "276221" if nc_v and nc_v>5 else "276221" if nc_v and nc_v>0 else "9C6500" if nc_v and nc_v>-5 else "9C0006"
+                nc_c = T_GREEN if nc_v and nc_v>5 else T_GREEN if nc_v and nc_v>0 else T_ORANGE if nc_v and nc_v>-5 else T_RED
                 nc_bg = "C6EFCE" if nc_v and nc_v>5 else rbg
                 px_v = _v(r,"Price ($)"); px_s = f"₫{px_v:,.0f}" if is_vn and px_v else (f"${px_v:,.2f}" if px_v else "—")
                 flags = []
                 if de_v and de_v>1: flags.append("D/E")
                 if _v(r,"P/E") and _v(r,"P/E")>50: flags.append("P/E")
                 warn_s = "⚠ "+" · ".join(flags) if flags else ""
-                td = lambda val,fg="000000",bg=None,fw="normal",fs="12px": (
+                td = lambda val,fg=T_TEXT,bg=None,fw="normal",fs="12px": (
                     f'<td align="center" style="padding:4px 6px;color:#{fg};font-weight:{fw};'
-                    f'font-size:{fs};background:{"#"+bg if bg else "#"+rbg};border:1px solid #E0D8F0;">{val}</td>')
+                    f'font-size:{fs};background:{"#"+bg if bg else "#"+rbg};{T_BDR}">{val}</td>')
                 dl_rows_html += (f'<tr>'
-                    + f'<td align="center" style="padding:4px 6px;background:#4A235A;color:#FFFFFF;font-weight:700;font-size:9px;border:1px solid #E0D8F0;">{ri}</td>'
-                    + td(r.get("Ticker",""), "00BFFF","","700","11px")
-                    + f'<td style="padding:4px 6px;color:#1C3550;font-size:11px;border:1px solid #E0D8F0;">{str(r.get("Tên Công Ty",""))[:24]}</td>'
-                    + f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #E0D8F0;">{r.get("Sector","")}</td>'
+                    + f'<td align="center" style="padding:4px 6px;background:#4A235A;color:#FFFFFF;font-weight:700;font-size:9px;{T_BDR}">{ri}</td>'
+                    + td(r.get("Ticker",""), T_TICKER,"","700","11px")
+                    + f'<td style="padding:4px 6px;color:#{T_CO};font-size:11px;{T_BDR}">{str(r.get("Tên Công Ty",""))[:24]}</td>'
+                    + f'<td style="padding:4px 6px;color:#{T_SECTOR};font-size:10px;font-style:italic;{T_BDR}">{r.get("Sector","")}</td>'
                     + td(px_s)
                     + td(int(r.get("CS_Score",0)), "276221", "C6EFCE", "700")
                     + td(int(r.get("QC_Score",0)), "1A3A5C", "DDEEFF", "700")
@@ -3209,11 +3288,11 @@ class MainWindow(QMainWindow):
                 for h in COL_H)
             body_html = ""
             for ri,(ticker,metric,sector) in enumerate(rows):
-                rbg2 = "F0F8FF" if ri%2==0 else "FFFFFF"
+                rbg2 = T_ROW_E if ri%2==0 else T_ROW_O
                 body_html += (f'<tr style="background:#{rbg2};">'
-                    f'<td align="center" style="padding:4px 6px;color:#1B3A5C;font-weight:700;font-family:Consolas;font-size:11px;border:1px solid #DDD;">{ticker}</td>'
-                    f'<td style="padding:4px 6px;color:#000;font-size:11px;border:1px solid #DDD;">{metric}</td>'
-                    f'<td style="padding:4px 6px;color:#334466;font-size:10px;font-style:italic;border:1px solid #DDD;">{sector}</td>'
+                    f'<td align="center" style="padding:4px 6px;color:#{T_TICKER};font-weight:700;font-family:Consolas;font-size:11px;{T_BDR}">{ticker}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_TEXT};font-size:11px;{T_BDR}">{metric}</td>'
+                    f'<td style="padding:4px 6px;color:#{T_SECTOR};font-size:10px;font-style:italic;{T_BDR}">{sector}</td>'
                     f'</tr>')
             if not body_html:
                 body_html = '<tr><td colspan="3" align="center" style="padding:6px;color:#888;font-style:italic;">— No data —</td></tr>'
@@ -3229,8 +3308,8 @@ class MainWindow(QMainWindow):
             for _, r in zone_df.head(limit).iterrows():
                 cs = int(r.get("CS_Score",0)); qc = int(r.get("QC_Score",0)) if HAS_QC else "—"
                 _1y_v2 = _v(r,"1Y%"); _1y_s2 = f"{_1y_v2:+.0f}%" if _1y_v2 is not None else ""
-                parts.append(f'<b style="color:#00BFFF;font-family:Consolas;">{r.get("Ticker","")}</b>'
-                             f'<span style="color:#888;font-size:10px;"> {cs}/{qc} {_1y_s2}</span>')
+                parts.append(f'<b style="color:#{T_TICKER};font-family:Consolas;">{r.get("Ticker","")}</b>'
+                             f'<span style="color:#{T_DIM};font-size:10px;"> {cs}/{qc} {_1y_s2}</span>')
             txt = "  ·  ".join(parts)
             if len(zone_df)>limit: txt += f'<span style="color:#555;"> +{len(zone_df)-limit}</span>'
             return txt
@@ -3240,29 +3319,30 @@ class MainWindow(QMainWindow):
             dual_z=df[(_cs>=7)&(_qc>=4)].sort_values(["CS_Score","QC_Score"],ascending=[False,False])
             mom_z =df[(_cs>=7)&(_qc< 4)].sort_values(["CS_Score","1Y%"],ascending=[False,False])
             qual_z=df[(_cs< 7)&(_qc>=4)].sort_values("QC_Score",ascending=False)
-            watch_n=int(((_cs<7)&(_qc<4)).sum())
+            watch_df=df[(_cs<7)&(_qc<4)].sort_values("CS_Score",ascending=False)
+            watch_n=len(watch_df)
             chart_html = f"""<table width="100%" cellspacing="3" cellpadding="0">
               <tr>
-                <td width="50%" style="background:#1A3A20;padding:10px 12px;vertical-align:top;">
-                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#34C472;">💎 Quality
-                    <span style="font-weight:400;color:#888;"> (CS&lt;7, QC≥4) · {len(qual_z)} mã</span></p>
+                <td width="50%" style="background:#{CHART_Q};padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#{CHART_Q_F};">💎 Quality
+                    <span style="font-weight:400;color:#{CHART_SUB};"> (CS&lt;7, QC≥4) · {len(qual_z)} mã</span></p>
                   <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(qual_z)}</p>
                 </td>
-                <td width="50%" style="background:#3A1A50;padding:10px 12px;vertical-align:top;">
-                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#CE93D8;">⭐ Dual Leaders
-                    <span style="font-weight:400;color:#888;"> (CS≥7, QC≥4) · {len(dual_z)} mã</span></p>
+                <td width="50%" style="background:#{CHART_DL};padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#{CHART_DL_F};">⭐ Dual Leaders
+                    <span style="font-weight:400;color:#{CHART_SUB};"> (CS≥7, QC≥4) · {len(dual_z)} mã</span></p>
                   <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(dual_z)}</p>
                 </td>
               </tr>
               <tr>
-                <td style="background:#202020;padding:10px 12px;vertical-align:top;">
-                  <p style="margin:0 0 3px;font-size:11px;font-weight:700;color:#888;">👀 Watchlist
-                    <span style="font-weight:400;"> (CS&lt;7, QC&lt;4) · {watch_n} mã</span></p>
-                  <p style="margin:0;font-size:11px;color:#555;">Xem tab CAN SLIM để lọc chi tiết</p>
+                <td style="background:#{CHART_W};padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#{CHART_W_F};">👀 Watchlist
+                    <span style="font-weight:400;color:#{CHART_SUB};"> (CS&lt;7, QC&lt;4) · {watch_n} mã</span></p>
+                  <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(watch_df)}</p>
                 </td>
-                <td style="background:#1A3050;padding:10px 12px;vertical-align:top;">
-                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#4FC3F7;">🚀 Momentum
-                    <span style="font-weight:400;color:#888;"> (CS≥7, QC&lt;4) · {len(mom_z)} mã</span></p>
+                <td style="background:#{CHART_MOM};padding:10px 12px;vertical-align:top;">
+                  <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#{CHART_MOM_F};">🚀 Momentum
+                    <span style="font-weight:400;color:#{CHART_SUB};"> (CS≥7, QC&lt;4) · {len(mom_z)} mã</span></p>
                   <p style="margin:0;font-size:11px;line-height:1.9;">{_zone_tickers(mom_z)}</p>
                 </td>
               </tr>
@@ -3274,7 +3354,7 @@ class MainWindow(QMainWindow):
         S4_H = ["Sector","# Stocks","# Str.Buy","# Buy","# Comp.","Avg CS","Avg QC","Avg 1Y%"]
         s4_hdr = "".join(
             f'<td style="background:#2C4F7C;color:#FFFFFF;font-size:9px;font-weight:700;'
-            f'padding:5px 8px;border:1px solid #1A3A5C;text-align:{"left" if i==0 else "center"};">{h}</td>'
+            f'padding:5px 8px;{T_BDR};text-align:{"left" if i==0 else "center"};">{h}</td>'
             for i,h in enumerate(S4_H))
         sec_pivot = []
         if "Sector" in df.columns:
@@ -3289,24 +3369,25 @@ class MainWindow(QMainWindow):
                     "a1y": g["1Y%"].dropna().mean() if "1Y%" in g.columns else None,
                 })
             sec_pivot.sort(key=lambda x: x["sb"], reverse=True)
-        TOP3 = ["FFF9C4","E8F5E9","E3F2FD"]
         s4_rows_html = ""
-        for ri,row in enumerate(sec_pivot):
-            rbg = TOP3[ri] if ri<3 else ("F0F4FA" if ri%2==0 else "FFFFFF")
-            hi = " font-weight:700;" if ri<3 else ""
-            hl = "#7D6608" if ri==0 else "#1A5C2B" if ri==1 else "#1A3A5C" if ri==2 else "#000000"
+        for ri, row in enumerate(sec_pivot):
+            if ri < 3:
+                rbg = TOP3_BG[ri]; sec_fg = TOP3_FG[ri]; fw = "font-weight:700;"
+            else:
+                rbg = T_SEC_OE if ri%2==0 else T_SEC_OO; sec_fg = T_SEC_TXT; fw = ""
             a1y = _pct(row["a1y"]) if row["a1y"] is not None and not pd.isna(row["a1y"]) else "—"
-            a1y_c = "276221" if row["a1y"] and row["a1y"]>0 else "9C0006" if row["a1y"] and row["a1y"]<0 else "888"
-            aqc  = f"{row['aqc']:.1f}" if row["aqc"] is not None and not pd.isna(row["aqc"]) else "—"
+            a1y_c = T_GREEN if row["a1y"] and row["a1y"]>0 else T_RED if row["a1y"] and row["a1y"]<0 else T_NUM
+            aqc   = f"{row['aqc']:.1f}" if row["aqc"] is not None and not pd.isna(row["aqc"]) else "—"
+            acs_s = "%.1f" % row["acs"] if row["acs"] is not None else "—"
             s4_rows_html += (f'<tr style="background:#{rbg};">'
-                f'<td style="padding:5px 8px;color:#{hl};{hi}border:1px solid #DDD;">{row["s"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#555;border:1px solid #DDD;">{row["n"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#276221;font-weight:700;border:1px solid #DDD;">{row["sb"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#1B3A5C;border:1px solid #DDD;">{row["b"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#1A5C2B;border:1px solid #DDD;">{row["cp"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#5B2C6F;border:1px solid #DDD;">{"%.1f" % row["acs"] if row["acs"] is not None else "—"}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#5B2C6F;border:1px solid #DDD;">{aqc}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{a1y_c};font-weight:700;border:1px solid #DDD;">{a1y}</td>'
+                f'<td style="padding:5px 10px;color:#{sec_fg};{fw}{T_BDR}">{row["s"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_DIM};{T_BDR}">{row["n"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_GREEN};font-weight:700;{T_BDR}">{row["sb"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_BLUE};{T_BDR}">{row["b"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_PURPLE};{T_BDR}">{row["cp"]}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_TEXT};{T_BDR}">{acs_s}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{T_TEXT};{T_BDR}">{aqc}</td>'
+                f'<td align="center" style="padding:5px 8px;color:#{a1y_c};font-weight:700;{T_BDR}">{a1y}</td>'
                 f'</tr>')
 
         # ── Assemble ─────────────────────────────────────────────
@@ -3318,20 +3399,25 @@ class MainWindow(QMainWindow):
             f'</table></td></tr>'
         ) if HAS_QC else ""
 
+        hdr_bg  = "0D2137" if dark else "1B3A5C"
+        hdr_sub = "88AACC" if dark else "B8CCDD"
         return f"""<html><head><style>
-          body{{background:{BG};color:#DCE4EE;
+          body{{background:{BG};color:{TEXT1};
                font-family:'Segoe UI',sans-serif;font-size:12px;margin:0;padding:10px 14px;}}
           table{{border-collapse:collapse;width:100%;}}
           p{{margin:0;}}
         </style></head><body>
 
-        <table width="100%" cellspacing="0" cellpadding="0"
-               style="background:#0D2137;padding:10px 14px;margin-bottom:10px;">
+        <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
           <tr>
-            <td><span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:2px;">
-              STOCK SCREENER  ·  DECISION DASHBOARD</span></td>
-            <td align="right"><span style="font-size:10px;color:#88AACC;font-style:italic;">
-              {market}  ·  Last updated: {scan_t}</span></td>
+            <td bgcolor="#{hdr_bg}" style="background:#{hdr_bg};padding:10px 14px;">
+              <span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:2px;">
+                STOCK SCREENER  ·  DECISION DASHBOARD</span>
+            </td>
+            <td bgcolor="#{hdr_bg}" align="right" style="background:#{hdr_bg};padding:10px 14px;">
+              <span style="font-size:10px;color:#{hdr_sub};font-style:italic;">
+                {market}  ·  Last updated: {scan_t}</span>
+            </td>
           </tr>
         </table>
 
@@ -3359,7 +3445,7 @@ class MainWindow(QMainWindow):
                 {cs_rows_html}
               </table>
             </td>
-            <td width="2%" style="background:#F0F4FA;"></td>
+            <td width="2%" style="background:{BG};"></td>
             <td width="49%" style="vertical-align:top;">
               <table width="100%" cellspacing="0" cellpadding="0">
                 {_sec("📊  TOP QUALITY COMPOUNDER SCORE","0E6655")}
