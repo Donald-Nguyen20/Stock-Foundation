@@ -165,25 +165,12 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
     C_BLUE  = "#4A9EFF"; C_GOLD  = "#E8A93D"; C_GREEN = "#34C472"
     C_ORG   = "#E87C3D"; C_RED   = "#E8483D"; C_TEAL  = "#2EBFA5"
 
-    pct_label = "YoY%" if mode == "annual" else "QoQ%"
-
-    def section_pct(s):
-        return s.pct_change(1).mul(100).round(1)
-
-    eps_c = section_pct(eps); gm_c = section_pct(gm)
-    roe_c = section_pct(roe); cfps_c = section_pct(cfps)
-
     def bar_color(val, hi, lo, c_hi, c_lo, c_neg):
         if val is None or pd.isna(val): return C_DIM
         return c_hi if val >= hi else c_lo if val >= lo else c_neg
 
-    def dot_colors(chg):
-        return [C_GREEN if (v or 0) >= 0 else C_RED for v in chg.fillna(0)]
-
     fig = make_subplots(
         rows=2, cols=2,
-        specs=[[{"secondary_y": True}, {"secondary_y": True}],
-               [{"secondary_y": True}, {"secondary_y": True}]],
         subplot_titles=(
             "EPS  ·  Earnings Per Share",
             "Gross Margin",
@@ -197,34 +184,24 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
 
     txt_size = 10 if height >= 800 else 9
 
-    def panel(row, col, vals, chg, bar_cols, fmt):
+    def panel(row, col, vals, bar_cols, fmt):
         fig.add_trace(go.Bar(
             x=labels, y=vals, marker_color=bar_cols, marker_opacity=0.88,
             text=[fmt(v) for v in vals], textposition="auto",
             textfont=dict(size=txt_size, color=C_TEXT), showlegend=False,
             hovertemplate="%{text}<extra></extra>",
-        ), row=row, col=col, secondary_y=False)
-        fig.add_trace(go.Scatter(
-            x=labels, y=chg, mode="lines+markers+text",
-            line=dict(color=C_GOLD, width=1.8),
-            marker=dict(size=6, color=dot_colors(chg),
-                        line=dict(color=C_GOLD, width=1.2)),
-            text=[f"{v:+.0f}%" if pd.notna(v) else "" for v in chg],
-            textposition="top center", textfont=dict(size=8, color=C_GOLD),
-            showlegend=False,
-            hovertemplate=f"{pct_label}: %{{y:+.1f}}%<extra></extra>",
-        ), row=row, col=col, secondary_y=True)
+        ), row=row, col=col)
 
-    panel(1, 1, eps,  eps_c,
+    panel(1, 1, eps,
           [C_BLUE if (v or 0) >= 0 else C_RED for v in eps.fillna(0)],
           lambda v: f"${v:.2f}" if pd.notna(v) else "")
-    panel(1, 2, gm,   gm_c,
+    panel(1, 2, gm,
           [bar_color(v, 40, 25, C_GREEN, C_ORG, C_RED) for v in gm],
           lambda v: f"{v:.1f}%" if pd.notna(v) else "")
-    panel(2, 1, roe,  roe_c,
+    panel(2, 1, roe,
           [bar_color(v, 17, 10, C_BLUE, C_ORG, C_RED) for v in roe],
           lambda v: f"{v:.1f}%" if pd.notna(v) else "")
-    panel(2, 2, cfps, cfps_c,
+    panel(2, 2, cfps,
           [C_TEAL if (v or 0) >= 0 else C_RED for v in cfps.fillna(0)],
           lambda v: f"${v:.2f}" if pd.notna(v) else "")
 
@@ -259,11 +236,9 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
     fig.update_xaxes(gridcolor=C_GRID, gridwidth=1, zeroline=False,
                      showline=True, linecolor=C_GRID,
                      tickfont=dict(size=9, color=C_DIM))
-    fig.update_yaxes(secondary_y=False, gridcolor=C_GRID, gridwidth=1,
+    fig.update_yaxes(gridcolor=C_GRID, gridwidth=1,
                      zerolinecolor=C_ZERO, zerolinewidth=1,
                      tickfont=dict(size=9, color=C_DIM))
-    fig.update_yaxes(secondary_y=True, showgrid=False, zeroline=False,
-                     ticksuffix="%", tickfont=dict(size=8, color=C_GOLD))
     for ann in fig.layout.annotations:
         if ann.text and ann.text.startswith(("EPS", "Gross", "Return", "Operating")):
             ann.update(font=dict(size=10, color=C_DIM, family="Segoe UI"))
@@ -271,11 +246,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
     mode_note = ("Full-year values" if mode == "annual"
                  else "EPS & GM = single quarter  ·  ROE & CF/Share = TTM (trailing 4 quarters)")
     fig.add_annotation(
-        text=(f"■ Bars = value  ·  "
-              f"<span style='color:#E8A93D'>── {pct_label}</span>  ·  "
-              f"<span style='color:#34C472'>● up</span>  "
-              f"<span style='color:#E8483D'>● down</span>  ·  "
-              f"<span style='color:#3D4D60'>{mode_note}</span>"),
+        text=f"<span style='color:{C_DIM}'>■ Bars = value  ·  {mode_note}</span>",
         xref="paper", yref="paper", x=0.5, y=-0.05, showarrow=False,
         font=dict(size=9, color=C_DIM, family="Segoe UI"), xanchor="center",
     )
