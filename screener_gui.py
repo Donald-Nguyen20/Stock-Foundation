@@ -3342,15 +3342,16 @@ class MainWindow(QMainWindow):
             a1y_c = T_GREEN if row["a1y"] and row["a1y"]>0 else T_RED if row["a1y"] and row["a1y"]<0 else T_NUM
             aqc   = f"{row['aqc']:.1f}" if row["aqc"] is not None and not pd.isna(row["aqc"]) else "—"
             acs_s = "%.1f" % row["acs"] if row["acs"] is not None else "—"
+            _tc = "text-align:center;"
             s4_rows_html += (f'<tr style="background:#{rbg};">'
                 f'<td style="padding:5px 10px;color:#{sec_fg};{fw}{T_BDR}">{row["s"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_DIM};{T_BDR}">{row["n"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_GREEN};font-weight:700;{T_BDR}">{row["sb"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_BLUE};{T_BDR}">{row["b"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_PURPLE};{T_BDR}">{row["cp"]}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_TEXT};{T_BDR}">{acs_s}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{T_TEXT};{T_BDR}">{aqc}</td>'
-                f'<td align="center" style="padding:5px 8px;color:#{a1y_c};font-weight:700;{T_BDR}">{a1y}</td>'
+                f'<td style="padding:5px 8px;color:#{T_DIM};{_tc}{T_BDR}">{row["n"]}</td>'
+                f'<td style="padding:5px 8px;color:#{T_GREEN};font-weight:700;{_tc}{T_BDR}">{row["sb"]}</td>'
+                f'<td style="padding:5px 8px;color:#{T_BLUE};{_tc}{T_BDR}">{row["b"]}</td>'
+                f'<td style="padding:5px 8px;color:#{T_PURPLE};{_tc}{T_BDR}">{row["cp"]}</td>'
+                f'<td style="padding:5px 8px;color:#{T_TEXT};{_tc}{T_BDR}">{acs_s}</td>'
+                f'<td style="padding:5px 8px;color:#{T_TEXT};{_tc}{T_BDR}">{aqc}</td>'
+                f'<td style="padding:5px 8px;color:#{a1y_c};font-weight:700;{_tc}{T_BDR}">{a1y}</td>'
                 f'</tr>')
 
         # ── Assemble ─────────────────────────────────────────────
