@@ -3090,7 +3090,7 @@ class MainWindow(QMainWindow):
 
         # ── Section header ─────────────────────────────────────────
         def _sec(text, bg="2C4F7C"):
-            return (f'<tr><td colspan="100%" style="background:#{bg};color:#FFFFFF;'
+            return (f'<tr><td colspan="6" style="background:#{bg};color:#FFFFFF;'
                     f'font-size:11px;font-weight:700;padding:7px 10px;letter-spacing:1px;'
                     f'margin-top:10px;">{text}</td></tr>')
 
@@ -3355,7 +3355,7 @@ class MainWindow(QMainWindow):
 
         # ── Assemble ─────────────────────────────────────────────
         qc_section = (
-            f'<tr><td colspan="100%" style="padding:8px 0 0 0;">'
+            f'<tr><td colspan="6" style="padding:8px 0 0 0;">'
             f'<table width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed;">'
             f'{_sec("❷  QUALITY COMPOUNDER  —  KEY METRICS")}'
             f'<tr>{qc_kpis}</tr>'
