@@ -105,10 +105,10 @@ def _col(df, *keys):
 
 
 def _compute(fin, cf, bal, info, ttm=False):
-    """Return (eps, gm, roe, cfps) from pre-transposed DataFrames.
+    """Return (eps, gm, roe, rev) from pre-transposed DataFrames.
 
-    ttm=True: ROE and CF/Share use trailing-12-month (rolling 4-quarter) sums,
-              matching Yahoo Finance / Bloomberg methodology.
+    rev = Total Revenue in absolute value (used for Revenue growth panel).
+    ttm=True: ROE uses trailing-12-month rolling sum.
     """
     dil_sh = _col(fin, "Diluted Average Shares", "DilutedAverageShares",
                   "Basic Average Shares")
@@ -141,17 +141,10 @@ def _compute(fin, cf, bal, info, ttm=False):
         eq_for_roe = eq
     roe = (net_roe / eq_for_roe * 100).round(1) if not eq.empty else pd.Series(dtype=float)
 
-    ocf     = _col(cf, "Operating Cash Flow", "OperatingCashFlow",
-                   "Cash Flow From Continuing Operating Activities")
-    ocf_ttm = ocf.rolling(4, min_periods=1).sum() if (ttm and not ocf.empty) else ocf
-    cfps    = (ocf_ttm / dil_sh).round(2) if (not dil_sh.empty and not ocf_ttm.empty) else (
-              (ocf_ttm / info.get("sharesOutstanding", 1)).round(2)
-              if not ocf_ttm.empty else pd.Series(dtype=float))
-
-    return eps, gm, roe, cfps
+    return eps, gm, roe, rev
 
 
-def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
+def _build_figure(ticker, name, labels, eps, gm, roe, rev,
                   mode="quarterly", height=860, dark_mode=True):
     """Build and return a go.Figure (2×2 grid). Shared by HTML and PNG paths."""
     if dark_mode:
@@ -165,9 +158,36 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
     C_BLUE  = "#4A9EFF"; C_GOLD  = "#E8A93D"; C_GREEN = "#34C472"
     C_ORG   = "#E87C3D"; C_RED   = "#E8483D"; C_TEAL  = "#2EBFA5"
 
+    yoy_periods = 4 if mode == "quarterly" else 1
+
     def bar_color(val, hi, lo, c_hi, c_lo, c_neg):
         if val is None or pd.isna(val): return C_DIM
         return c_hi if val >= hi else c_lo if val >= lo else c_neg
+
+    def yoy_color(pct):
+        if pct is None or pd.isna(pct): return C_DIM
+        return C_GREEN if pct >= 0 else C_RED
+
+    def with_yoy(vals, fmt):
+        """Return bar text list: 'value\\n+YoY%' for each bar."""
+        shifted = vals.shift(yoy_periods)
+        pct = ((vals - shifted) / shifted.abs() * 100).round(1)
+        texts = []
+        for v, p in zip(vals, pct):
+            main = fmt(v) if pd.notna(v) else ""
+            if pd.notna(p) and main:
+                sign = "+" if p >= 0 else ""
+                c = C_GREEN if p >= 0 else C_RED
+                texts.append(f"{main}<br><span style='font-size:8px;color:{c}'>{sign}{p:.0f}%</span>")
+            else:
+                texts.append(main)
+        return texts
+
+    def fmt_rev(v):
+        if not pd.notna(v): return ""
+        if abs(v) >= 1e9:  return f"${v/1e9:.1f}B"
+        if abs(v) >= 1e6:  return f"${v/1e6:.0f}M"
+        return f"${v/1e3:.0f}K"
 
     fig = make_subplots(
         rows=2, cols=2,
@@ -176,34 +196,36 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
             "Gross Margin",
             "Return on Equity  (ROE TTM)" if mode == "quarterly"
                 else "Return on Equity  (ROE)",
-            "Operating CF / Share  (TTM)" if mode == "quarterly"
-                else "Operating Cash Flow / Share",
+            "Revenue",
         ),
         vertical_spacing=0.16, horizontal_spacing=0.10,
     )
 
     txt_size = 10 if height >= 800 else 9
 
-    def panel(row, col, vals, bar_cols, fmt):
+    def panel(row, col, vals, bar_cols, texts):
         fig.add_trace(go.Bar(
             x=labels, y=vals, marker_color=bar_cols, marker_opacity=0.88,
-            text=[fmt(v) for v in vals], textposition="auto",
+            text=texts, textposition="outside",
             textfont=dict(size=txt_size, color=C_TEXT), showlegend=False,
             hovertemplate="%{text}<extra></extra>",
         ), row=row, col=col)
 
     panel(1, 1, eps,
           [C_BLUE if (v or 0) >= 0 else C_RED for v in eps.fillna(0)],
-          lambda v: f"${v:.2f}" if pd.notna(v) else "")
+          with_yoy(eps, lambda v: f"${v:.2f}"))
     panel(1, 2, gm,
           [bar_color(v, 40, 25, C_GREEN, C_ORG, C_RED) for v in gm],
-          lambda v: f"{v:.1f}%" if pd.notna(v) else "")
+          with_yoy(gm, lambda v: f"{v:.1f}%"))
     panel(2, 1, roe,
           [bar_color(v, 17, 10, C_BLUE, C_ORG, C_RED) for v in roe],
-          lambda v: f"{v:.1f}%" if pd.notna(v) else "")
-    panel(2, 2, cfps,
-          [C_TEAL if (v or 0) >= 0 else C_RED for v in cfps.fillna(0)],
-          lambda v: f"${v:.2f}" if pd.notna(v) else "")
+          with_yoy(roe, lambda v: f"{v:.1f}%"))
+
+    # Revenue panel — color by YoY growth rate
+    rev_shifted = rev.shift(yoy_periods)
+    rev_pct = ((rev - rev_shifted) / rev_shifted.abs() * 100).round(1)
+    rev_colors = [bar_color(p, 20, 5, C_GREEN, C_BLUE, C_RED) for p in rev_pct.fillna(0)]
+    panel(2, 2, rev, rev_colors, with_yoy(rev, fmt_rev))
 
     fig.add_hline(y=40, line_dash="dot", line_color=C_GREEN, line_width=1,
                   row=1, col=2, secondary_y=False,
@@ -253,10 +275,10 @@ def _build_figure(ticker, name, labels, eps, gm, roe, cfps,
     return fig
 
 
-def _build_chart(ticker, name, labels, eps, gm, roe, cfps,
+def _build_chart(ticker, name, labels, eps, gm, roe, rev,
                  mode="quarterly", height=860, dark_mode=True):
     """Return interactive Plotly HTML string — fills 100% of the WebEngineView viewport."""
-    fig = _build_figure(ticker, name, labels, eps, gm, roe, cfps,
+    fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
                         mode=mode, height=height, dark_mode=dark_mode)
     fig.update_layout(height=None, autosize=True)
     div = fig.to_html(
@@ -273,10 +295,10 @@ def _build_chart(ticker, name, labels, eps, gm, roe, cfps,
     )
 
 
-def _build_chart_png(ticker, name, labels, eps, gm, roe, cfps,
+def _build_chart_png(ticker, name, labels, eps, gm, roe, rev,
                      mode="quarterly", height=680, width=920, dark_mode=True):
-    """Return PNG bytes (used by screener side panel via kaleido)."""
-    fig = _build_figure(ticker, name, labels, eps, gm, roe, cfps,
+    """Return PNG bytes (legacy, requires kaleido)."""
+    fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
                         mode=mode, height=height, dark_mode=dark_mode)
     return fig.to_image(format="png", width=width, height=height, scale=2)
 
@@ -318,24 +340,24 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
     q_cf  = tk.quarterly_cashflow.T.sort_index()
     q_bal = tk.quarterly_balance_sheet.T.sort_index()
 
-    q_eps, q_gm, q_roe, q_cfps = _compute(q_fin, q_cf, q_bal, info, ttm=True)
+    q_eps, q_gm, q_roe, q_rev = _compute(q_fin, q_cf, q_bal, info, ttm=True)
 
     q_dates = []
-    for s in (q_eps, q_gm, q_roe, q_cfps):
+    for s in (q_eps, q_gm, q_roe, q_rev):
         if not s.empty: q_dates.extend(s.index.tolist())
     q_idx = pd.DatetimeIndex(sorted(set(q_dates))) if q_dates else q_fin.index
 
     def q_align(s):
         return s.reindex(q_idx) if not s.empty \
                else pd.Series([None]*len(q_idx), index=q_idx)
-    q_eps, q_gm, q_roe, q_cfps = (
-        q_align(q_eps), q_align(q_gm), q_align(q_roe), q_align(q_cfps))
+    q_eps, q_gm, q_roe, q_rev = (
+        q_align(q_eps), q_align(q_gm), q_align(q_roe), q_align(q_rev))
     q_labels = [d.strftime("%b %Y") if hasattr(d, "strftime") else str(d)[:7]
                 for d in q_idx]
 
     _msg("Loading annual data…")
     a_labels = []; a_fin = None
-    a_eps = a_gm = a_roe = a_cfps = pd.Series(dtype=float)
+    a_eps = a_gm = a_roe = a_rev = pd.Series(dtype=float)
     a_idx = pd.DatetimeIndex([])
     try:
         a_fin = tk.income_stmt
@@ -345,14 +367,14 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
             a_fin = a_fin.T.sort_index()
             a_cf  = a_cf.T.sort_index()  if not a_cf.empty  else pd.DataFrame()
             a_bal = a_bal.T.sort_index() if not a_bal.empty else pd.DataFrame()
-            a_eps, a_gm, a_roe, a_cfps = _compute(a_fin, a_cf, a_bal, info)
+            a_eps, a_gm, a_roe, a_rev = _compute(a_fin, a_cf, a_bal, info)
             a_idx = a_fin.index
 
             def a_align(s):
                 return s.reindex(a_idx) if not s.empty \
                        else pd.Series([None]*len(a_idx), index=a_idx)
-            a_eps, a_gm, a_roe, a_cfps = (
-                a_align(a_eps), a_align(a_gm), a_align(a_roe), a_align(a_cfps))
+            a_eps, a_gm, a_roe, a_rev = (
+                a_align(a_eps), a_align(a_gm), a_align(a_roe), a_align(a_rev))
             a_labels = [f"FY{d.year}" for d in a_idx]
     except Exception:
         pass
@@ -406,8 +428,8 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
 
     return dict(
         name=name,
-        q_labels=q_labels, q_eps=q_eps, q_gm=q_gm, q_roe=q_roe, q_cfps=q_cfps,
-        a_labels=a_labels, a_eps=a_eps, a_gm=a_gm, a_roe=a_roe, a_cfps=a_cfps,
+        q_labels=q_labels, q_eps=q_eps, q_gm=q_gm, q_roe=q_roe, q_rev=q_rev,
+        a_labels=a_labels, a_eps=a_eps, a_gm=a_gm, a_roe=a_roe, a_rev=a_rev,
     )
 
 
@@ -431,11 +453,11 @@ class ChartWorker(QThread):
             d = _fetch_data_for_chart(self.ticker, self.msg.emit)
             self.msg.emit("Rendering chart…")
             html_q = _build_chart(self.ticker, d["name"], d["q_labels"],
-                                  d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
+                                  d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
                                   mode="quarterly", height=self._height,
                                   dark_mode=self._dark_mode)
             html_a = (_build_chart(self.ticker, d["name"], d["a_labels"],
-                                   d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
+                                   d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
                                    mode="annual", height=self._height,
                                    dark_mode=self._dark_mode)
                       if d["a_labels"] else "")
@@ -467,12 +489,12 @@ class ChartWorkerPng(QThread):
             self.data_ready.emit(d)
             self.msg.emit("Rendering chart…")
             png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
-                                     d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
+                                     d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
                                      mode="quarterly",
                                      height=self._height, width=self._width,
                                      dark_mode=self._dark_mode)
             png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
-                                      d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
+                                      d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
                                       mode="annual",
                                       height=self._height, width=self._width,
                                       dark_mode=self._dark_mode)
@@ -504,12 +526,12 @@ class _RenderWorkerPng(QThread):
             d = self._d
             self.msg.emit("Rendering chart…")
             png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
-                                     d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
+                                     d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
                                      mode="quarterly",
                                      height=self._height, width=self._width,
                                      dark_mode=self._dark_mode)
             png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
-                                      d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
+                                      d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
                                       mode="annual",
                                       height=self._height, width=self._width,
                                       dark_mode=self._dark_mode)
