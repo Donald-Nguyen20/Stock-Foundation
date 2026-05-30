@@ -3388,7 +3388,7 @@ class MainWindow(QMainWindow):
           {_sec("❶  CAN SLIM  —  KEY METRICS")}
           <tr>{cs_kpis}</tr>
           {qc_section}
-          <tr><td colspan="100%" style="background:#FFF2CC;padding:6px 10px;
+          <tr><td colspan="6" style="background:#FFF2CC;padding:6px 10px;
               color:#9C6500;font-size:11px;font-weight:700;">
             ⚠️  RISK FLAGS: &nbsp;&nbsp;
             D/E &gt; 1.5: <b>{risk_de} mã</b> &nbsp;&nbsp;|&nbsp;&nbsp;
