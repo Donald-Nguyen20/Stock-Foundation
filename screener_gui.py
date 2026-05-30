@@ -3060,7 +3060,7 @@ class MainWindow(QMainWindow):
 
         # ── KPI card helper ────────────────────────────────────────
         def _kpi(val, lbl, bg, fg="FFFFFF"):
-            return (f'<td style="padding:3px;">'
+            return (f'<td width="16.66%" style="padding:3px;">'
                     f'<table width="100%" cellspacing="0" cellpadding="0">'
                     f'<tr><td align="center" style="background:#{bg};padding:10px 6px 3px;">'
                     f'<span style="font-size:20px;font-weight:700;color:#{fg};">{val}</span></td></tr>'
@@ -3356,7 +3356,7 @@ class MainWindow(QMainWindow):
         # ── Assemble ─────────────────────────────────────────────
         qc_section = (
             f'<tr><td colspan="100%" style="padding:8px 0 0 0;">'
-            f'<table width="100%" cellspacing="0" cellpadding="0">'
+            f'<table width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed;">'
             f'{_sec("❷  QUALITY COMPOUNDER  —  KEY METRICS")}'
             f'<tr>{qc_kpis}</tr>'
             f'</table></td></tr>'
@@ -3384,7 +3384,7 @@ class MainWindow(QMainWindow):
           </tr>
         </table>
 
-        <table width="100%" cellspacing="0" cellpadding="0">
+        <table width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed;">
           {_sec("❶  CAN SLIM  —  KEY METRICS")}
           <tr>{cs_kpis}</tr>
           {qc_section}
