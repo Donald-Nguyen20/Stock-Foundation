@@ -233,7 +233,8 @@ def compute_qc_score(row: dict) -> dict:
     return result
 
 
-from fundamental_chart import ChartWorkerPng, _RenderWorkerPng
+from fundamental_chart import ChartWorker
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -296,60 +297,58 @@ class ColoredHeader(QHeaderView):
 
 
 class ChartPanel(QWidget):
+    """Chart side panel — uses QWebEngineView + HTML (no kaleido dependency)."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._dark = True
-        self.setStyleSheet(f"background:{BG};")
-        self._pix_q        = None   # QPixmap (quarterly)
-        self._pix_a        = None   # QPixmap (annual)
-        self._mode         = "quarterly"
-        self._worker       = None
-        self._render_worker = None
-        self._chart_data   = None   # cached raw data dict from yfinance
-        self._ticker       = ""
+        self._dark     = True
+        self._html_q   = ""
+        self._html_a   = ""
+        self._mode     = "quarterly"
+        self._worker   = None
+        self._ticker   = ""
         self._spin_idx = 0
         self._spin_msg = ""
         self._spin_tmr = QTimer(self)
         self._spin_tmr.timeout.connect(self._tick)
+        self.setStyleSheet(f"background:{BG};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self._bar_w = self._build_bar()
+        self._bar_w    = self._build_bar()
         self._sep_line = self._sep()
         layout.addWidget(self._bar_w)
         layout.addWidget(self._sep_line)
 
-        self._img = QLabel()
-        self._img.setAlignment(Qt.AlignCenter)
-        self._img.setStyleSheet(f"background:{BG}; color:{TEXT3};"
-                                f" font-size:11px; letter-spacing:1px;")
-        self._img.setText("Click a row to load chart")
-        layout.addWidget(self._img, stretch=1)
+        self._web = QWebEngineView()
+        self._web.setHtml(self._placeholder())
+        layout.addWidget(self._web, stretch=1)
+
+    def _placeholder(self):
+        bg = "#0A1628" if self._dark else "#F0F4F9"
+        fg = "#3D4D60" if self._dark else "#94A3B8"
+        return (f'<html><body style="background:{bg};margin:0;display:flex;'
+                f'align-items:center;justify-content:center;height:100vh;">'
+                f'<p style="color:{fg};font-family:Segoe UI,sans-serif;'
+                f'font-size:11px;letter-spacing:1px;">Click a row to load chart</p>'
+                f'</body></html>')
 
     def _build_bar(self):
         w = QWidget(); w.setFixedHeight(36)
         w.setStyleSheet(f"background:{SURFACE};")
         h = QHBoxLayout(w); h.setContentsMargins(14, 0, 14, 0); h.setSpacing(8)
-
         self._chart_lbl = QLabel("—")
         self._chart_lbl.setStyleSheet(
             f"color:{TEXT1}; font-size:13px; font-weight:700;"
             f" font-family:'Consolas',monospace; letter-spacing:2px;")
-        h.addWidget(self._chart_lbl)
-        h.addStretch()
-
+        h.addWidget(self._chart_lbl); h.addStretch()
         self._chart_status = QLabel("Click a row to load chart")
-        self._chart_status.setStyleSheet(
-            f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
-        h.addWidget(self._chart_status)
-        h.addSpacing(10)
-
+        self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        h.addWidget(self._chart_status); h.addSpacing(10)
         self._btn_q = QPushButton("Quarterly")
         self._btn_a = QPushButton("Annual")
         for btn in (self._btn_q, self._btn_a):
-            btn.setFixedSize(84, 22)
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedSize(84, 22); btn.setCursor(Qt.PointingHandCursor)
         self._btn_q.clicked.connect(lambda: self._switch_mode("quarterly"))
         self._btn_a.clicked.connect(lambda: self._switch_mode("annual"))
         h.addWidget(self._btn_q); h.addWidget(self._btn_a)
@@ -360,106 +359,65 @@ class ChartPanel(QWidget):
         f = QFrame(); f.setFrameShape(QFrame.HLine); f.setFixedHeight(1)
         f.setStyleSheet(f"background:{BORDER}; border:none;"); return f
 
-    # ── pixmap display ────────────────────────────────────────────────────────
-    def _show_pixmap(self, pix):
-        if pix and not pix.isNull():
-            scaled = pix.scaled(self._img.size(),
-                                Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self._img.setPixmap(scaled)
-            self._img.setText("")
-        else:
-            self._img.clear()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._show_pixmap(self._pix_a if self._mode == "annual" else self._pix_q)
-
-    # ── Public API ────────────────────────────────────────────────────────────
     def load_ticker(self, ticker: str):
         ticker = ticker.upper()
-        if ticker == self._ticker and (self._pix_q or self._pix_a):
+        if ticker == self._ticker and (self._html_q or self._html_a):
             return
         self._ticker = ticker
-        self._pix_q = None; self._pix_a = None
-        self._mode  = "quarterly"
+        self._html_q = ""; self._html_a = ""
+        self._mode   = "quarterly"
         self._chart_lbl.setText(ticker)
-        self._img.clear()
-        self._img.setText(f"Loading {ticker}…")
+        self._web.setHtml(self._placeholder())
         self._refresh_btns()
-
         if self._worker and self._worker.isRunning():
             self._worker.terminate(); self._worker.wait()
-
-        self._chart_data = None
         self._spin_msg = f"Loading {ticker}…"
         self._spin_tmr.start(80)
-        self._worker = ChartWorkerPng(ticker, dark_mode=self._dark)
-        self._worker.data_ready.connect(self._cache_data)
+        self._worker = ChartWorker(ticker, height=580, dark_mode=self._dark)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.msg.connect(lambda m: setattr(self, "_spin_msg", m))
         self._worker.start()
 
-    # ── Slots ─────────────────────────────────────────────────────────────────
-    def _on_done(self, png_a, png_q, summary):
+    def _on_done(self, html_a, html_q, summary):
         self._spin_tmr.stop()
-        self._pix_q = QPixmap(); self._pix_q.loadFromData(png_q)
-        if png_a:
-            self._pix_a = QPixmap(); self._pix_a.loadFromData(png_a)
-        self._mode = "quarterly"
-        self._show_pixmap(self._pix_q)
+        self._html_q = html_q
+        self._html_a = html_a
+        self._mode   = "quarterly"
+        self._web.setHtml(html_q)
         parts = summary.split("·")
         self._set_status(f"✓  {parts[-1].strip()}" if len(parts) > 1 else "✓", GREEN)
         self._refresh_btns()
 
     def _on_failed(self, msg):
         self._spin_tmr.stop()
-        self._img.clear()
-        self._img.setText(f"Error: {msg}")
-        self._img.setStyleSheet(f"background:{BG}; color:{RED};"
-                                f" font-size:11px; letter-spacing:1px;")
+        bg = "#0A1628" if self._dark else "#F0F4F9"
+        self._web.setHtml(
+            f'<html><body style="background:{bg};margin:0;display:flex;'
+            f'align-items:center;justify-content:center;height:100vh;">'
+            f'<p style="color:#DC2626;font-family:Segoe UI,sans-serif;'
+            f'font-size:11px;">Error: {msg}</p></body></html>')
         self._set_status(f"✕  {msg}", RED)
-
-    def _cache_data(self, d):
-        self._chart_data = d
-
-    def _fast_rerender(self):
-        if not self._chart_data or not self._ticker:
-            return
-        if self._render_worker and self._render_worker.isRunning():
-            self._render_worker.terminate()
-            self._render_worker.wait()
-        self._pix_q = None
-        self._pix_a = None
-        self._spin_msg = "Re-rendering…"
-        self._spin_tmr.start(80)
-        self._render_worker = _RenderWorkerPng(
-            self._ticker, self._chart_data, dark_mode=self._dark)
-        self._render_worker.done.connect(self._on_done)
-        self._render_worker.failed.connect(self._on_failed)
-        self._render_worker.msg.connect(lambda m: setattr(self, "_spin_msg", m))
-        self._render_worker.start()
 
     def _switch_mode(self, mode):
         if mode == self._mode: return
-        pix = self._pix_a if mode == "annual" else self._pix_q
-        if not pix: return
+        html = self._html_a if mode == "annual" else self._html_q
+        if not html: return
         self._mode = mode
-        self._show_pixmap(pix)
+        self._web.setHtml(html)
         self._refresh_btns()
 
     def _set_status(self, text, color=TEXT3):
         self._chart_status.setText(text)
-        self._chart_status.setStyleSheet(
-            f"color:{color}; font-size:9px; letter-spacing:1px;")
+        self._chart_status.setStyleSheet(f"color:{color}; font-size:9px; letter-spacing:1px;")
 
     def _tick(self):
         self._spin_idx = (self._spin_idx + 1) % len(SPINNER)
         self._set_status(f"{SPINNER[self._spin_idx]}  {self._spin_msg}", AMBER)
 
     def _refresh_btns(self):
-        has_q = self._pix_q is not None and not self._pix_q.isNull()
-        has_a = self._pix_a is not None and not self._pix_a.isNull()
+        has_q = bool(self._html_q)
+        has_a = bool(self._html_a)
         act = (f"QPushButton {{ background:{BLUE}; color:#FFF; border:none;"
                f" border-radius:3px; font-size:9px; font-weight:700;"
                f" letter-spacing:1px; font-family:'Segoe UI',sans-serif; }}")
@@ -484,15 +442,10 @@ class ChartPanel(QWidget):
             f"color:{TEXT1}; font-size:13px; font-weight:700;"
             f" font-family:'Consolas',monospace; letter-spacing:2px;")
         self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
-        self._img.setStyleSheet(f"background:{BG}; color:{TEXT3}; font-size:11px; letter-spacing:1px;")
         self._refresh_btns()
         if self._ticker:
-            if self._chart_data:
-                self._fast_rerender()
-            else:
-                prev = self._ticker
-                self._ticker = ""
-                self.load_ticker(prev)
+            prev = self._ticker; self._ticker = ""
+            self.load_ticker(prev)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

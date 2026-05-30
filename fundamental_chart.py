@@ -436,15 +436,16 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
 # Background workers
 # ─────────────────────────────────────────────────────────────────────────────
 class ChartWorker(QThread):
-    """Emits interactive HTML strings — used by the standalone viewer."""
+    """Emits interactive HTML strings — used by the standalone viewer and screener panel."""
     done   = Signal(str, str, str)   # html_annual, html_quarterly, summary
     failed = Signal(str)
     msg    = Signal(str)
 
-    def __init__(self, ticker: str, height: int = 860):
+    def __init__(self, ticker: str, height: int = 860, dark_mode: bool = True):
         super().__init__()
-        self.ticker  = ticker.upper()
-        self._height = height
+        self.ticker     = ticker.upper()
+        self._height    = height
+        self._dark_mode = dark_mode
 
     def run(self):
         try:
@@ -452,10 +453,12 @@ class ChartWorker(QThread):
             self.msg.emit("Rendering chart…")
             html_q = _build_chart(self.ticker, d["name"], d["q_labels"],
                                   d["q_eps"], d["q_gm"], d["q_roe"], d["q_cfps"],
-                                  mode="quarterly", height=self._height)
+                                  mode="quarterly", height=self._height,
+                                  dark_mode=self._dark_mode)
             html_a = (_build_chart(self.ticker, d["name"], d["a_labels"],
                                    d["a_eps"], d["a_gm"], d["a_roe"], d["a_cfps"],
-                                   mode="annual", height=self._height)
+                                   mode="annual", height=self._height,
+                                   dark_mode=self._dark_mode)
                       if d["a_labels"] else "")
             summary = (f"{self.ticker}  ·  {d['name']}  ·  "
                        f"{len(d['a_labels'])} annual  /  {len(d['q_labels'])} quarterly")
