@@ -3765,9 +3765,11 @@ class MainWindow(QMainWindow):
 
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Fix DirectComposition error trên Windows 10 với WebEngine
+    # Tắt GPU/sandbox của WebEngine — fix lỗi GLES3/DirectComposition trên Windows 10
     os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS",
-                          "--disable-gpu --disable-software-rasterizer")
+                          "--disable-gpu --no-sandbox --disable-dev-shm-usage"
+                          " --disable-gpu-sandbox --disable-software-rasterizer")
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     win = MainWindow()
