@@ -2152,30 +2152,6 @@ class MainWindow(QMainWindow):
     def _build_dashboard_panel(self):
         w = QWidget(); w.setStyleSheet(f"background:{BG};")
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
-
-        # ── Search bar ──────────────────────────────────────────────
-        bar = QWidget(); bar.setFixedHeight(36)
-        bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
-        bh = QHBoxLayout(bar); bh.setContentsMargins(14,0,14,0); bh.setSpacing(6)
-
-        lbl = QLabel("TÌM MÃ")
-        lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:2px;")
-        self._dash_search = QLineEdit()
-        self._dash_search.setPlaceholderText("Nhập ticker (VD: NVDA, AAPL)…")
-        self._dash_search.setFixedHeight(24)
-        self._dash_search.setStyleSheet(self._input_style(font="Consolas,monospace",
-                                                           size="12px", ls="2px"))
-        self._dash_search.textChanged.connect(self._on_dash_search)
-        self._dash_search.returnPressed.connect(
-            lambda: self._on_dash_search(self._dash_search.text(), find_next=True))
-
-        self._dash_search_lbl = QLabel("")
-        self._dash_search_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px;")
-
-        bh.addWidget(lbl); bh.addWidget(self._dash_search)
-        bh.addWidget(self._dash_search_lbl); bh.addStretch()
-        lay.addWidget(bar)
-
         self._dash_browser = QTextBrowser()
         self._dash_browser.setOpenExternalLinks(False)
         self._dash_browser.setStyleSheet(f"""
@@ -2188,26 +2164,6 @@ class MainWindow(QMainWindow):
         self._dash_browser.setHtml(self._dash_placeholder())
         lay.addWidget(self._dash_browser)
         return w
-
-    def _on_dash_search(self, text, find_next=False):
-        from PySide6.QtGui import QTextDocument
-        text = text.strip()
-        if not text:
-            self._dash_search_lbl.setText("")
-            # Reset highlight bằng cách clear selection
-            cur = self._dash_browser.textCursor()
-            cur.clearSelection()
-            self._dash_browser.setTextCursor(cur)
-            return
-        flags = QTextDocument.FindFlag(0)
-        found = self._dash_browser.find(text, flags)
-        if not found:
-            # Thử từ đầu
-            cur = self._dash_browser.textCursor()
-            cur.movePosition(cur.Start)
-            self._dash_browser.setTextCursor(cur)
-            found = self._dash_browser.find(text, flags)
-        self._dash_search_lbl.setText("✓ Tìm thấy" if found else "✗ Không có")
 
     def _dash_placeholder(self):
         return f"""<html><body style="background:{BG};color:#4A6080;
@@ -3660,12 +3616,16 @@ class MainWindow(QMainWindow):
         ticker = self._ticker_inp.text().strip().upper()
         if not ticker: return
 
+        # Nếu đang ở Dashboard → tìm và scroll đến mã trong nội dung HTML
+        if self._tabs_w.currentIndex() == 0:
+            self._dash_find(ticker)
+            return
+
         # Check if already in scan results
         if self._df is not None:
             match = self._df[self._df["Ticker"] == ticker]
             if not match.empty:
                 self._detail.show_row(match.iloc[0].to_dict())
-                # Highlight the row in table
                 for ri in range(self._table.rowCount()):
                     item = self._table.item(ri, 1)
                     if item and item.text() == ticker:
@@ -3683,6 +3643,19 @@ class MainWindow(QMainWindow):
         self._ticker_wkr.done.connect(self._on_ticker_done)
         self._ticker_wkr.failed.connect(lambda m: self._set_status(f"✕  {m}", RED))
         self._ticker_wkr.start()
+
+    def _dash_find(self, ticker: str):
+        """Scroll và highlight ticker trong Dashboard browser."""
+        from PySide6.QtGui import QTextDocument
+        # Reset về đầu trang trước khi tìm
+        cur = self._dash_browser.textCursor()
+        cur.movePosition(cur.MoveOperation.Start)
+        self._dash_browser.setTextCursor(cur)
+        found = self._dash_browser.find(ticker)
+        if found:
+            self._set_status(f"📍  {ticker} — tìm thấy trong Dashboard", GREEN)
+        else:
+            self._set_status(f"✕  {ticker} không có trong Dashboard hiện tại", TEXT3)
 
     def _on_ticker_done(self, df: pd.DataFrame):
         if df.empty: return
