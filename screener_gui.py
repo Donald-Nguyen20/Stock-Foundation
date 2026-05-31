@@ -2422,10 +2422,15 @@ class MainWindow(QMainWindow):
             self._chart_panel.load_ticker(ticker)
 
     def _on_tab_changed(self, idx: int):
-        # Tab 0 = Dashboard → full width, ẩn chart panel
+        # Tab 0 = Dashboard → ẩn chart panel trừ khi đang xem lookup
         is_dash = (idx == 0)
         if hasattr(self, "_chart_panel"):
-            self._chart_panel.setVisible(not is_dash)
+            if is_dash:
+                # Chỉ ẩn chart nếu chưa có ticker được lookup
+                has_lookup = bool(self._chart_panel._ticker)
+                self._chart_panel.setVisible(has_lookup)
+            else:
+                self._chart_panel.setVisible(True)
         self._apply_filter()
 
     def _apply_qc_filter(self):
@@ -3654,6 +3659,8 @@ class MainWindow(QMainWindow):
             GREEN
         )
         self._chart_panel.load_ticker(ticker)
+        # Hiện chart panel ngay cả khi đang ở Dashboard
+        self._chart_panel.setVisible(True)
 
     # ── Help ──────────────────────────────────────────────────────────────────
 
