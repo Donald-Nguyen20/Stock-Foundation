@@ -3645,17 +3645,42 @@ class MainWindow(QMainWindow):
         self._ticker_wkr.start()
 
     def _dash_find(self, ticker: str):
-        """Scroll và highlight ticker trong Dashboard browser."""
-        from PySide6.QtGui import QTextDocument
-        # Reset về đầu trang trước khi tìm
-        cur = self._dash_browser.textCursor()
-        cur.movePosition(cur.MoveOperation.Start)
-        self._dash_browser.setTextCursor(cur)
-        found = self._dash_browser.find(ticker)
-        if found:
-            self._set_status(f"📍  {ticker} — tìm thấy trong Dashboard", GREEN)
+        """Scroll và highlight tất cả lần xuất hiện của ticker trong Dashboard."""
+        from PySide6.QtGui import QTextCharFormat, QTextCursor
+        from PySide6.QtWidgets import QTextEdit
+
+        # Xoá highlight cũ
+        self._dash_browser.setExtraSelections([])
+
+        if not ticker:
+            return
+
+        # Tìm tất cả vị trí xuất hiện và tạo highlight vàng
+        doc = self._dash_browser.document()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("#FFD700"))
+        fmt.setForeground(QColor("#000000"))
+
+        highlights = []
+        cur = QTextCursor(doc)
+        while True:
+            cur = doc.find(ticker, cur)
+            if cur.isNull():
+                break
+            sel = QTextEdit.ExtraSelection()
+            sel.format = fmt
+            sel.cursor = cur
+            highlights.append(sel)
+
+        if highlights:
+            self._dash_browser.setExtraSelections(highlights)
+            # Scroll đến lần đầu tiên
+            self._dash_browser.setTextCursor(highlights[0].cursor)
+            self._set_status(
+                f"📍  {ticker} — {len(highlights)} vị trí trong Dashboard", GREEN)
         else:
-            self._set_status(f"✕  {ticker} không có trong Dashboard hiện tại", TEXT3)
+            self._set_status(
+                f"✕  {ticker} không có trong Dashboard hiện tại", TEXT3)
 
     def _on_ticker_done(self, df: pd.DataFrame):
         if df.empty: return
