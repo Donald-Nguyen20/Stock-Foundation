@@ -3732,6 +3732,9 @@ class MainWindow(QMainWindow):
 
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # Fix DirectComposition error trên Windows 10 với WebEngine
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS",
+                          "--disable-gpu --disable-software-rasterizer")
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     win = MainWindow()
