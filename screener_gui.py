@@ -3621,17 +3621,25 @@ class MainWindow(QMainWindow):
             self._dash_find(ticker)
             return
 
+        on_qc = (self._tabs_w.currentIndex() == 2)
+
         # Check if already in scan results
         if self._df is not None:
             match = self._df[self._df["Ticker"] == ticker]
             if not match.empty:
-                self._detail.show_row(match.iloc[0].to_dict())
-                for ri in range(self._table.rowCount()):
-                    item = self._table.item(ri, 1)
+                row = match.iloc[0].to_dict()
+                self._detail.show_row(row)
+                qc = compute_qc_score(row)
+                self._qc_detail.show_row({**row, **qc})
+                self._chart_panel.load_ticker(ticker)
+                # Highlight đúng bảng theo tab đang mở
+                tbl = self._qc_table if on_qc else self._table
+                for ri in range(tbl.rowCount()):
+                    item = tbl.item(ri, 1)
                     if item and item.text() == ticker:
-                        self._table.selectRow(ri)
-                        self._table.scrollToItem(item)
-                        return
+                        tbl.selectRow(ri)
+                        tbl.scrollToItem(item)
+                        break
                 return
 
         # Not in df — fetch from TradingView + yfinance
