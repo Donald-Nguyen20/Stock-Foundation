@@ -1896,6 +1896,9 @@ class MainWindow(QMainWindow):
         vbox.addWidget(self._sep())
         vbox.addWidget(self._build_status())
 
+        # Load cache từ lần scan trước (nếu có)
+        QTimer.singleShot(200, self._load_cache)
+
     # ── Section builders ──────────────────────────────────────────────────────
 
     def _build_header(self):
@@ -2789,6 +2792,63 @@ class MainWindow(QMainWindow):
     def _on_ticker_progress(self, idx, total, ticker, score):
         self._spin_msg = f"Moat [{idx}/{total}] {ticker} → {score}"
 
+    # ── Scan cache ────────────────────────────────────────────────────────────
+
+    def _cache_path(self):
+        base = os.path.dirname(os.path.abspath(sys.argv[0]))
+        return os.path.join(base, "scan_cache.pkl")
+
+    def _save_cache(self, df, market: str, top: int):
+        import pickle
+        try:
+            payload = {
+                "df": df,
+                "market": market,
+                "top": top,
+                "saved_at": pd.Timestamp.now(),
+            }
+            with open(self._cache_path(), "wb") as f:
+                pickle.dump(payload, f)
+        except Exception:
+            pass
+
+    def _load_cache(self):
+        import pickle
+        try:
+            path = self._cache_path()
+            if not os.path.exists(path):
+                return
+            with open(path, "rb") as f:
+                payload = pickle.load(f)
+            df       = payload["df"]
+            market   = payload.get("market", "")
+            top      = payload.get("top", len(df))
+            saved_at = payload.get("saved_at", None)
+            age_str  = ""
+            if saved_at is not None:
+                delta = pd.Timestamp.now() - saved_at
+                h = int(delta.total_seconds() // 3600)
+                m = int((delta.total_seconds() % 3600) // 60)
+                age_str = f"{h}h {m}m" if h else f"{m}m"
+
+            self._populate_table(df)
+            self._populate_qc_table(df)
+            self._df = df
+            self._update_dashboard(df)
+            self._btn_export.setEnabled(True)
+            # Khôi phục market/top settings nếu có
+            idx = self._market.findText(market, Qt.MatchFixedString)
+            if idx >= 0:
+                self._market.setCurrentIndex(idx)
+            self._top_spin.setValue(top)
+            self._set_status(
+                f"📂  Cache loaded  ·  {len(df)} stocks  ·  "
+                f"Lưu {age_str} trước  ·  Nhấn SCAN để cập nhật mới",
+                TEXT2
+            )
+        except Exception:
+            pass   # Cache lỗi hoặc không tương thích → bỏ qua
+
     def _on_scan_done(self, df: pd.DataFrame):
         self._spin_tmr.stop()
         self._btn_scan.setText("▶  SCAN")
@@ -2800,7 +2860,6 @@ class MainWindow(QMainWindow):
         try:
             qc_results = df.apply(lambda r: compute_qc_score(r.to_dict()), axis=1)
             qc_df = pd.DataFrame(list(qc_results))
-            # Drop QC cols cũ (nếu có) trước khi concat — tránh duplicate column labels
             qc_cols = [c for c in qc_df.columns if c in df.columns]
             df = df.drop(columns=qc_cols, errors="ignore")
             df = pd.concat([df.reset_index(drop=True),
@@ -2810,7 +2869,7 @@ class MainWindow(QMainWindow):
 
         self._df = df
         self._update_dashboard(df)
-        self._tabs_w.setCurrentIndex(0)   # tự chuyển sang Dashboard
+        self._tabs_w.setCurrentIndex(0)
         self._set_status(
             f"✓  {len(df)} stocks  ·  "
             f"STRONG BUY: {(df['CS_Signal']=='🟢 STRONG BUY').sum()}  "
@@ -2819,6 +2878,8 @@ class MainWindow(QMainWindow):
             f"SKIP: {(df['CS_Signal']=='🔴 SKIP').sum()}",
             GREEN
         )
+        # Lưu cache để lần sau không cần scan lại
+        self._save_cache(df, self._market.currentText(), self._top_spin.value())
 
     def _on_scan_failed(self, msg):
         self._spin_tmr.stop()
