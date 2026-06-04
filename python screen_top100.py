@@ -283,25 +283,40 @@ def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
         # ── EPS Quarterly YoY Acceleration ───────────────────────
         eps_acc = (0, [])   # (consecutive_acc_qtrs, yoy_list oldest→newest)
         try:
-            qfin_acc = tk.quarterly_financials.sort_index(axis=1, ascending=True)
-            if "Diluted EPS" in qfin_acc.index:
-                eps_s = qfin_acc.loc["Diluted EPS"].dropna()
+            # Thử quarterly_income_stmt trước (mới hơn), fallback quarterly_financials
+            try:
+                qfin_acc = tk.quarterly_income_stmt.sort_index(axis=1, ascending=True)
+            except Exception:
+                qfin_acc = tk.quarterly_financials.sort_index(axis=1, ascending=True)
+
+            eps_key = next((k for k in ["Diluted EPS", "Basic EPS"]
+                            if k in qfin_acc.index), None)
+            if eps_key:
+                eps_s = qfin_acc.loc[eps_key].dropna()
                 n = len(eps_s)
-                if n >= 6:  # cần ≥6 quý để có ≥2 điểm YoY (ít nhất 2 quý so sánh được)
-                    start = max(4, n - 4)
+                # Cần ≥5 quý để có ít nhất 1 điểm YoY (Q4 vs Q0)
+                if n >= 5:
+                    # Lấy tất cả điểm YoY có thể (tối đa 4 quý gần nhất)
                     yoy_list = []
-                    for _i in range(start, n):
+                    for _i in range(4, n):
                         curr   = eps_s.iloc[_i]
                         yr_ago = eps_s.iloc[_i - 4]
                         if yr_ago != 0:
                             yoy_list.append(round((curr - yr_ago) / abs(yr_ago) * 100, 1))
-                    # Count consecutive acceleration streak from most recent quarter
-                    consec = 0
-                    for _j in range(len(yoy_list) - 1, 0, -1):
-                        if yoy_list[_j] > yoy_list[_j - 1]:
-                            consec += 1
-                        else:
-                            break
+
+                    if len(yoy_list) >= 2:
+                        # Đủ dữ liệu: đếm streak acceleration liên tiếp từ quý mới nhất
+                        consec = 0
+                        for _j in range(len(yoy_list) - 1, 0, -1):
+                            if yoy_list[_j] > yoy_list[_j - 1]:
+                                consec += 1
+                            else:
+                                break
+                    elif len(yoy_list) == 1:
+                        # Chỉ 1 điểm YoY — dùng dấu hiệu positive/negative
+                        consec = 1 if yoy_list[0] > 0 else 0
+                    else:
+                        consec = 0
                     eps_acc = (consec, yoy_list)
         except Exception:
             pass
@@ -418,13 +433,20 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
         if key == "D" and row.get("Sector", "") in ("Financial Services", "Finance"):
             return None  # D/E không áp dụng cho ngành tài chính (banks/insurance dùng leverage cấu trúc)
         if key == "M":
-            # Priority: multi-quarter YoY acceleration from yfinance (≥2 consecutive)
             ticker = row.get("Ticker", "")
             if moat_cache:
                 t = moat_cache.get(ticker)
                 if t and len(t) >= 5 and t[4] is not None:
-                    acc_qtrs = t[4][0] if isinstance(t[4], (tuple, list)) else int(t[4])
-                    return int(acc_qtrs) >= 2
+                    acc_data  = t[4]
+                    acc_qtrs  = acc_data[0] if isinstance(acc_data, (tuple, list)) else int(acc_data)
+                    yoy_pts   = acc_data[1] if isinstance(acc_data, (tuple, list)) and len(acc_data) > 1 else []
+                    if len(yoy_pts) >= 2:
+                        # Đủ dữ liệu: yêu cầu ≥2 quý acceleration liên tiếp
+                        return int(acc_qtrs) >= 2
+                    elif len(yoy_pts) == 1:
+                        # Chỉ 1 điểm YoY: chấp nhận nếu EPS đang tăng YoY dương
+                        return yoy_pts[0] > 0
+                    # Không có YoY → fall through
             # Fallback: EPS Qtr% > EPS Annual% AND positive (basic proxy)
             qtr = row.get("EPS Qtr%"); ann = row.get("EPS Annual%")
             if qtr is None or (isinstance(qtr, float) and pd.isna(qtr)): return None
@@ -507,11 +529,19 @@ def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
         t = moat_cache.get(ticker)
         if not t or len(t) < 5 or t[4] is None:
             return "—"
-        acc_qtrs = t[4][0] if isinstance(t[4], (tuple, list)) else int(t[4])
-        if acc_qtrs >= 3: return "↑3Q"
-        if acc_qtrs == 2: return "↑2Q"
-        if acc_qtrs == 1: return "↑1Q"
-        return "↓"
+        acc_data = t[4]
+        acc_qtrs = acc_data[0] if isinstance(acc_data, (tuple, list)) else int(acc_data)
+        yoy_pts  = acc_data[1] if isinstance(acc_data, (tuple, list)) and len(acc_data) > 1 else []
+        if len(yoy_pts) >= 2:
+            # Đủ dữ liệu — hiển thị streak đầy đủ
+            if acc_qtrs >= 3: return "↑3Q"
+            if acc_qtrs >= 2: return "↑2Q"
+            if acc_qtrs >= 1: return "↑1Q"
+            return "↓"
+        elif len(yoy_pts) == 1:
+            # Chỉ 1 điểm YoY — chỉ biết hướng, không biết acceleration
+            return "↑" if yoy_pts[0] > 0 else "↓"
+        return "—"
     df["EPS_Acc"] = df["Ticker"].apply(_acc_label)
 
     _MW = {"WIDE  ★★★": 1.2, "NARROW ★★": 1.1, "UNCERTAIN ★": 1.0, "WEAK": 0.85}
