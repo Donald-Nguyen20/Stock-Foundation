@@ -949,6 +949,341 @@ class QualityDetailCard(QWidget):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Portfolio Panel — Tab My Portfolio
+# ─────────────────────────────────────────────────────────────────────────────
+class PortfolioPanel(QWidget):
+    """Quản lý danh mục cổ phiếu — lưu vào portfolio.json."""
+
+    _COLS = [
+        ("#",         40, Qt.AlignCenter),
+        ("Ticker",    72, Qt.AlignCenter),
+        ("Company",  160, Qt.AlignLeft),
+        ("Buy Date",  90, Qt.AlignCenter),
+        ("Buy $",     80, Qt.AlignRight),
+        ("Qty",       58, Qt.AlignCenter),
+        ("Cost",      92, Qt.AlignRight),
+        ("Price",     80, Qt.AlignRight),
+        ("Value",     92, Qt.AlignRight),
+        ("P&L $",     88, Qt.AlignRight),
+        ("P&L %",     68, Qt.AlignRight),
+        ("CS",        40, Qt.AlignCenter),
+        ("QC",        40, Qt.AlignCenter),
+        ("Signal",   120, Qt.AlignCenter),
+        ("",          34, Qt.AlignCenter),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._holdings = []
+        self._scan_df  = None
+        self.setStyleSheet(f"background:{BG};")
+        self._build_ui()
+        self._load()
+        self._refresh_table()
+
+    @staticmethod
+    def _pf_path():
+        base = os.path.dirname(os.path.abspath(sys.argv[0]))
+        return os.path.join(base, "portfolio.json")
+
+    # ── Persistence ───────────────────────────────────────────────────────────
+    def _load(self):
+        import json
+        try:
+            with open(self._pf_path(), encoding="utf-8") as f:
+                self._holdings = json.load(f)
+        except Exception:
+            self._holdings = []
+
+    def _save(self):
+        import json
+        try:
+            with open(self._pf_path(), "w", encoding="utf-8") as f:
+                json.dump(self._holdings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # ── Build UI ──────────────────────────────────────────────────────────────
+    def _sep(self):
+        f = QFrame(); f.setFrameShape(QFrame.HLine); f.setFixedHeight(1)
+        f.setStyleSheet(f"background:{BORDER}; border:none;"); return f
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+
+        # KPI bar
+        self._kpi_bar = QWidget()
+        self._kpi_bar.setFixedHeight(74)
+        self._kpi_bar.setStyleSheet(f"background:{SURFACE};")
+        self._kpi_hlay = QHBoxLayout(self._kpi_bar)
+        self._kpi_hlay.setContentsMargins(14, 6, 14, 6); self._kpi_hlay.setSpacing(6)
+        lay.addWidget(self._kpi_bar)
+        lay.addWidget(self._sep())
+
+        # Holdings table
+        self._table = QTableWidget(0, len(self._COLS))
+        self._table.setHorizontalHeaderLabels([c[0] for c in self._COLS])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setAlternatingRowColors(False)
+        self._table.horizontalHeader().setHighlightSections(False)
+        self._table.setStyleSheet(f"""
+            QTableWidget {{ background:{BG}; gridline-color:{BORDER}; outline:none; font-size:12px; }}
+            QTableWidget::item {{ padding:3px 6px; }}
+            QTableWidget::item:selected {{ background:{BORDER2}; color:{TEXT1}; }}
+            QHeaderView::section {{
+                background:{SURFACE}; color:{TEXT2}; font-size:9px;
+                font-weight:700; letter-spacing:1px;
+                padding:5px 6px; border:none; border-bottom:1px solid {BORDER};
+            }}
+        """)
+        for i, (_, w, _) in enumerate(self._COLS):
+            self._table.setColumnWidth(i, w)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        lay.addWidget(self._table, stretch=1)
+        lay.addWidget(self._sep())
+
+        # Add form
+        form = QWidget(); form.setFixedHeight(44)
+        form.setStyleSheet(f"background:{SURFACE};")
+        fh = QHBoxLayout(form)
+        fh.setContentsMargins(14, 0, 14, 0); fh.setSpacing(6)
+
+        _is = (f"background:{INPUT_BG};color:{TEXT1};border:1px solid {BORDER};"
+               f"border-radius:3px;padding:0 8px;font-size:12px;")
+
+        def _lbl(t):
+            l = QLabel(t)
+            l.setStyleSheet(f"color:{TEXT3};font-size:9px;letter-spacing:1px;")
+            return l
+
+        self._inp_ticker = QLineEdit()
+        self._inp_ticker.setPlaceholderText("AAPL")
+        self._inp_ticker.setFixedSize(72, 28); self._inp_ticker.setMaxLength(12)
+        self._inp_ticker.setStyleSheet(_is)
+
+        self._inp_date = QLineEdit()
+        self._inp_date.setPlaceholderText("YYYY-MM-DD")
+        self._inp_date.setFixedSize(100, 28); self._inp_date.setStyleSheet(_is)
+        self._inp_date.setText(pd.Timestamp.now().strftime("%Y-%m-%d"))
+
+        self._inp_price = QLineEdit()
+        self._inp_price.setPlaceholderText("Giá mua")
+        self._inp_price.setFixedSize(90, 28); self._inp_price.setStyleSheet(_is)
+
+        self._inp_qty = QLineEdit()
+        self._inp_qty.setPlaceholderText("Số CP")
+        self._inp_qty.setFixedSize(70, 28); self._inp_qty.setStyleSheet(_is)
+
+        self._inp_note = QLineEdit()
+        self._inp_note.setPlaceholderText("Ghi chú (tuỳ chọn)")
+        self._inp_note.setFixedHeight(28); self._inp_note.setStyleSheet(_is)
+
+        btn_add = QPushButton("＋  THÊM")
+        btn_add.setFixedSize(84, 28); btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setStyleSheet(
+            f"QPushButton{{background:{BLUE};color:#FFF;border:none;border-radius:3px;"
+            f"font-size:9px;font-weight:700;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{BLUE_HV};}}")
+        btn_add.clicked.connect(self._add_holding)
+        self._inp_ticker.returnPressed.connect(self._add_holding)
+
+        fh.addWidget(_lbl("TICKER")); fh.addWidget(self._inp_ticker); fh.addSpacing(4)
+        fh.addWidget(_lbl("NGÀY MUA")); fh.addWidget(self._inp_date); fh.addSpacing(4)
+        fh.addWidget(_lbl("GIÁ")); fh.addWidget(self._inp_price); fh.addSpacing(4)
+        fh.addWidget(_lbl("SỐ CP")); fh.addWidget(self._inp_qty); fh.addSpacing(4)
+        fh.addWidget(self._inp_note, stretch=1)
+        fh.addWidget(btn_add)
+        lay.addWidget(form)
+
+    # ── Actions ───────────────────────────────────────────────────────────────
+    def _add_holding(self):
+        ticker = self._inp_ticker.text().strip().upper()
+        date   = self._inp_date.text().strip()
+        try:
+            price = float(self._inp_price.text().strip().replace(",", ""))
+            qty   = float(self._inp_qty.text().strip().replace(",", ""))
+        except ValueError:
+            return
+        if not ticker or price <= 0 or qty <= 0:
+            return
+        self._holdings.append({
+            "ticker":    ticker,
+            "buy_date":  date,
+            "buy_price": price,
+            "qty":       qty,
+            "note":      self._inp_note.text().strip(),
+        })
+        self._save()
+        self._inp_ticker.clear(); self._inp_price.clear()
+        self._inp_qty.clear();    self._inp_note.clear()
+        self._refresh_table()
+
+    def _delete_holding(self, idx: int):
+        if 0 <= idx < len(self._holdings):
+            self._holdings.pop(idx)
+            self._save(); self._refresh_table()
+
+    # ── Data helpers ──────────────────────────────────────────────────────────
+    def _get_price(self, ticker):
+        if self._scan_df is not None and not self._scan_df.empty:
+            m = self._scan_df[self._scan_df["Ticker"] == ticker]
+            if not m.empty:
+                return m.iloc[0].get("Price ($)")
+        return None
+
+    def _get_scores(self, ticker):
+        if self._scan_df is not None and not self._scan_df.empty:
+            m = self._scan_df[self._scan_df["Ticker"] == ticker]
+            if not m.empty:
+                r = m.iloc[0]
+                return (r.get("CS_Score"), r.get("QC_Score"),
+                        r.get("CS_Signal",""), r.get("Tên Công Ty",""))
+        return None, None, "", ""
+
+    def refresh_scan(self, df):
+        self._scan_df = df
+        self._refresh_table()
+
+    # ── Table render ──────────────────────────────────────────────────────────
+    def _refresh_table(self):
+        self._table.setRowCount(0)
+        total_cost = total_val = 0.0
+        pl_pcts = []
+
+        _C = Qt.AlignVCenter | Qt.AlignCenter
+        _R = Qt.AlignVCenter | Qt.AlignRight
+        _L = Qt.AlignVCenter | Qt.AlignLeft
+
+        SIG_STYLE = {
+            "🟢 STRONG BUY": ("C6EFCE","1A5C2B"),
+            "🔵 BUY":        ("DDEEFF","1B3A5C"),
+            "🟡 WATCH":      ("FFF2CC","7D6608"),
+            "🔴 SKIP":       ("FFC7CE","9C0006"),
+        }
+
+        for i, h in enumerate(self._holdings):
+            ticker    = h.get("ticker","")
+            buy_px    = float(h.get("buy_price", 0))
+            qty       = float(h.get("qty", 0))
+            buy_date  = h.get("buy_date","")
+            cost      = buy_px * qty
+            curr_px   = self._get_price(ticker)
+            curr_val  = curr_px * qty if curr_px else None
+            pl_d      = (curr_val - cost)  if curr_val is not None else None
+            pl_p      = ((curr_px - buy_px) / buy_px * 100) if curr_px else None
+            cs, qc, sig, company = self._get_scores(ticker)
+
+            total_cost += cost
+            if curr_val: total_val += curr_val
+            if pl_p is not None: pl_pcts.append((ticker, pl_p))
+
+            row_bg = "F0F4FA" if i % 2 == 0 else "FFFFFF"
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            self._table.setRowHeight(row, 26)
+
+            def _cell(txt, align=_R, color=TEXT1, bold=False, bg=None):
+                item = QTableWidgetItem(str(txt))
+                item.setTextAlignment(align)
+                item.setForeground(QColor(f"#{color}"))
+                item.setBackground(QColor(f"#{bg}" if bg else f"#{row_bg}"))
+                if bold:
+                    fn = item.font(); fn.setBold(True); item.setFont(fn)
+                return item
+
+            self._table.setItem(row, 0,  _cell(i+1,   _C, TEXT3))
+            self._table.setItem(row, 1,  _cell(ticker, _C, BLUE[1:], bold=True))
+            self._table.setItem(row, 2,  _cell(company[:28] or "—", _L))
+            self._table.setItem(row, 3,  _cell(buy_date, _C, TEXT2))
+            self._table.setItem(row, 4,  _cell(f"${buy_px:,.2f}", _R))
+            self._table.setItem(row, 5,  _cell(f"{qty:,.0f}", _C))
+            self._table.setItem(row, 6,  _cell(f"${cost:,.0f}", _R, TEXT2))
+
+            if curr_px:
+                self._table.setItem(row, 7, _cell(f"${curr_px:,.2f}", _R))
+                self._table.setItem(row, 8, _cell(f"${curr_val:,.0f}", _R))
+                pl_c = GREEN[1:] if pl_d >= 0 else RED[1:]
+                self._table.setItem(row, 9,  _cell(f"{pl_d:+,.0f}", _R, pl_c, bold=True))
+                self._table.setItem(row, 10, _cell(f"{pl_p:+.1f}%",  _R, pl_c, bold=True))
+            else:
+                for col in range(7, 11):
+                    self._table.setItem(row, col, _cell("—", _C, TEXT3))
+
+            cs_c = GREEN[1:] if cs is not None and int(cs) >= 7 else TEXT2
+            self._table.setItem(row, 11, _cell(str(int(cs)) if cs is not None else "—", _C, cs_c))
+            qc_c = GREEN[1:] if qc is not None and int(qc) >= 4 else TEXT2
+            self._table.setItem(row, 12, _cell(str(int(qc)) if qc is not None else "—", _C, qc_c))
+
+            if sig in SIG_STYLE:
+                sbg, sfg = SIG_STYLE[sig]
+                self._table.setItem(row, 13, _cell(sig, _C, sfg, bg=sbg))
+            else:
+                self._table.setItem(row, 13, _cell("—", _C, TEXT3))
+
+            # Delete button
+            btn_del = QPushButton("✕")
+            btn_del.setFixedSize(24, 22); btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.setStyleSheet(
+                f"QPushButton{{background:transparent;color:{TEXT3};border:none;font-size:10px;}}"
+                f"QPushButton:hover{{color:{RED};}}")
+            btn_del.clicked.connect(lambda _, idx=i: self._delete_holding(idx))
+            cw = QWidget(); cw.setStyleSheet(f"background:#{row_bg};")
+            cl = QHBoxLayout(cw); cl.setContentsMargins(4,0,4,0); cl.addWidget(btn_del)
+            self._table.setCellWidget(row, 14, cw)
+
+        self._refresh_kpi(total_cost, total_val, pl_pcts)
+
+    def _refresh_kpi(self, total_cost, total_val, pl_pcts):
+        while self._kpi_hlay.count():
+            it = self._kpi_hlay.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+
+        pl_d   = total_val - total_cost if total_val > 0 else 0
+        pl_p   = (pl_d / total_cost * 100) if total_cost > 0 else 0
+        best   = max(pl_pcts, key=lambda x: x[1]) if pl_pcts else None
+        worst  = min(pl_pcts, key=lambda x: x[1]) if pl_pcts else None
+
+        def _card(val, lbl, col=None):
+            card = QWidget()
+            card.setStyleSheet(
+                f"background:{SURFACE};border:1px solid {BORDER};border-radius:4px;")
+            cv = QVBoxLayout(card); cv.setContentsMargins(10,5,10,4); cv.setSpacing(1)
+            vl = QLabel(val)
+            vl.setStyleSheet(f"color:{col or TEXT1};font-size:17px;font-weight:700;")
+            vl.setAlignment(Qt.AlignCenter)
+            ll = QLabel(lbl)
+            ll.setStyleSheet(f"color:{TEXT3};font-size:9px;letter-spacing:1px;")
+            ll.setAlignment(Qt.AlignCenter)
+            cv.addWidget(vl); cv.addWidget(ll)
+            return card
+
+        self._kpi_hlay.addWidget(_card(f"${total_cost:,.0f}", "TỔNG ĐẦU TƯ"))
+        self._kpi_hlay.addWidget(_card(
+            f"${total_val:,.0f}" if total_val > 0 else "—", "GIÁ TRỊ HIỆN TẠI"))
+        c = GREEN if pl_d >= 0 else RED
+        self._kpi_hlay.addWidget(_card(
+            f"{pl_d:+,.0f}" if total_val > 0 else "—", "P&L ($)", c))
+        self._kpi_hlay.addWidget(_card(
+            f"{pl_p:+.1f}%" if total_val > 0 else "—", "P&L (%)", c))
+        self._kpi_hlay.addWidget(_card(str(len(self._holdings)), "# MÃ"))
+        if best:
+            self._kpi_hlay.addWidget(_card(
+                f"{best[0]}  {best[1]:+.1f}%", "BEST", GREEN))
+        if worst and (best is None or worst[0] != best[0]):
+            self._kpi_hlay.addWidget(_card(
+                f"{worst[0]}  {worst[1]:+.1f}%", "WORST", RED))
+        self._kpi_hlay.addStretch()
+
+    def apply_theme(self):
+        self.setStyleSheet(f"background:{BG};")
+        self._kpi_bar.setStyleSheet(f"background:{SURFACE};")
+        self._refresh_table()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Help dialog — F1
 # ─────────────────────────────────────────────────────────────────────────────
 class HelpDialog(QDialog):
@@ -2150,6 +2485,10 @@ class MainWindow(QMainWindow):
         qc_v.addWidget(self._qc_vsplit)
         tabs.addTab(self._qc_w, "  Quality Compounder  ")
 
+        # Tab 3 — My Portfolio
+        self._portfolio_panel = PortfolioPanel()
+        tabs.addTab(self._portfolio_panel, "  💼 Portfolio  ")
+
         return tabs
 
     def _build_dashboard_panel(self):
@@ -2639,6 +2978,8 @@ class MainWindow(QMainWindow):
             self._qc_vsplit.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; height:2px; }}")
         # ── Chart panel ──
         self._chart_panel.set_theme(dark)
+        # ── Portfolio ──
+        self._portfolio_panel.apply_theme()
         # ── Dashboard — regenerate HTML theo theme mới ──
         self._dash_browser.setStyleSheet(f"""
             QTextBrowser {{
@@ -2846,6 +3187,7 @@ class MainWindow(QMainWindow):
                 f"Lưu {age_str} trước  ·  Nhấn SCAN để cập nhật mới",
                 TEXT2
             )
+            self._portfolio_panel.refresh_scan(df)
         except Exception:
             pass   # Cache lỗi hoặc không tương thích → bỏ qua
 
@@ -2880,6 +3222,8 @@ class MainWindow(QMainWindow):
         )
         # Lưu cache để lần sau không cần scan lại
         self._save_cache(df, self._market.currentText(), self._top_spin.value())
+        # Cập nhật Portfolio với giá/điểm mới nhất
+        self._portfolio_panel.refresh_scan(df)
 
     def _on_scan_failed(self, msg):
         self._spin_tmr.stop()
