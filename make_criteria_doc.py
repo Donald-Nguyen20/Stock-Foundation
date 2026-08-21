@@ -339,6 +339,15 @@ para(doc,
      "của số cổ phiếu lưu hành, và phần chênh lệch giữa hai con số này chính là nguyên liệu cho một tiêu chí "
      "kiểm chứng ở nhóm B.", size=9.5)
 
+h2(doc, "2.1  Ba cột số tuyệt đối để đọc bằng mắt")
+para(doc,
+     "Ngoài các tiêu chí chấm điểm, bảng còn hiển thị **Doanh thu**, **Lợi nhuận ròng** và **FCF** ở dạng "
+     "số tuyệt đối (đơn vị tỷ). Chúng **không tham gia chấm điểm** — số tuyệt đối không so sánh được giữa "
+     "các mã có quy mô khác nhau, nên tiêu chí phải dùng tăng trưởng và biên. Nhưng đặt ba cột này cạnh "
+     "nhau thì phép kiểm chứng quan trọng nhất đọc được ngay bằng mắt: nếu lợi nhuận 120 tỷ mà FCF chỉ 20 tỷ, "
+     "khoảng cách đó hiện ra lập tức mà không cần nhìn tỷ số. Cột Lợi nhuận và FCF vì thế được đặt liền nhau "
+     "ở tab Kiểm chứng, ngay trước cột FCF/NI.", size=9.5)
+
 h2(doc, "2.1  Xử lý riêng cho nhóm Tài chính")
 para(doc,
      "Với sector Financial Services, ROIC được thay bằng **ROE > 12%**, và tiêu chí D/E bị **bỏ qua hoàn toàn** "
@@ -631,9 +640,10 @@ add_table(doc,
               ["EPS Growth%", "earnings_per_share_diluted_yoy_growth_ttm", "TradingView"],
               ["D/E", "debt_to_equity", "TradingView"],
               ["ROE%", "return_on_equity", "TradingView"],
-              ["FCF_abs", "free_cash_flow_ttm", "TradingView"],
+              ["FCF_abs · FCF ($B)", "free_cash_flow_ttm", "TradingView"],
               ["FCF_Margin%", "free_cash_flow_margin_ttm", "TradingView"],
-              ["NI_abs", "net_income", "TradingView"],
+              ["NI_abs · Lợi nhuận ($B)", "net_income", "TradingView"],
+              ["Rev_abs · Doanh thu ($B)", "total_revenue_ttm", "TradingView"],
               ["Cash_abs", "cash_n_short_term_invest_fq", "TradingView"],
               ["Debt_abs", "total_debt_fq", "TradingView"],
               ["Current Ratio", "current_ratio", "TradingView"],

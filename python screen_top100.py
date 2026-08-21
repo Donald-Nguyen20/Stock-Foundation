@@ -90,6 +90,7 @@ FETCH_COLS = [
     "free_cash_flow_ttm",
     "free_cash_flow_margin_ttm",
     "net_income",
+    "total_revenue_ttm",
     "cash_n_short_term_invest_fq",
     "total_debt_fq",
 ]
@@ -103,6 +104,7 @@ RENAME = {
     "free_cash_flow_ttm": "FCF_abs",
     "free_cash_flow_margin_ttm": "FCF_Margin%",
     "net_income": "NI_abs",
+    "total_revenue_ttm": "Rev_abs",
     "cash_n_short_term_invest_fq": "Cash_abs",
     "total_debt_fq": "Debt_abs",
     "gross_margin": "Gross Margin%", "net_margin": "Net Margin%",
@@ -486,6 +488,16 @@ def _derive_fields(df, moat_cache=None):
             return None
         return round(roe - roic, 1)
     df["ROE_ROIC_Gap"] = df.apply(_lev_gap, axis=1)
+
+    # Số tuyệt đối quy về tỷ — chỉ để hiển thị, không chấm điểm.
+    # Đặt Doanh thu · Lợi nhuận · FCF cạnh nhau thì đọc được bằng mắt
+    # phép kiểm chứng FCF/NI thay vì chỉ thấy tỷ số.
+    for src, dst in (("Rev_abs", "Doanh thu ($B)"),
+                     ("NI_abs",  "Lợi nhuận ($B)"),
+                     ("FCF_abs", "FCF ($B)")):
+        df[dst] = df[src].apply(
+            lambda v: round(_num(v) / 1e9, 2) if _num(v) is not None else None) \
+            if src in df.columns else None
 
     # Net Cash ($B) = tiền và tương đương + đầu tư ngắn hạn − tổng nợ
     def _net_cash(r):
@@ -1066,6 +1078,9 @@ def _main_sheet(wb, df, market, top):
     BASE = [("Ticker", "Ticker", 10), ("Tên Công Ty", "Công ty", 30),
             ("Sector", "Ngành", 20), ("Price ($)", "Giá", 11),
             ("MCap ($B)", "Vốn hóa (tỷ$)", 14),
+            ("Doanh thu ($B)", "Doanh thu (tỷ)", 14),
+            ("Lợi nhuận ($B)", "Lợi nhuận (tỷ)", 14),
+            ("FCF ($B)", "FCF (tỷ)", 12),
             ("ROIC%", "ROIC%", 9), ("Op Margin%", "Biên HĐ%", 10),
             ("Gross Margin%", "Biên gộp%", 10), ("NI Growth%", "LN tăng%", 10),
             ("Rev Growth%", "DT tăng%", 10), ("D/E", "D/E", 8),

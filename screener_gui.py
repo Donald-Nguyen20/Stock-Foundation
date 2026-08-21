@@ -97,6 +97,8 @@ TABLE_COLS = [
     ("Sector",     "Sector",       105,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("Price($)",   "Price ($)",     70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("MCap($B)",   "MCap ($B)",     72,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("DThu($B)",   "Doanh thu ($B)", 74, Qt.AlignRight  | Qt.AlignVCenter),
+    ("LNhuận($B)", "Lợi nhuận ($B)", 78, Qt.AlignRight  | Qt.AlignVCenter),
     ("ROIC%",      "ROIC%",         62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("OpMgn%",     "Op Margin%",    64,  Qt.AlignRight  | Qt.AlignVCenter),
     ("GM%",        "Gross Margin%", 60,  Qt.AlignRight  | Qt.AlignVCenter),
@@ -127,6 +129,8 @@ REAL_COLS = [
     ("Ticker",     "Ticker",        65,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("Company",    "Tên Công Ty",  175,  Qt.AlignLeft   | Qt.AlignVCenter),
     ("Sector",     "Sector",       105,  Qt.AlignLeft   | Qt.AlignVCenter),
+    ("LNhuận($B)", "Lợi nhuận ($B)", 78, Qt.AlignRight  | Qt.AlignVCenter),
+    ("FCF($B)",    "FCF ($B)",      70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("FCF/NI",     "FCF/NI",        62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("FCF Mgn%",   "FCF_Margin%",   70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("EPS−NI",     "EPS_NI_Gap",    64,  Qt.AlignRight  | Qt.AlignVCenter),
@@ -145,6 +149,165 @@ REAL_COLS = [
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chú giải cho từng cột — hiện khi rê chuột lên tiêu đề cột hoặc lên ô dữ liệu.
+# Mỗi mục nói ba điều: chỉ số là gì, tính thế nào, và đọc nó ra sao.
+# ─────────────────────────────────────────────────────────────────────────────
+COL_TIPS = {
+    "Ticker":  "Mã cổ phiếu trên sàn.",
+    "Tên Công Ty": "Tên đầy đủ của doanh nghiệp.",
+    "Sector":  "Ngành theo phân loại của TradingView. Ngành quyết định một số tiêu chí có được "
+               "áp dụng hay không — nhóm Financial Services được xử lý riêng.",
+    "Price ($)": "Giá đóng cửa gần nhất.",
+    "MCap ($B)": "Vốn hóa thị trường = giá × số cổ phiếu lưu hành. Đơn vị tỷ.",
+
+    "Doanh thu ($B)":
+        "<b>Doanh thu</b> bốn quý gần nhất (TTM), đơn vị tỷ.<br>"
+        "Tổng tiền bán hàng trước khi trừ bất kỳ chi phí nào. Đây là con số khó nguỵ tạo nhất "
+        "trên báo cáo tài chính.<br>"
+        "<i>Chỉ để tham khảo quy mô — không chấm điểm.</i>",
+    "Lợi nhuận ($B)":
+        "<b>Lợi nhuận ròng</b> bốn quý gần nhất (TTM), đơn vị tỷ.<br>"
+        "Phần còn lại sau khi trừ hết chi phí, lãi vay và thuế. Đây là con số kế toán — "
+        "nó có thể tăng mà tiền mặt không tăng.<br>"
+        "<i>So cột này với cột FCF để thấy ngay lợi nhuận có kèm tiền thật hay không.</i>",
+    "FCF ($B)":
+        "<b>Dòng tiền tự do</b> bốn quý gần nhất (TTM), đơn vị tỷ.<br>"
+        "Tiền thật còn lại sau khi đã chi cho vận hành và đầu tư tài sản. Đây là tiền doanh nghiệp "
+        "thực sự có thể dùng để trả nợ, chia cổ tức hoặc mua lại cổ phiếu.<br>"
+        "<i>FCF thấp hơn lợi nhuận kéo dài là dấu hiệu lợi nhuận nằm trên giấy.</i>",
+
+    "ROIC%":
+        "<b>Return on Invested Capital</b> — lợi nhuận trên toàn bộ vốn đầu tư, gồm cả vốn chủ và nợ.<br>"
+        "Đây là thước đo chất lượng doanh nghiệp tốt nhất trong bảng: nó cho biết mỗi đồng vốn bỏ vào "
+        "sinh ra bao nhiêu lợi nhuận, bất kể vốn đó vay hay tự có.<br>"
+        "<i>Trên 15% là vượt chi phí vốn (thường 8–10%). Dưới đó, doanh nghiệp đang phá hủy giá trị.</i>",
+    "Op Margin%":
+        "<b>Biên lợi nhuận hoạt động</b> = lợi nhuận từ hoạt động kinh doanh / doanh thu.<br>"
+        "Đo hiệu quả vận hành sau khi trừ giá vốn và chi phí bán hàng, quản lý — nhưng trước lãi vay "
+        "và thuế, nên ít bị méo bởi cấu trúc vốn.<br>"
+        "<i>Ngưỡng đạt: trên 15%.</i>",
+    "Gross Margin%":
+        "<b>Biên lợi nhuận gộp</b> = (doanh thu − giá vốn hàng bán) / doanh thu.<br>"
+        "Phản ánh khả năng bán cao hơn chi phí sản xuất — tức sức mạnh định giá.<br>"
+        "<i>Ngưỡng đạt: trên 40%. Lưu ý biên gộp lệch rất mạnh theo ngành: phần mềm thường 60–80%, "
+        "bán lẻ hiếm khi vượt 30%.</i>",
+    "NI Growth%":
+        "<b>Tăng trưởng lợi nhuận ròng</b> — bốn quý gần nhất so với bốn quý cùng kỳ năm trước.<br>"
+        "Dùng số TTM thay vì số một quý để giảm nhiễu theo mùa vụ.<br>"
+        "<i>Ngưỡng đạt: trên 20%. Hệ thống đo tăng trưởng lợi nhuận chứ không đo EPS, vì EPS còn "
+        "chịu ảnh hưởng của số cổ phiếu lưu hành.</i>",
+    "Rev Growth%":
+        "<b>Tăng trưởng doanh thu</b> — bốn quý gần nhất so cùng kỳ năm trước.<br>"
+        "Lợi nhuận có thể tăng nhờ cắt chi phí, nhưng doanh thu chỉ tăng khi bán được nhiều hơn thật sự.<br>"
+        "<i>Ngưỡng đạt: trên 15%.</i>",
+    "D/E":
+        "<b>Debt to Equity</b> = tổng nợ / vốn chủ sở hữu.<br>"
+        "Đo mức độ phụ thuộc vào vay nợ. Lãi vay phải trả kể cả khi doanh thu giảm, nên đòn bẩy "
+        "khuếch đại cả lãi lẫn lỗ.<br>"
+        "<i>Ngưỡng đạt: dưới 1,0. Không áp dụng cho ngân hàng và bảo hiểm — tiền gửi khách hàng "
+        "được hạch toán là nợ nên tỷ lệ 8–15 lần là bình thường.</i>",
+    "ROE%":
+        "<b>Return on Equity</b> = lợi nhuận ròng / vốn chủ sở hữu.<br>"
+        "Lợi nhuận trên phần vốn của cổ đông.<br>"
+        "<i>Không phải tiêu chí chấm điểm, vì ROE dễ bị thổi phồng bằng đòn bẩy hoặc bằng việc mua "
+        "cổ phiếu quỹ làm vốn chủ teo lại. Hệ thống dùng ROIC và so hai con số với nhau ở cột ROE−ROIC.</i>",
+    "P/E":
+        "<b>Price to Earnings</b> = giá / lợi nhuận trên mỗi cổ phiếu.<br>"
+        "<i>Chỉ hiển thị tham khảo. Hệ thống không chấm điểm định giá — nó trả lời «doanh nghiệp này "
+        "có tốt và có thật không», không phải «giá này có rẻ không».</i>",
+    "1Y%": "Hiệu suất giá 12 tháng gần nhất. Chỉ hiển thị, không chấm điểm.",
+    "Net Margin%": "<b>Biên lợi nhuận ròng</b> = lợi nhuận ròng / doanh thu. Chỉ hiển thị.",
+    "EV/EBITDA": "Giá trị doanh nghiệp trên lợi nhuận trước lãi, thuế và khấu hao. Chỉ hiển thị.",
+    "PEG": "P/E chia cho tốc độ tăng trưởng lợi nhuận. Chỉ hiển thị.",
+
+    "FCF/NI":
+        "<b>Dòng tiền tự do chia lợi nhuận ròng</b> — phép thử quan trọng nhất của nhóm Kiểm chứng.<br>"
+        "Lợi nhuận là con số kế toán; dòng tiền tự do là tiền thật. Khi hai con số lệch nhau kéo dài, "
+        "phần chênh nằm ở khoản phải thu, hàng tồn kho hoặc các bút toán dồn tích.<br>"
+        "<i>Ngưỡng đạt: từ 0,80 lần trở lên. Để trống khi doanh nghiệp đang lỗ, vì khi đó tỷ lệ "
+        "không có ý nghĩa.</i>",
+    "FCF_Margin%":
+        "<b>Biên dòng tiền tự do</b> = dòng tiền tự do / doanh thu.<br>"
+        "Mỗi đồng doanh thu để lại bao nhiêu tiền thật. Bác bỏ trường hợp biên lợi nhuận đẹp nhờ "
+        "vốn hóa chi phí hoặc hoãn đầu tư.<br>"
+        "<i>Ngưỡng đạt: trên 8%.</i>",
+    "EPS_NI_Gap":
+        "<b>Chênh lệch tăng trưởng EPS trừ tăng trưởng lợi nhuận ròng</b>, tính bằng điểm phần trăm.<br>"
+        "Nếu lợi nhuận tăng 10% mà EPS tăng 25%, phần chênh 15 điểm không đến từ kinh doanh — "
+        "nó đến từ việc mua lại cổ phiếu làm giảm số cổ phiếu lưu hành.<br>"
+        "<i>Ngưỡng đạt: không vượt quá 10 điểm %. Số âm nghĩa là đang pha loãng (phát hành thêm), "
+        "vẫn được coi là đạt tiêu chí này.</i>",
+    "ROE_ROIC_Gap":
+        "<b>Chênh lệch ROE trừ ROIC</b>, tính bằng điểm phần trăm.<br>"
+        "ROE tính trên vốn chủ, ROIC tính trên toàn bộ vốn gồm cả nợ — nên khoảng cách giữa chúng "
+        "chính là phần đóng góp của đòn bẩy.<br>"
+        "<i>Ngưỡng đạt: không vượt quá 15 điểm %. ROE 25% với ROIC 22% là hiệu quả thật; "
+        "ROE 45% với ROIC 8% là đòn bẩy.</i>",
+    "Net Cash ($B)":
+        "<b>Tiền ròng</b> = tiền và tương đương + đầu tư ngắn hạn − tổng nợ, đơn vị tỷ.<br>"
+        "Dương nghĩa là doanh nghiệp có nhiều tiền hơn nợ.<br>"
+        "<i>Kết hợp với Current Ratio thành tiêu chí Bảng cân đối. Không áp dụng cho ngân hàng.</i>",
+    "Current Ratio":
+        "<b>Hệ số thanh toán hiện hành</b> = tài sản ngắn hạn / nợ ngắn hạn.<br>"
+        "Đo khả năng trả các khoản đến hạn trong vòng một năm.<br>"
+        "<i>Trên 1,5 được coi là an toàn.</i>",
+    "Moat Score":
+        "<b>Độ bền vững qua 5 năm</b> — xếp hạng từ ROE và biên lợi nhuận gộp trung bình 5 năm.<br>"
+        "WIDE ★★★ khi ROE ≥ 20% và biên gộp ≥ 50%; NARROW ★★ khi ROE ≥ 15% và biên gộp ≥ 35%.<br>"
+        "<i>Đạt tiêu chí khi là WIDE hoặc NARROW. Cần bật «yfinance Moat» và chỉ có dữ liệu cho "
+        "thị trường Mỹ — khi thiếu thì để trống chứ không thay bằng số liệu một kỳ, vì lấy một kỳ "
+        "mà gọi là bền vững thì chính nó đã là số ảo.</i>",
+
+    "FIN_Disp":
+        "<b>Điểm Tài chính</b> — số tiêu chí nhóm A đạt / số tiêu chí thực sự áp dụng được.<br>"
+        "Mẫu số thay đổi theo ngành và theo dữ liệu sẵn có, nên mã thiếu dữ liệu và nhóm Tài chính "
+        "không bị phạt oan. Sắp xếp theo tỷ lệ, nên 4/4 đứng trên 5/6.",
+    "REAL_Disp":
+        "<b>Điểm Kiểm chứng</b> — số tiêu chí nhóm B đạt / số tiêu chí thực sự áp dụng được.<br>"
+        "Điểm này <b>không được cộng với điểm Tài chính</b>. Điểm Tài chính cao mà điểm này thấp "
+        "là tín hiệu cảnh báo, không phải điểm trung bình.",
+    "Signal":
+        "<b>Tín hiệu tổng hợp</b> từ hai tỷ lệ đạt.<br>"
+        "🟢 TỐT &amp; THỰC: cả hai ≥ 80%<br>"
+        "🔵 KHÁ: cả hai ≥ 60%<br>"
+        "🔴 CỜ ĐỎ: tài chính ≥ 80% nhưng kiểm chứng &lt; 50% — số đẹp chưa chứng minh được<br>"
+        "🟠 THẬT NHƯNG YẾU: kiểm chứng ≥ 80% nhưng tài chính &lt; 50%<br>"
+        "🟡 THEO DÕI · ⚫ LOẠI · ⚪ THIẾU DỮ LIỆU (dưới 3 tiêu chí áp dụng được)",
+}
+
+
+def _criteria_tip(group, key):
+    """Chú giải cho cột ✓/✗ của một tiêu chí."""
+    cfg = (FIN_CRITERIA if group == "FIN" else REAL_CRITERIA).get(key)
+    if not cfg:
+        return ""
+    tip = f"<b>{cfg['label']}</b><br>{cfg['desc']}"
+    if "bac_bo" in cfg:
+        tip += f"<br><i>Bác bỏ khả năng: {cfg['bac_bo']}</i>"
+    tip += "<br><br>✓ đạt · ✗ không đạt · — không áp dụng hoặc thiếu dữ liệu (không tính vào mẫu số)"
+    return tip
+
+
+def _tip_for(key):
+    """Chú giải cho một cột bất kỳ, kể cả cột tiêu chí."""
+    if key.startswith("FIN_") and key != "FIN_Disp":
+        return _criteria_tip("FIN", key[4:])
+    if key.startswith("REAL_") and key != "REAL_Disp":
+        return _criteria_tip("REAL", key[5:])
+    return COL_TIPS.get(key, "")
+
+
+def _apply_header_tips(table, cols):
+    """Gắn chú giải lên tiêu đề cột."""
+    for i, (_, key, _, _) in enumerate(cols):
+        item = table.horizontalHeaderItem(i)
+        if item is not None:
+            tip = _tip_for(key)
+            if tip:
+                item.setToolTip(tip)
 
 from fundamental_chart import ChartWorker
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -379,6 +542,10 @@ class NumItem(QTableWidgetItem):
             text = f"{val:,.1f}"
         elif fmt == "mcap_vnd":
             text = f"₫{val:,.0f} tỷ"
+        elif fmt == "bil":
+            text = f"{val:,.1f}"
+        elif fmt == "bil_vnd":
+            text = f"{val:,.0f}"
         elif fmt == "int":
             text = str(int(val))
         else:
@@ -1603,6 +1770,7 @@ class MainWindow(QMainWindow):
 
         headers = [c[0] for c in TABLE_COLS]
         self._table.setHorizontalHeaderLabels(headers)
+        _apply_header_tips(self._table, TABLE_COLS)
         for i, (_, _, w_px, _) in enumerate(TABLE_COLS):
             self._table.setColumnWidth(i, w_px)
 
@@ -1735,6 +1903,7 @@ class MainWindow(QMainWindow):
         _hdr = ColoredHeader(self._qc_table)
         self._qc_table.setHorizontalHeader(_hdr)
         self._qc_table.setHorizontalHeaderLabels([c[0] for c in REAL_COLS])
+        _apply_header_tips(self._qc_table, REAL_COLS)
         for i, (_, _, w_px, _) in enumerate(REAL_COLS):
             self._qc_table.setColumnWidth(i, w_px)
         self._color_qc_header_cols()
@@ -1829,6 +1998,12 @@ class MainWindow(QMainWindow):
                     cell = NumItem(val, "vnd" if is_vn else "price")
                 elif key == "MCap ($B)":
                     cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
+
+                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)"):
+                    cell = NumItem(val, "bil_vnd" if is_vn else "bil")
+                    if isinstance(val, float) and val == val:
+                        # Lợi nhuận hoặc dòng tiền âm là thông tin quan trọng — tô đỏ ngay
+                        cell.setForeground(QColor(RED if val < 0 else TEXT1))
                 elif key == "Net Cash ($B)":
                     cell = NumItem(val)
                     if isinstance(val, float) and val == val:
@@ -1868,6 +2043,9 @@ class MainWindow(QMainWindow):
 
                 if cell:
                     cell.setTextAlignment(int(align))
+                    _tip = _tip_for(key)
+                    if _tip:
+                        cell.setToolTip(_tip)
                     self._qc_table.setItem(ri, ci, cell)
 
         self._qc_table.setSortingEnabled(True)
@@ -2451,6 +2629,12 @@ class MainWindow(QMainWindow):
                     cell = NumItem(val, "vnd" if is_vn else "price")
                 elif key == "MCap ($B)":
                     cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
+
+                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)"):
+                    cell = NumItem(val, "bil_vnd" if is_vn else "bil")
+                    if isinstance(val, float) and val == val:
+                        # Lợi nhuận hoặc dòng tiền âm là thông tin quan trọng — tô đỏ ngay
+                        cell.setForeground(QColor(RED if val < 0 else TEXT1))
                 elif key in PCT_KEYS:
                     cell = NumItem(val, "pct")
                     if isinstance(val, float):
@@ -2462,6 +2646,9 @@ class MainWindow(QMainWindow):
 
                 if cell:
                     cell.setTextAlignment(int(align))
+                    _tip = _tip_for(key)
+                    if _tip:
+                        cell.setToolTip(_tip)
                     self._table.setItem(ri, ci, cell)
 
         self._table.setSortingEnabled(True)
@@ -2489,16 +2676,17 @@ class MainWindow(QMainWindow):
 
         market = self._market.currentText()
         is_vn  = market.lower() == "vietnam"
-        dark   = getattr(self, "_dark", True)
+        dark   = getattr(self, "_is_dark", False)
 
+        # Màu nhấn phải sáng hơn hẳn trên nền tối, nếu không chữ màu bị chìm.
         if dark:
-            BG_="#0B0E18"; CARD="#131928"; BRD="#243044"; T1="#DCE4EE"; T2="#7A8899"; T3="#4A5568"
-            HDR="#0D1828"; ROW_A="#0E1220"
+            BG_="#0B0E18"; CARD="#131928"; BRD="#2C3A50"; T1="#E6ECF5"; T2="#9AA9BC"; T3="#6B7C91"
+            HDR="#16233A"; ROW_A="#101728"
+            G="#3DD97F"; R="#FF6B5E"; A_="#FFB443"; B="#5FA8FF"; O="#FF9448"
         else:
-            BG_="#FFFFFF"; CARD="#F7FAFC"; BRD="#D1D9E6"; T1="#1A202C"; T2="#4A5568"; T3="#94A3B8"
-            HDR="#EEF2FB"; ROW_A="#F0F4FA"
-
-        G="#16A34A"; R="#DC2626"; A_="#D97706"; B="#2563EB"; O="#EA7C1F"
+            BG_="#FFFFFF"; CARD="#F7FAFC"; BRD="#D1D9E6"; T1="#1A202C"; T2="#4A5568"; T3="#8494A8"
+            HDR="#E4EAF5"; ROW_A="#F0F4FA"
+            G="#15803D"; R="#B91C1C"; A_="#B45309"; B="#1D4ED8"; O="#C2410C"
 
         if df is None or df.empty:
             return f'<body style="background:{BG_};color:{T2};font-family:Segoe UI;padding:40px;">Chưa có dữ liệu.</body>'
@@ -2676,19 +2864,23 @@ class MainWindow(QMainWindow):
                 else:
                     note, nc = "phân loại tốt", G
                 bar_c = G if pct >= 60 else B if pct >= 30 else A_
-                bar = (f'<div style="background:{BRD};border-radius:3px;height:8px;width:90px;'
-                       f'display:inline-block;vertical-align:middle;">'
-                       f'<div style="background:{bar_c};height:8px;width:{max(2, min(100, pct)) * 0.9:.0f}px;'
-                       f'border-radius:3px;"></div></div>')
+                # Thanh vẽ bằng ký tự khối: engine rich-text của Qt không hỗ trợ
+                # inline-block nên div lồng nhau bị đè lên chữ. Ký tự thì luôn đúng.
+                filled = int(round(pct / 10))
+                bar = (f'<span style="color:{bar_c};font-family:Consolas,monospace;'
+                       f'font-size:12px;letter-spacing:-1px;">{"█" * filled}</span>'
+                       f'<span style="color:{BRD};font-family:Consolas,monospace;'
+                       f'font-size:12px;letter-spacing:-1px;">{"█" * (10 - filled)}</span>')
                 hit_rows.append([
                     cell("Nhóm A" if grp == "A" else "Nhóm B", B if grp == "A" else O, True),
                     cell(crit[k]["label"], T1, True),
                     cell(f"{got}/{app}", T1),
-                    cell(f"{bar} <span style='color:{T2};'>{pct:.0f}%</span>"),
+                    cell(f"{pct:.0f}%", bar_c, True),
+                    cell(bar),
                     cell(note, nc),
                 ])
-        hit_tbl = table(["Nhóm", "Tiêu chí", "Đạt", "Tỷ lệ", "Nhận xét"], hit_rows,
-                        widths=["8%", "18%", "9%", "27%", "38%"])
+        hit_tbl = table(["Nhóm", "Tiêu chí", "Đạt", "Tỷ lệ", "Mức", "Nhận xét"], hit_rows,
+                        widths=["8%", "17%", "9%", "7%", "14%", "45%"])
 
         # ── 4. Theo ngành ────────────────────────────────────────────────
         sec_rows = []
@@ -2711,11 +2903,11 @@ class MainWindow(QMainWindow):
         stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
         return f"""<body style="background:{BG_};color:{T1};font-family:'Segoe UI',sans-serif;
                                 margin:0;padding:18px 22px;">
-  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;">
-    <span style="font-size:17px;font-weight:700;color:{T1};letter-spacing:.5px;">
-      TÀI CHÍNH TỐT &amp; CÓ CHỨNG MINH</span>
-    <span style="font-size:11px;color:{T3};">{market.upper()}  ·  {n} mã  ·  {stamp}</span>
-  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;"><tr>
+    <td style="font-size:17px;font-weight:700;color:{T1};letter-spacing:.5px;">
+      TÀI CHÍNH TỐT &amp; CÓ CHỨNG MINH</td>
+    <td align="right" style="font-size:11px;color:{T3};">{market.upper()}  ·  {n} mã  ·  {stamp}</td>
+  </tr></table>
   {kpis}
   {mk_html}
 
