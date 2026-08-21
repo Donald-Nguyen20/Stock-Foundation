@@ -24,47 +24,87 @@ except ImportError as e:
 
 
 # ═══════════════════════════════════════════════════════════════
-# CAN SLIM CRITERIA
+# NHÓM A — TÀI CHÍNH TỐT  (số liệu đẹp: sinh lời, biên, tăng trưởng, nợ)
+# Toàn bộ lấy từ TradingView → có cho mọi thị trường.
 # ═══════════════════════════════════════════════════════════════
-CANSLIM = {
-    "C":   dict(label="C — EPS Qtr",   field="EPS Qtr%",      thr=25,  op="gt", desc="EPS Quarterly YoY > 25%"),
-    "A":   dict(label="A — EPS Ann",   field="EPS Annual%",   thr=20,  op="gt", desc="EPS Annual YoY > 20%"),
-    "S":   dict(label="S — Sales",     field="Rev Qtr%",      thr=20,  op="gt", desc="Revenue Quarterly YoY > 20%"),
-    "L":   dict(label="L — RS (vs Idx)", field="RS_1Y%",        thr=0,   op="gt", desc="1Y outperform market index"),
-    "Q":   dict(label="Quality GM",    field="Gross Margin%", thr=40,  op="gt", desc="Gross Margin > 40%"),
-    "R":   dict(label="ROE",           field="ROE%",          thr=17,  op="gt", desc="ROE > 17%"),
-    "M":   dict(label="M — EPS Accel",  field="EPS Qtr%",      thr=0,   op="accel", desc="EPS Quarterly YoY > Annual YoY AND > 0 (accelerating earnings momentum)"),
-    "D":   dict(label="Debt OK",       field="D/E",           thr=1.5, op="lt", desc="D/E < 1.5"),
-    "N":   dict(label="N — 52W High",  field="52W_High%",     thr=90,  op="gt", desc="Price ≥ 90% of 52-Week High"),
-    "MKT": dict(label="Market",        field="Market_OK",     thr=0.5, op="gt", desc="Market index above MA50 & MA200"),
+FIN_CRITERIA = {
+    "ROIC": dict(label="ROIC",       field="ROIC%",        thr=15, op="gt",
+                 desc="ROIC > 15% — sinh lời cao hơn chi phí vốn (nhóm Tài chính: ROE > 12%)"),
+    "OPM":  dict(label="Op Margin",  field="Op Margin%",   thr=15, op="gt",
+                 desc="Biên lợi nhuận hoạt động > 15% — kỷ luật chi phí, đòn bẩy vận hành"),
+    "GM":   dict(label="Gross Mgn",  field="Gross Margin%", thr=40, op="gt",
+                 desc="Biên lợi nhuận gộp > 40% — lợi thế cấu trúc về giá bán"),
+    "NIG":  dict(label="NI Growth",  field="NI Growth%",   thr=20, op="gt",
+                 desc="Lợi nhuận ròng TTM tăng > 20% so cùng kỳ"),
+    "REVG": dict(label="Rev Growth", field="Rev Growth%",  thr=15, op="gt",
+                 desc="Doanh thu TTM tăng > 15% so cùng kỳ"),
+    "DE":   dict(label="D/E",        field="D/E",          thr=1.0, op="lt",
+                 desc="Nợ trên vốn chủ < 1.0 (không áp dụng cho nhóm Tài chính)"),
 }
-CS_KEYS = ["C", "A", "S", "L", "Q", "R", "M", "D", "N", "MKT"]
-N_CS    = len(CS_KEYS)
+FIN_KEYS = list(FIN_CRITERIA.keys())
+N_FIN    = len(FIN_KEYS)
+
+# ═══════════════════════════════════════════════════════════════
+# NHÓM B — CHỨNG MINH LÀ THỰC
+# Mỗi tiêu chí bác bỏ một cách cụ thể mà số liệu nhóm A có thể bị làm đẹp.
+# 5/6 lấy từ TradingView; riêng SUS cần yfinance (trung bình 5 năm).
+# ═══════════════════════════════════════════════════════════════
+REAL_CRITERIA = {
+    "CASH": dict(label="FCF/NI",     field="FCF/NI",       thr=0.8, op="gt",
+                 bac_bo="Lợi nhuận ghi sổ nhưng chưa thu được tiền (accrual)",
+                 desc="Dòng tiền tự do ≥ 80% lợi nhuận ròng — lợi nhuận có tiền mặt thật đi kèm"),
+    "FCFM": dict(label="FCF Mgn",    field="FCF_Margin%",  thr=8,  op="gt",
+                 bac_bo="Biên lợi nhuận cao nhờ vốn hóa chi phí hoặc hoãn đầu tư",
+                 desc="Biên dòng tiền tự do > 8% — tiền thực trên mỗi đồng doanh thu"),
+    "BUYB": dict(label="Không buyback", field="EPS_NI_Gap", thr=-10, op="gt",
+                 bac_bo="EPS tăng nhờ mua lại cổ phiếu chứ không phải lợi nhuận tăng",
+                 desc="Tăng trưởng EPS không vượt tăng trưởng lợi nhuận quá 10 điểm %"),
+    "LEV":  dict(label="ROE thật",   field="ROE_ROIC_Gap", thr=15, op="lt",
+                 bac_bo="ROE cao nhờ đòn bẩy hoặc vốn chủ teo lại vì mua cổ phiếu quỹ",
+                 desc="ROE không vượt ROIC quá 15 điểm % — sinh lời đến từ kinh doanh, không từ nợ"),
+    "BAL":  dict(label="Bảng cân đối", field="Net Cash ($B)", thr=0, op="bal",
+                 bac_bo="Bảng cân đối trông sạch nhưng thanh khoản thực tế yếu",
+                 desc="Net Cash > 0 hoặc Current Ratio > 1.5 — chịu được kiểm tra thanh khoản"),
+    "SUS":  dict(label="Bền vững 5N", field="Moat Score",   thr=None, op="in",
+                 bac_bo="Một kỳ may mắn được trình bày như năng lực dài hạn",
+                 desc="ROE và biên gộp trung bình 5 năm ở mức cao — số đẹp lặp lại nhiều năm"),
+}
+REAL_KEYS = list(REAL_CRITERIA.keys())
+N_REAL    = len(REAL_KEYS)
 
 FETCH_COLS = [
     "name", "description", "close", "volume", "market_cap_basic",
     "sector",
-    "earnings_per_share_diluted_yoy_growth_fy",
-    "earnings_per_share_diluted_yoy_growth_fq",
-    "total_revenue_yoy_growth_fy",
-    "total_revenue_yoy_growth_fq",
     "gross_margin", "net_margin", "return_on_equity", "debt_to_equity",
     "price_earnings_ttm", "price_sales_current",
     "relative_volume_10d_calc",
     "Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.Y",
-    # Quality Compounder fields
     "return_on_invested_capital", "operating_margin",
     "enterprise_value_ebitda_ttm", "free_cash_flow_per_share_ttm",
     "current_ratio",
+    # ── Nhóm A: tăng trưởng TTM (mượt hơn số quý đơn lẻ) ──────────
+    "net_income_yoy_growth_ttm",
+    "total_revenue_yoy_growth_ttm",
+    "earnings_per_share_diluted_yoy_growth_ttm",
+    # ── Nhóm B: dữ liệu kiểm chứng (đều có sẵn trên TradingView) ──
+    "free_cash_flow_ttm",
+    "free_cash_flow_margin_ttm",
+    "net_income",
+    "cash_n_short_term_invest_fq",
+    "total_debt_fq",
 ]
 
 RENAME = {
     "name": "Ticker", "description": "Tên Công Ty", "close": "Price ($)", "market_cap_basic": "MCap ($B)",
     "sector": "Sector",
-    "earnings_per_share_diluted_yoy_growth_fy": "EPS Annual%",
-    "earnings_per_share_diluted_yoy_growth_fq": "EPS Qtr%",
-    "total_revenue_yoy_growth_fy": "Rev Annual%",
-    "total_revenue_yoy_growth_fq": "Rev Qtr%",
+    "net_income_yoy_growth_ttm": "NI Growth%",
+    "total_revenue_yoy_growth_ttm": "Rev Growth%",
+    "earnings_per_share_diluted_yoy_growth_ttm": "EPS Growth%",
+    "free_cash_flow_ttm": "FCF_abs",
+    "free_cash_flow_margin_ttm": "FCF_Margin%",
+    "net_income": "NI_abs",
+    "cash_n_short_term_invest_fq": "Cash_abs",
+    "total_debt_fq": "Debt_abs",
     "gross_margin": "Gross Margin%", "net_margin": "Net Margin%",
     "return_on_equity": "ROE%", "debt_to_equity": "D/E",
     "price_earnings_ttm": "P/E", "price_sales_current": "P/S",
@@ -79,19 +119,12 @@ RENAME = {
 }
 
 DATA_HEADERS = [
-    "Ticker", "Tên Công Ty", "Sector", "Price ($)", "MCap ($B)",
-    "Moat Proxy", "Moat Score",
-    "EPS Annual%", "EPS Qtr%", "EPS_Acc", "Rev Annual%", "Rev Qtr%",
-    "Gross Margin%", "Net Margin%", "ROE%", "D/E",
-    "P/E", "PEG", "P/S", "Rel Vol",
-    "1W%", "1M%", "3M%", "6M%", "1Y%",
+    "Ticker", "Tên Công Ty", "Sector", "Price ($)", "MCap ($B)", "Moat Score",
+    "ROIC%", "Op Margin%", "Gross Margin%", "Net Margin%", "NI Growth%", "Rev Growth%",
+    "ROE%", "D/E", "FCF/NI", "FCF_Margin%", "EPS_NI_Gap", "ROE_ROIC_Gap",
+    "Net Cash ($B)", "Current Ratio", "P/E", "PEG", "1Y%",
 ]
-# 1=Ticker,2=TênCT,3=Sector,4=Price,5=MCap
-# 6=MoatProxy,7=MoatScore
-# 8=EPS_A,9=EPS_Q,10=EPS_Acc,11=Rev_A,12=Rev_Q
-# 13=GM,14=NM,15=ROE,16=DE,17=PE,18=PEG,19=PS,20=RVol
-# 21=1W,22=1M,23=3M,24=6M,25=1Y
-PCT_COLS = {8,9,11,12,13,14,15,21,22,23,24,25}
+PCT_COLS = {7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 23}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -407,214 +440,184 @@ def CL(i): return get_column_letter(i)
 
 
 # ═══════════════════════════════════════════════════════════════
-# SCORING
+# SCORING — Nhóm A (Tài chính tốt) + Nhóm B (Chứng minh là thực)
 # ═══════════════════════════════════════════════════════════════
-def score_canslim(df, moat_cache: dict = None, market_ok=None, index_1y=None):
-    # Populate 52W_High%: yfinance cache (US) → None cho non-US (VN không có fallback TV)
+_FIN_SECTORS = ("Financial Services", "Finance")
+_MOAT_GOOD   = {"WIDE  ★★★", "NARROW ★★"}
+
+
+def _num(v):
+    """float nếu là số dùng được, ngược lại None."""
+    if v is None:
+        return None
+    if isinstance(v, float) and pd.isna(v):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_fields(df, moat_cache=None):
+    """Các trường phái sinh mà nhóm B cần — đều tính từ dữ liệu TradingView,
+    riêng Moat Score (trung bình 5 năm) cần yfinance."""
+
+    # FCF / Net Income — lợi nhuận có kèm tiền mặt thật hay chỉ là bút toán
+    def _fcf_ni(r):
+        fcf = _num(r.get("FCF_abs")); ni = _num(r.get("NI_abs"))
+        if fcf is None or ni is None or ni <= 0:
+            return None          # đang lỗ thì tỷ lệ này vô nghĩa
+        return round(fcf / ni, 2)
+    df["FCF/NI"] = df.apply(_fcf_ni, axis=1)
+
+    # EPS tăng nhanh hơn lợi nhuận ròng bao nhiêu điểm % → phần chênh đến từ
+    # việc số cổ phiếu lưu hành giảm (mua cổ phiếu quỹ), không phải kinh doanh
+    def _gap(r):
+        eps = _num(r.get("EPS Growth%")); ni = _num(r.get("NI Growth%"))
+        if eps is None or ni is None:
+            return None
+        return round(eps - ni, 1)
+    df["EPS_NI_Gap"] = df.apply(_gap, axis=1)
+
+    # ROE vượt ROIC bao nhiêu điểm % → phần chênh đến từ đòn bẩy tài chính
+    def _lev_gap(r):
+        roe = _num(r.get("ROE%")); roic = _num(r.get("ROIC%"))
+        if roe is None or roic is None:
+            return None
+        return round(roe - roic, 1)
+    df["ROE_ROIC_Gap"] = df.apply(_lev_gap, axis=1)
+
+    # Net Cash ($B) = tiền và tương đương + đầu tư ngắn hạn − tổng nợ
+    def _net_cash(r):
+        cash = _num(r.get("Cash_abs")); debt = _num(r.get("Debt_abs"))
+        if cash is None and debt is None:
+            return None
+        return round(((cash or 0) - (debt or 0)) / 1e9, 2)
+    df["Net Cash ($B)"] = df.apply(_net_cash, axis=1)
+
+    # Moat Score = ROE & biên gộp trung bình 5 năm (chỉ từ yfinance).
+    # Không có cache thì để trống — KHÔNG thay bằng số liệu một kỳ, vì tiêu chí
+    # này đo tính BỀN VỮNG; lấy một kỳ mà gọi là bền vững thì chính là số ảo.
     if moat_cache:
-        def _get_w52(ticker):
-            t = moat_cache.get(ticker)
-            return t[2] if t and len(t) >= 3 else None
-        df["52W_High%"] = df["Ticker"].apply(_get_w52)
+        df["Moat Score"] = df["Ticker"].apply(
+            lambda t: moat_cache[t][1] if t in moat_cache else None)
+        df["52W_High%"] = df["Ticker"].apply(
+            lambda t: (moat_cache[t][2] if t in moat_cache and len(moat_cache[t]) >= 3 else None))
     else:
-        df["52W_High%"] = None
+        df["Moat Score"] = None
+        df["52W_High%"]  = None
 
-    # Relative Strength vs index for L criterion
-    if index_1y is not None and "1Y%" in df.columns:
-        df["RS_1Y%"] = df["1Y%"] - index_1y
-    else:
-        df["RS_1Y%"] = df["1Y%"] if "1Y%" in df.columns else None
-
-    # Market direction — same value for all rows
-    df["Market_OK"] = market_ok
-
-    def chk(row, key):
-        cfg = CANSLIM[key]
-        if key == "D" and row.get("Sector", "") in ("Financial Services", "Finance"):
-            return None  # D/E không áp dụng cho ngành tài chính (banks/insurance dùng leverage cấu trúc)
-        if key == "M":
-            ticker = row.get("Ticker", "")
-            if moat_cache:
-                t = moat_cache.get(ticker)
-                if t and len(t) >= 5 and t[4] is not None:
-                    acc_data  = t[4]
-                    acc_qtrs  = acc_data[0] if isinstance(acc_data, (tuple, list)) else int(acc_data)
-                    yoy_pts   = acc_data[1] if isinstance(acc_data, (tuple, list)) and len(acc_data) > 1 else []
-                    if len(yoy_pts) >= 2:
-                        # Đủ dữ liệu: yêu cầu ≥2 quý acceleration liên tiếp
-                        return int(acc_qtrs) >= 2
-                    elif len(yoy_pts) == 1:
-                        # Chỉ 1 điểm YoY: chấp nhận nếu EPS đang tăng YoY dương
-                        return yoy_pts[0] > 0
-                    # Không có YoY → fall through
-            # Fallback: EPS Qtr% > EPS Annual% AND positive (basic proxy)
-            qtr = row.get("EPS Qtr%"); ann = row.get("EPS Annual%")
-            if qtr is None or (isinstance(qtr, float) and pd.isna(qtr)): return None
-            if ann is None or (isinstance(ann, float) and pd.isna(ann)): return None
-            return float(qtr) > float(ann) and float(qtr) > 0
-        v = row.get(cfg["field"])
-        if v is None or (isinstance(v, float) and pd.isna(v)): return None
-        return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
-
-    for key in CS_KEYS:
-        df[f"CS_{key}"] = df.apply(lambda r: chk(r, key), axis=1)
-
-    df["CS_Score"] = df[[f"CS_{k}" for k in CS_KEYS]].apply(
-        lambda r: sum(1 for v in r if v is True), axis=1)
-
-    def sig(s):
-        if s >= round(N_CS * 0.80): return "🟢 STRONG BUY"
-        if s >= round(N_CS * 0.625): return "🔵 BUY"
-        if s >= round(N_CS * 0.375): return "🟡 WATCH"
-        return "🔴 SKIP"
-    df["CS_Signal"] = df["CS_Score"].apply(sig)
-
-    # ── MOAT: dùng yfinance cache nếu có, fallback sector ──────
-    def apply_moat(row):
-        ticker = row.get("Ticker", "")
-        sector = row.get("Sector", "")
-        if moat_cache and ticker in moat_cache:
-            t = moat_cache[ticker]
-            return t[0], t[1]   # proxy, score (bỏ qua w52_pct)
-        # Fallback: tính từ TV TTM data (giống cũ)
-        gm  = row.get("Gross Margin%"); gm  = gm  if (gm  is not None and not (isinstance(gm,  float) and pd.isna(gm)))  else None
-        roe = row.get("ROE%");          roe = roe if (roe is not None and not (isinstance(roe, float) and pd.isna(roe))) else None
-        proxy = MOAT_PROXY_MAP.get(sector, "Cost Advantage")
-        score = _moat_score_from_metrics(roe, gm, sector)
-        return proxy, score
-
-    moat = df.apply(apply_moat, axis=1)
-    df["Moat Proxy"] = moat.apply(lambda x: x[0])
-    df["Moat Score"] = moat.apply(lambda x: x[1])
-
-    # Earnings quality badge (only when moat_cache / yfinance is available)
-    if moat_cache:
-        def _get_eq(ticker):
-            t = moat_cache.get(ticker)
-            return t[3] if t and len(t) >= 4 else None
-        df["EQ_Badge"] = df["Ticker"].apply(_get_eq)
-    else:
-        df["EQ_Badge"] = None
-
-    # PEG Ratio = P/E ÷ EPS Annual% (chỉ tính khi cả hai > 0)
-    def _peg(row):
-        pe  = row.get("P/E");       eps = row.get("EPS Annual%")
-        if pe is None or eps is None: return None
-        if pd.isna(pe) or pd.isna(eps): return None
-        if pe <= 0 or eps < 5: return None   # EPS% < 5% → PEG vô nghĩa (phóng đại)
-        peg = pe / eps
-        return round(peg, 2) if peg <= 50 else None  # cap tại 50 — trên đó không có ý nghĩa
+    # PEG — hiển thị tham khảo, không chấm điểm
+    def _peg(r):
+        pe = _num(r.get("P/E")); g = _num(r.get("NI Growth%"))
+        if pe is None or g is None or pe <= 0 or g < 5:
+            return None
+        peg = pe / g
+        return round(peg, 2) if peg <= 50 else None
     df["PEG"] = df.apply(_peg, axis=1)
-
-    # Net Cash ($B) column (from yfinance)
-    def _get_net_cash(ticker):
-        if not moat_cache:
-            return None
-        t = moat_cache.get(ticker)
-        return t[6] if t and len(t) >= 7 else None
-    df["Net Cash ($B)"] = df["Ticker"].apply(_get_net_cash)
-
-    # FCF Margin% column (from yfinance)
-    def _get_fcf_margin(ticker):
-        if not moat_cache:
-            return None
-        t = moat_cache.get(ticker)
-        return t[5] if t and len(t) >= 6 else None
-    df["FCF_Margin%"] = df["Ticker"].apply(_get_fcf_margin)
-
-    # EPS Acceleration display column
-    def _acc_label(ticker):
-        if not moat_cache:
-            return "—"
-        t = moat_cache.get(ticker)
-        if not t or len(t) < 5 or t[4] is None:
-            return "—"
-        acc_data = t[4]
-        acc_qtrs = acc_data[0] if isinstance(acc_data, (tuple, list)) else int(acc_data)
-        yoy_pts  = acc_data[1] if isinstance(acc_data, (tuple, list)) and len(acc_data) > 1 else []
-        if len(yoy_pts) >= 2:
-            # Đủ dữ liệu — hiển thị streak đầy đủ
-            if acc_qtrs >= 3: return "↑3Q"
-            if acc_qtrs >= 2: return "↑2Q"
-            if acc_qtrs >= 1: return "↑1Q"
-            return "↓"
-        elif len(yoy_pts) == 1:
-            # Chỉ 1 điểm YoY — chỉ biết hướng, không biết acceleration
-            return "↑" if yoy_pts[0] > 0 else "↓"
-        return "—"
-    df["EPS_Acc"] = df["Ticker"].apply(_acc_label)
-
-    _MW = {"WIDE  ★★★": 1.2, "NARROW ★★": 1.1, "UNCERTAIN ★": 1.0, "WEAK": 0.85}
-    df["Conviction"] = df.apply(
-        lambda r: round(r["CS_Score"] * _MW.get(r.get("Moat Score", ""), 1.0), 1),
-        axis=1)
     return df
 
 
-# ═══════════════════════════════════════════════════════════════
-# QUALITY COMPOUNDER SCORING
-# (mirrors screener_gui.py — kept in sync manually)
-# ═══════════════════════════════════════════════════════════════
-def compute_qc_score(row: dict) -> dict:
-    """Return QC pass/fail flags + Score + Signal for one stock row dict.
+# ── Nhóm A ──────────────────────────────────────────────────────
+def _chk_fin(row, key):
+    cfg    = FIN_CRITERIA[key]
+    is_fin = row.get("Sector", "") in _FIN_SECTORS
+    if key == "DE" and is_fin:
+        return None                       # tiền gửi khách hàng là "nợ" — D/E vô nghĩa với ngân hàng
+    if key == "ROIC" and is_fin:
+        v = _num(row.get("ROE%"))         # nhóm tài chính: dùng ROE > 12% thay cho ROIC
+        return None if v is None else v > 12
+    v = _num(row.get(cfg["field"]))
+    if v is None:
+        return None
+    return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
 
-    Criteria (6 total):
-      ROIC > 15%    — earns above cost of capital (non-financial)
-      ROE  > 12%    — replaces ROIC for Financial Services
-      Op Mgn > 15%  — operational leverage / pricing power
-      GM > 40%      — structural margin advantage
-      FCF/sh > 0    — actually generating free cash
-      D/E < 1.0     — clean balance sheet (skip for Financial Services)
-      Moat Wide/Narrow — confirmed competitive advantage
 
-    Score thresholds:
-      COMPOUNDER ≥ 5  |  QUALITY ≥ 4  |  AVERAGE ≥ 1  |  WEAK 0
-    """
-    result = {}
-    score  = 0
-    moat_good    = {"WIDE  ★★★", "NARROW ★★"}
-    is_financial = row.get("Sector", "") in ("Financial Services", "Finance")
+# ── Nhóm B ──────────────────────────────────────────────────────
+def _chk_real(row, key):
+    is_fin = row.get("Sector", "") in _FIN_SECTORS
 
-    for key, field, op, thr in [
-        ("QC_ROIC", "ROIC%",         "gt", 15),
-        ("QC_OPGM", "Op Margin%",    "gt", 15),
-        ("QC_GM",   "Gross Margin%", "gt", 40),
-        ("QC_FCF",  "FCF/sh",        "gt", 0),
-        ("QC_DE",   "D/E",           "lt", 1.0),
-    ]:
-        if key == "QC_DE" and is_financial:
-            result[key] = None   # D/E không áp dụng cho banks/insurance
-            continue
-        if key == "QC_ROIC" and is_financial:
-            val = row.get("ROE%")
-            if val is None or (isinstance(val, float) and pd.isna(val)):
-                result[key] = None
-            else:
-                result[key] = val > 12
-                if result[key]: score += 1
-            continue
-        val = row.get(field)
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            result[key] = None
-        else:
-            passed = (val > thr) if op == "gt" else (val < thr)
-            result[key] = passed
-            if passed: score += 1
+    if key == "CASH":                     # lợi nhuận có tiền mặt thật đi kèm
+        v = _num(row.get("FCF/NI"))
+        return None if v is None else v >= 0.8
 
-    moat = row.get("Moat Score")
-    if moat is None or (isinstance(moat, float) and pd.isna(moat)):
-        result["QC_MOAT"] = None
-    else:
-        passed = moat in moat_good
-        result["QC_MOAT"] = passed
-        if passed: score += 1
+    if key == "FCFM":                     # tiền thực trên mỗi đồng doanh thu
+        v = _num(row.get("FCF_Margin%"))
+        return None if v is None else v > 8
 
-    result["QC_Score"] = score
-    if   score >= 5: result["QC_Signal"] = "🏆 COMPOUNDER"
-    elif score >= 4: result["QC_Signal"] = "⭐ QUALITY"
-    elif score >= 1: result["QC_Signal"] = "○ AVERAGE"
-    else:            result["QC_Signal"] = "✗ WEAK"
-    return result
+    if key == "BUYB":                     # EPS tăng không phải nhờ mua cổ phiếu quỹ
+        v = _num(row.get("EPS_NI_Gap"))
+        return None if v is None else v <= 10
+
+    if key == "LEV":                      # ROE cao đến từ kinh doanh, không từ đòn bẩy
+        if is_fin:
+            return None                   # ngân hàng vốn dĩ vận hành bằng đòn bẩy
+        v = _num(row.get("ROE_ROIC_Gap"))
+        return None if v is None else v <= 15
+
+    if key == "BAL":                      # bảng cân đối chịu được kiểm tra thanh khoản
+        if is_fin:
+            return None
+        nc = _num(row.get("Net Cash ($B)")); cr = _num(row.get("Current Ratio"))
+        if nc is None and cr is None:
+            return None
+        return (nc is not None and nc > 0) or (cr is not None and cr > 1.5)
+
+    if key == "SUS":                      # số đẹp lặp lại nhiều năm, không phải một kỳ
+        m = row.get("Moat Score")
+        if m is None or (isinstance(m, float) and pd.isna(m)):
+            return None
+        return m in _MOAT_GOOD
+    return None
+
+
+def _tally(vals):
+    """(số tiêu chí đạt, số tiêu chí thực sự áp dụng được)."""
+    got = sum(1 for v in vals if v is True)
+    app = sum(1 for v in vals if v is not None)
+    return got, app
+
+
+def _signal(fin_pct, real_pct, fin_app, real_app):
+    """Tín hiệu gộp. Điểm mấu chốt: số liệu đẹp mà không chứng minh được
+    thì bị gắn cờ đỏ, chứ không được xếp ngang với mã trung bình đều."""
+    if fin_app < 3 or real_app < 3:
+        return "⚪ THIẾU DỮ LIỆU"
+    if fin_pct >= 0.80 and real_pct >= 0.80: return "🟢 TỐT & THỰC"
+    if fin_pct >= 0.80 and real_pct <  0.50: return "🔴 CỜ ĐỎ"
+    if fin_pct >= 0.60 and real_pct >= 0.60: return "🔵 KHÁ"
+    if real_pct >= 0.80 and fin_pct <  0.50: return "🟠 THẬT NHƯNG YẾU"
+    if fin_pct >= 0.50:                      return "🟡 THEO DÕI"
+    return "⚫ LOẠI"
+
+
+def score_stocks(df, moat_cache: dict = None):
+    """Chấm cả hai nhóm và sinh tín hiệu gộp."""
+    df = _derive_fields(df, moat_cache)
+
+    for k in FIN_KEYS:
+        df[f"FIN_{k}"] = df.apply(lambda r, _k=k: _chk_fin(r, _k), axis=1)
+    for k in REAL_KEYS:
+        df[f"REAL_{k}"] = df.apply(lambda r, _k=k: _chk_real(r, _k), axis=1)
+
+    fin  = df[[f"FIN_{k}"  for k in FIN_KEYS]].apply(lambda r: _tally(list(r)), axis=1)
+    real = df[[f"REAL_{k}" for k in REAL_KEYS]].apply(lambda r: _tally(list(r)), axis=1)
+
+    df["FIN_Score"]  = fin.apply(lambda x: x[0])
+    df["FIN_App"]    = fin.apply(lambda x: x[1])
+    df["REAL_Score"] = real.apply(lambda x: x[0])
+    df["REAL_App"]   = real.apply(lambda x: x[1])
+
+    # Chấm theo tỷ lệ trên số tiêu chí THỰC SỰ áp dụng được — mã thiếu dữ liệu
+    # và nhóm Tài chính không bị phạt oan bởi mẫu số cố định.
+    df["FIN_Pct"]  = df.apply(
+        lambda r: round(r["FIN_Score"] / r["FIN_App"], 3) if r["FIN_App"] else 0.0, axis=1)
+    df["REAL_Pct"] = df.apply(
+        lambda r: round(r["REAL_Score"] / r["REAL_App"], 3) if r["REAL_App"] else 0.0, axis=1)
+
+    df["Signal"] = df.apply(
+        lambda r: _signal(r["FIN_Pct"], r["REAL_Pct"], r["FIN_App"], r["REAL_App"]), axis=1)
+    return df
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -647,9 +650,8 @@ def write_excel(df, path, market, top, use_yf=False, progress_cb=None):
     _pb(5,  "Building main sheet…")
     _main_sheet(wb, df, market, top)
 
-    if "QC_Score" in df.columns:
-        _pb(20, "QC sheet…")
-        _qc_sheet(wb, df)
+    _pb(20, "Sheet Cờ đỏ…")
+    _qc_sheet(wb, df)
 
     _US_MARKETS = {"america", "nasdaq", "nyse"}
     can_yf = use_yf and market.lower() in _US_MARKETS
@@ -1034,949 +1036,312 @@ def _financials_sheet(wb, df, progress_cb=None):
     print(f"  📊 Financials done ({total} stocks)          ")
 
 
-def _dashboard_sheet(wb, df):
-    from openpyxl.formatting.rule import DataBarRule
+def _sig_style(sig):
+    return SIGNAL_STYLE.get(sig, (C_NAVY, C_WHITE))
 
-    ws = wb.create_sheet("Dashboard")
-    ws.sheet_view.showGridLines = False
-    ws.sheet_tab_color = "1F3864"
 
-    HAS_QC   = "QC_Score" in df.columns and "QC_Signal" in df.columns
-    N_QC_LOC = 6
+def _score_fmt(got, app):
+    try:
+        got = int(got); app = int(app)
+    except (TypeError, ValueError):
+        return "—", 0.0
+    if not app:
+        return "—", 0.0
+    return f"{got}/{app}", got / app
 
-    for ci in range(1, 25):
-        ws.column_dimensions[CL(ci)].width = 9
-    ws.column_dimensions["C"].width = 20
 
-    def _sec(row, text, bg="2C4F7C"):
-        ws.merge_cells(f"A{row}:X{row}")
-        c = ws.cell(row, 1, text)
-        c.font = F(True, 10, "FFFFFF"); c.fill = BG(bg); c.alignment = AL()
-        ws.row_dimensions[row].height = 18
-
-    def _kpi(r, sc, val, lbl, bg, fg="FFFFFF"):
-        ec = sc + 3
-        ws.merge_cells(f"{CL(sc)}{r}:{CL(ec)}{r}")
-        c = ws.cell(r, sc, val)
-        c.font = F(True, 18, fg); c.fill = BG(bg); c.alignment = AL()
-        ws.row_dimensions[r].height = 36
-        ws.merge_cells(f"{CL(sc)}{r+1}:{CL(ec)}{r+1}")
-        c2 = ws.cell(r+1, sc, lbl)
-        c2.font = F(False, 8, fg); c2.fill = BG(bg); c2.alignment = AL()
-        ws.row_dimensions[r+1].height = 16
-
-    # Row 1: Title + Timestamp
-    ws.merge_cells("A1:R1")
-    c = ws["A1"]
-    c.value = "STOCK SCREENER  ·  DECISION DASHBOARD"
-    c.font = Font(name="Calibri", bold=True, size=16, color="FFFFFF")
-    c.fill = BG("0D2137"); c.alignment = AL()
-    ws.row_dimensions[1].height = 36
-    ws.merge_cells("S1:X1")
-    c2 = ws.cell(1, 19)
-    c2.value = f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    c2.font = F(False, 8, "88AACC", italic=True)
-    c2.fill = BG("0D2137"); c2.alignment = AL("right")
-    ws.freeze_panes = ws["A2"]
-
-    # ❶ CAN SLIM KPIs (rows 2-4)
-    _sec(2, "❶  CAN SLIM  —  KEY METRICS")
-    total   = len(df)
-    sb_cnt  = int((df["CS_Signal"] == "\U0001f7e2 STRONG BUY").sum())
-    b_cnt   = int((df["CS_Signal"] == "\U0001f535 BUY").sum())
-    avg_cs  = f"{df['CS_Score'].mean():.1f}" if "CS_Score" in df.columns else "—"
-    _1y     = df["1Y%"].dropna()
-    avg_1y  = f"{_1y.mean():.1f}%" if len(_1y) else "—"
-    _roe    = df["ROE%"].dropna()
-    avg_roe = f"{_roe.mean():.1f}%" if len(_roe) else "—"
-    _kpi(3, 1,  str(total),                    "Total Stocks",            "1B3A5C")
-    _kpi(3, 5,  f"{sb_cnt/total*100:.1f}%",    f"Strong Buy  ({sb_cnt})", "00703A")
-    _kpi(3, 9,  f"{b_cnt/total*100:.1f}%",     f"Buy  ({b_cnt})",         "0070C0")
-    _kpi(3, 13, avg_cs,                         f"Avg CS Score / {N_CS}",  "5B2C6F")
-    _kpi(3, 17, avg_1y,                         "Avg 1Y Return",           "7D3C0A")
-    _kpi(3, 21, avg_roe,                        "Avg ROE%",                "0E6655")
-    ws.row_dimensions[5].height = 6
-
-    # ❷ QC KPIs (rows 6-8)
-    _sec(6, "❷  QUALITY COMPOUNDER  —  KEY METRICS")
-    if HAS_QC:
-        comp_cnt  = int((df["QC_Signal"] == "\U0001f3c6 COMPOUNDER").sum())
-        qual_cnt  = int((df["QC_Signal"] == "⭐ QUALITY").sum())
-        avg_qc_v  = df["QC_Score"].mean()
-        avg_qc_s  = f"{avg_qc_v:.1f}" if pd.notna(avg_qc_v) else "—"
-        _roic     = df["ROIC%"].dropna() if "ROIC%" in df.columns else pd.Series(dtype=float)
-        avg_roic  = f"{_roic.mean():.1f}%" if len(_roic) else "—"
-        dual_cnt  = int(((df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)).sum())
-        _qc_mask  = df["QC_Signal"].isin(["\U0001f3c6 COMPOUNDER", "⭐ QUALITY"])
-        eq_cb_cnt = (int((df[_qc_mask]["EQ_Badge"] == "\U0001f49a Cash Backed").sum())
-                     if "EQ_Badge" in df.columns else 0)
-    else:
-        comp_cnt = qual_cnt = dual_cnt = eq_cb_cnt = 0
-        avg_qc_s = avg_roic = "—"
-    _kpi(7, 1,  str(comp_cnt), "# COMPOUNDER",                "1A5C2B")
-    _kpi(7, 5,  str(qual_cnt), "# QUALITY",                   "1A3A5C")
-    _kpi(7, 9,  avg_roic,      "Avg ROIC%",                   "0E6655")
-    _kpi(7, 13, avg_qc_s,      f"Avg QC Score / {N_QC_LOC}", "5B2C6F")
-    _kpi(7, 17, str(dual_cnt), "Dual Leaders (CS≥7 & QC≥4)", "4A235A")
-    _kpi(7, 21, str(eq_cb_cnt), "\U0001f49a Cash Backed (QC stocks)", "155A28")
-    ws.row_dimensions[9].height = 6
-
-    # RISK FLAGS (row 10)
-    risk_de = int((df["D/E"].fillna(0)  > 1.5).sum()) if "D/E"  in df.columns else 0  # ≥ CAN SLIM D threshold
-    risk_pe = int((df["P/E"].fillna(0)  > 50).sum())  if "P/E"  in df.columns else 0
-    risk_1m = int((df["1M%"].fillna(0) < -10).sum())  if "1M%"  in df.columns else 0
-    ws.merge_cells("A10:X10")
-    c = ws.cell(10, 1,
-        f"⚠️  RISK FLAGS:   D/E > 1.5: {risk_de} mã   |   P/E > 50: {risk_pe} mã   |   1M% < −10%: {risk_1m} mã")
-    c.font = F(True, 9, "9C6500"); c.fill = BG("FFF2CC"); c.alignment = AL()
-    ws.row_dimensions[10].height = 18
-    ws.row_dimensions[11].height = 8
-
-    # 📊 TOP CS SCORE + TOP QC SCORE — side by side (row 12+)
-    # CS: cols 1-7 | spacer: col 8 | QC: cols 9-15
-    ws.merge_cells("A12:G12")
-    c = ws.cell(12, 1, "📊  TOP CAN SLIM SCORE")
-    c.font = F(True, 10, "FFFFFF"); c.fill = BG("1B3A5C"); c.alignment = AL()
-    ws.cell(12, 8).fill = BG("F0F4FA")
-    ws.merge_cells("I12:O12")
-    c = ws.cell(12, 9, "📊  TOP QUALITY COMPOUNDER SCORE")
-    c.font = F(True, 10, "FFFFFF"); c.fill = BG("0E6655"); c.alignment = AL()
-    ws.row_dimensions[12].height = 18
-
-    CS_HDRS = ["#", "Ticker", "Company", "Sector", "CS Score", "Signal", "1Y%"]
-    CS_WDS  = [4, 8, 20, 14, 8, 14, 8]
-    for ci, (h, w) in enumerate(zip(CS_HDRS, CS_WDS), 1):
-        ws.column_dimensions[CL(ci)].width = w
-        c = ws.cell(13, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("1B3A5C")
-        c.alignment = AL(); c.border = BD()
-
-    QC_HDRS = ["#", "Ticker", "Company", "Sector", "QC Score", "Signal", "ROIC%"]
-    QC_WDS  = [4, 8, 20, 14, 8, 14, 8]
-    QC_C0   = 9
-    for ci, (h, w) in enumerate(zip(QC_HDRS, QC_WDS), QC_C0):
-        ws.column_dimensions[CL(ci)].width = w
-        c = ws.cell(13, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("0E6655")
-        c.alignment = AL(); c.border = BD()
-    ws.column_dimensions["H"].width = 2
-    ws.row_dimensions[13].height = 18
-
-    _cs_buy = ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY"]
-    cs_top = (df[df["CS_Signal"].isin(_cs_buy)]
-              .sort_values("CS_Score", ascending=False)
-              if "CS_Score" in df.columns else pd.DataFrame())
-    _qc_buy = ["\U0001f3c6 COMPOUNDER", "⭐ QUALITY"]
-    qc_top = (df[df["QC_Signal"].isin(_qc_buy)]
-              .sort_values("QC_Score", ascending=False)
-              if HAS_QC else pd.DataFrame())
-    n_rows = max(len(cs_top), len(qc_top), 1)
-
-    cs_end = 13
-    for ri in range(1, n_rows + 1):
-        er  = 13 + ri
-        ws.row_dimensions[er].height = 17
-
-        # CS side
-        if ri <= len(cs_top):
-            row  = cs_top.iloc[ri - 1]
-            rbg  = "EBF5FB" if ri % 2 == 0 else "F4F9FD"
-            sig  = row.get("CS_Signal", "") or ""
-            fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
-            def _cw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
-                c = ws.cell(er, ci, val)
-                c.border = BD(); c.alignment = AL(align)
-                c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
-                if nfmt and val is not None: c.number_format = nfmt
-            _cw(1, ri,  True, "FFFFFF", "1B3A5C")
-            _cw(2, row.get("Ticker", ""),             True,  "1B3A5C")
-            _cw(3, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
-            _cw(4, row.get("Sector", ""),             False, "334466", align="left")
-            _cw(5, int(row.get("CS_Score", 0) or 0), True,  CG_FG, CG_BG)
-            _cw(6, sig, True, fg_s, bg_s)
-            v1y = row.get("1Y%")
-            if v1y is not None and not (isinstance(v1y, float) and pd.isna(v1y)):
-                c7 = ws.cell(er, 7); c7.value = float(v1y) / 100
-                c7.number_format = '+0.0%;(0.0%);"-"'; c7.border = BD(); c7.fill = BG(rbg)
-                c7.alignment = AL(); c7.font = F(size=9, color="276221" if float(v1y) > 0 else "9C0006")
-            else:
-                _cw(7, "—", fg="BBBBBB")
-
-        # spacer col 8
-        ws.cell(er, 8).fill = BG("F0F4FA")
-
-        # QC side
-        if ri <= len(qc_top):
-            row  = qc_top.iloc[ri - 1]
-            rbgq = "E8F8F5" if ri % 2 == 0 else "F0FBF9"
-            sig  = row.get("QC_Signal", "") or ""
-            fg_q, bg_q = QC_SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
-            def _qw(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
-                c = ws.cell(er, ci, val)
-                c.border = BD(); c.alignment = AL(align)
-                c.fill = BG(bgc if bgc else rbgq); c.font = F(bold, 9, fg)
-                if nfmt and val is not None: c.number_format = nfmt
-            _qw(QC_C0,   ri,  True, "FFFFFF", "0E6655")
-            _qw(QC_C0+1, row.get("Ticker", ""),             True,  "0E6655")
-            _qw(QC_C0+2, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
-            _qw(QC_C0+3, row.get("Sector", ""),             False, "334466", align="left")
-            _qw(QC_C0+4, int(row.get("QC_Score", 0) or 0), True,  CB_FG, CB_BG)
-            _qw(QC_C0+5, sig, True, fg_q, bg_q)
-            roic = row.get("ROIC%")
-            if roic is not None and not (isinstance(roic, float) and pd.isna(roic)):
-                cr = ws.cell(er, QC_C0+6); cr.value = float(roic) / 100
-                cr.number_format = '0.0%'; cr.border = BD(); cr.fill = BG(rbgq)
-                cr.alignment = AL()
-                cr.font = F(True, 9, "276221" if float(roic) >= 15 else "0070C0")
-            else:
-                _qw(QC_C0+6, "—", fg="BBBBBB")
-        elif not HAS_QC and ri == 1:
-            ws.merge_cells(f"I{er}:O{er}")
-            c = ws.cell(er, QC_C0, "— Y\xeau cầu bật yfinance —")
-            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
-
-        cs_end = er
-    ws.row_dimensions[cs_end + 1].height = 8
-
-    # ⭐ DUAL LEADERS (dynamic, after cs_end)
-    dl_sec = cs_end + 2
-    _sec(dl_sec, "⭐  DUAL LEADERS  —  CS Score ≥ 7  AND  QC Score ≥ 4", bg="4A235A")
-    DL_HDRS = ["#", "Ticker", "Company", "Sector", "Price", "CS", "QC",
-               "1Y%", "ROE%", "ROIC%", "D/E", "Net Cash($B)", "Signal", "⚠"]
-    ws.column_dimensions["L"].width = 10
-    ws.column_dimensions["N"].width = 11
-    dl_hdr_row = dl_sec + 1
-    for ci, h in enumerate(DL_HDRS, 1):
-        c = ws.cell(dl_hdr_row, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("4A235A")
-        c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[dl_hdr_row].height = 18
-
-    dl_df = (df[(df["CS_Score"] >= 7) & (df["QC_Score"] >= 4)]
-             .sort_values(["CS_Score", "QC_Score"], ascending=[False, False])
-             if HAS_QC else pd.DataFrame())
-
-    dl_end = dl_hdr_row
-    if dl_df.empty:
-        ws.merge_cells(f"A{dl_hdr_row+1}:N{dl_hdr_row+1}")
-        c = ws.cell(dl_hdr_row + 1, 1, "— Kh\xf4ng c\xf3 m\xe3 n\xe0o đạt cả 2 ti\xeau ch\xed —")
-        c.font = F(False, 9, "888888", italic=True); c.alignment = AL()
-        ws.row_dimensions[dl_hdr_row + 1].height = 18; dl_end = dl_hdr_row + 1
-    else:
-        for ri, (_, row) in enumerate(dl_df.iterrows(), 1):
-            er  = dl_hdr_row + ri
-            rbg = "F5F0FF" if ri % 2 == 0 else "FBF7FF"
-            ws.row_dimensions[er].height = 17
-            sig      = row.get("CS_Signal", "") or ""
-            fg_s, bg_s = SIGNAL_STYLE.get(sig, ("000000", "FFFFFF"))
-
-            def _w(ci, val, bold=False, fg="000000", bgc=None, align="center", nfmt=None):
-                c = ws.cell(er, ci, val)
-                c.border = BD(); c.alignment = AL(align)
-                c.fill = BG(bgc if bgc else rbg); c.font = F(bold, 9, fg)
-                if nfmt and val is not None: c.number_format = nfmt
-
-            _w(1, ri,   True,  "FFFFFF", "4A235A")
-            _w(2, row.get("Ticker", ""),      True,  "1B3A5C")
-            _w(3, row.get("T\xean C\xf4ng Ty", ""), False, "1C3550", align="left")
-            _w(4, row.get("Sector", ""),      False, "334466", align="left")
-            p = row.get("Price ($)")
-            if p is not None and not (isinstance(p, float) and pd.isna(p)):
-                _w(5, p, nfmt='"$"#,##0.00')
-            else:
-                _w(5, "—", fg="BBBBBB")
-            _w(6, int(row.get("CS_Score", 0) or 0), True, CG_FG, CG_BG)
-            _w(7, int(row.get("QC_Score", 0) or 0), True, CB_FG, CB_BG)
-            for ci_n, key, mul, nfmt in [
-                (8,  "1Y%",   100, '+0.0%;(0.0%);"-"'),
-                (9,  "ROE%",  100, '0.0%'),
-                (10, "ROIC%", 100, '0.0%'),
-                (11, "D/E",     1, '0.0'),
-            ]:
-                v = row.get(key)
-                c = ws.cell(er, ci_n)
-                c.border = BD(); c.alignment = AL(); c.fill = BG(rbg)
-                if v is not None and not (isinstance(v, float) and pd.isna(v)):
-                    fv = float(v); c.value = fv / mul; c.number_format = nfmt
-                    if   ci_n == 8:  c.font = F(size=9, color="276221" if fv > 0 else "9C0006")
-                    elif ci_n == 9:  c.font = F(size=9, color="276221" if fv > 17 else "000000")
-                    elif ci_n == 10: c.font = F(True, 9, "276221" if fv >= 15 else "0070C0" if fv >= 10 else "7D6608")
-                    else:            c.font = F(size=9, color="9C0006" if fv > 2 else "7D6608" if fv > 1 else "276221")
-                else:
-                    c.value = "—"; c.font = F(size=9, color="BBBBBB")
-            # Col 12: Net Cash ($B)
-            nc_v = row.get("Net Cash ($B)")
-            c12 = ws.cell(er, 12)
-            c12.border = BD(); c12.alignment = AL(); c12.fill = BG(rbg)
-            if nc_v is not None and not (isinstance(nc_v, float) and pd.isna(nc_v)):
-                c12.value = float(nc_v); c12.number_format = '+#,##0.0;-#,##0.0;"-"'
-                if nc_v > 5:   c12.font = F(True,9,"276221"); c12.fill = BG("C6EFCE")
-                elif nc_v > 0: c12.font = F(size=9,color="276221")
-                elif nc_v > -5:c12.font = F(size=9,color="9C6500")
-                else:          c12.font = F(True,9,"9C0006")
-            else:
-                c12.value = "—"; c12.font = F(size=9,color="BBBBBB")
-
-            _w(13, sig, True, fg_s, bg_s)
-            de_v = row.get("D/E"); pe_v = row.get("P/E")
-            flags = []
-            if de_v is not None and not (isinstance(de_v, float) and pd.isna(de_v)) and float(de_v) > 1:
-                flags.append("D/E")
-            if pe_v is not None and not (isinstance(pe_v, float) and pd.isna(pe_v)) and float(pe_v) > 50:
-                flags.append("P/E")
-            if flags:
-                _w(14, "⚠️ " + " · ".join(flags), True, "9C6500", "FFF2CC")
-            else:
-                _w(14, "", bgc=rbg)
-            dl_end = er
-        ws.conditional_formatting.add(
-            f"H{dl_hdr_row+1}:H{dl_end}",
-            DataBarRule(start_type="min", start_value=0, end_type="max", end_value=100, color="0070C0"))
-
-    # 🎯 TOP PICKS — 4 mini-tables (side by side, dynamic height)
-    ws.row_dimensions[dl_end + 1].height = 10
-    tp_sec = dl_end + 2
-    _sec(tp_sec, "\U0001f3af  TOP PICKS", bg="1A3A5C")
-    tp_hdr = tp_sec + 1
-    # col offsets: Momentum=1, Quality=7, Value=13, Breakout=19
-    TP_GRP = [
-        (1,  "\U0001f680 Momentum  (STRONG BUY, 1Y% ↓)",     "1A5276"),
-        (7,  "\U0001f48e Quality  (Compounder, ROIC% ↓)",     "1A5C2B"),
-        (13, "\U0001f4c9 Value  (P/E<35, EPS>10%, CS≥6)",     "784212"),
-        (19, "\U0001f4a5 Breakout  (52W High ≥90%, CS≥7)",    "4A235A"),
-    ]
-    COL_HDRS = ["Ticker", "Metric", "Sector"]
-    TP_BG    = ["1A5276", "1A5C2B", "784212", "4A235A"]
-
-    def _tp_rows():
-        # Momentum: STRONG BUY sort 1Y%; fallback thêm BUY nếu trống
-        mom = []
-        if "1Y%" in df.columns and "CS_Signal" in df.columns:
-            for sig_filter in ["\U0001f7e2 STRONG BUY",
-                               ["\U0001f7e2 STRONG BUY", "\U0001f535 BUY"]]:
-                mask = (df["CS_Signal"] == sig_filter if isinstance(sig_filter, str)
-                        else df["CS_Signal"].isin(sig_filter))
-                d = (df[mask][["Ticker","1Y%","Sector","CS_Signal"]]
-                     .dropna(subset=["1Y%"]).sort_values("1Y%", ascending=False))
-                if not d.empty:
-                    mom = [(r["Ticker"],
-                            f"{r['1Y%']:+.1f}%  ({r['CS_Signal'].split()[1]})",
-                            r.get("Sector",""))
-                           for _, r in d.iterrows()]
-                    break
-
-        # Quality: Compounder sort ROIC%
-        qua = []
-        if HAS_QC and "ROIC%" in df.columns:
-            d = (df[df["QC_Signal"] == "\U0001f3c6 COMPOUNDER"][["Ticker","ROIC%","Sector"]]
-                 .dropna(subset=["ROIC%"]).sort_values("ROIC%", ascending=False))
-            qua = [(r["Ticker"], f"ROIC {r['ROIC%']:.1f}%", r.get("Sector",""))
-                   for _, r in d.iterrows()]
-
-        # Value: P/E<35 + EPS growth + CS≥6 + giá chưa gần đỉnh (<80% 52W High), sort P/E asc
-        val = []
-        if "P/E" in df.columns and "EPS Annual%" in df.columns and "CS_Score" in df.columns:
-            _w52_ok = (df["52W_High%"] < 80) if ("52W_High%" in df.columns and not df["52W_High%"].isna().all()) else True
-            tmp = (df[
-                (df["CS_Score"] >= 6) &
-                (df["P/E"] > 0) & (df["P/E"] < 35) &
-                (df["EPS Annual%"] > 10) & (df["EPS Annual%"] < 200) &
-                _w52_ok
-            ].dropna(subset=["P/E"]).sort_values("P/E"))
-            val = [(r["Ticker"],
-                    f"P/E {r['P/E']:.1f}× | EPS +{r['EPS Annual%']:.0f}%",
-                    r.get("Sector",""))
-                   for _, r in tmp.iterrows()]
-
-        # Breakout: gần 52W High (≥90%) + CS Score cao
-        brk = []
-        if "52W_High%" in df.columns and "CS_Score" in df.columns:
-            if df["52W_High%"].isna().all():
-                brk = [("—", "52W High% N/A — chạy không có --no-yf để lấy dữ liệu", "yfinance off")]
-            else:
-                tmp = (df[
-                    (df["52W_High%"] >= 90) &
-                    (df["CS_Score"] >= 7)
-                ].sort_values(["CS_Score", "52W_High%"], ascending=[False, False]))
-                brk = [(r["Ticker"],
-                        f"52W {r['52W_High%']:.1f}% | CS {int(r['CS_Score'])}",
-                        r.get("Sector",""))
-                       for _, r in tmp.iterrows()]
-
-        return mom, qua, val, brk
-
-    tp_data = _tp_rows()
-    max_tp_rows = max((len(rows) for rows in tp_data), default=1)
-
-    for (sc, title, _), bg_h in zip(TP_GRP, TP_BG):
-        ws.merge_cells(f"{CL(sc)}{tp_hdr}:{CL(sc+2)}{tp_hdr}")
-        c = ws.cell(tp_hdr, sc, title)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG(bg_h); c.alignment = AL()
-        ws.row_dimensions[tp_hdr].height = 18
-        for i, h in enumerate(COL_HDRS):
-            c2 = ws.cell(tp_hdr + 1, sc + i, h)
-            c2.font = F(True, 8, "FFFFFF"); c2.fill = BG(bg_h)
-            c2.alignment = AL(); c2.border = BD()
-        ws.row_dimensions[tp_hdr + 1].height = 16
-
-    for (sc, _, _), bg_h, rows in zip(TP_GRP, TP_BG, tp_data):
-        if not rows:
-            ws.merge_cells(f"{CL(sc)}{tp_hdr+2}:{CL(sc+2)}{tp_hdr+2}")
-            c = ws.cell(tp_hdr + 2, sc, "— No data —")
-            c.font = F(False, 8, "888888", italic=True); c.alignment = AL()
-            continue
-        for ri, (ticker, metric, sector) in enumerate(rows):
-            er2 = tp_hdr + 2 + ri
-            rbg2 = "F0F8FF" if ri % 2 == 0 else "FFFFFF"
-            ws.row_dimensions[er2].height = 16
-            for ci_off, val, bold, fg in [
-                (0, ticker, True,  "1B3A5C"),
-                (1, metric, True,  "000000"),
-                (2, sector, False, "334466"),
-            ]:
-                c = ws.cell(er2, sc + ci_off, val)
-                c.fill = BG(rbg2); c.border = BD()
-                c.font = F(bold, 9, fg)
-                c.alignment = AL("left" if ci_off == 2 else "center")
-
-    tp_end = tp_hdr + 1 + max_tp_rows + 1   # dynamic, không hardcode
-
-    # Pre-compute zone data so ch_end can be set dynamically
-    zone_data = []; watch_n = 0
-    if HAS_QC:
-        _cs = df["CS_Score"]; _qc = df["QC_Score"]
-        _dual = df[(_cs >= 7) & (_qc >= 4)].sort_values(["CS_Score","QC_Score"], ascending=[False,False])
-        _mom  = df[(_cs >= 7) & (_qc <  4)].sort_values(["CS_Score","1Y%"],      ascending=[False,False])
-        _qual = df[(_cs <  7) & (_qc >= 4)].sort_values("QC_Score",              ascending=False)
-        watch_n = int(((_cs < 7) & (_qc < 4)).sum())
-        zone_data = [
-            ("⭐  Dual Leaders  (CS ≥ 7  &  QC ≥ 4)", "4A235A", _dual),
-            ("🚀  Momentum  (CS ≥ 7,  QC < 4)",        "1A5276", _mom),
-            ("💎  Quality  (CS < 7,  QC ≥ 4)",         "1A5C2B", _qual),
-        ]
-    if zone_data:
-        _top_n = max(len(zone_data[0][2]), len(zone_data[2][2]))  # Dual vs Quality
-        _bot_n = max(1, len(zone_data[1][2]))                     # Momentum
-        zone_rows = 4 + _top_n + _bot_n  # top(hdr+col+data) + divider + bottom(hdr+col+data)
-    else:
-        zone_rows = 10
-    zone_rows = max(zone_rows, 22)
-
-    # ❸ CHART ANALYSIS
-    ws.row_dimensions[tp_end].height = 10
-    ch_sec = tp_end + 1
-    _sec(ch_sec, "❸  CHART ANALYSIS")
-    ch_start = ch_sec + 1
-    for r in range(ch_start, ch_start + zone_rows + 2):
-        ws.row_dimensions[r].height = 17
-    ch_end = ch_start + zone_rows
-
-    # ❹ SECTOR BREAKDOWN
-    ws.row_dimensions[ch_end + 1].height = 10
-    s4_row = ch_end + 2
-    _sec(s4_row, "❹  SECTOR BREAKDOWN  —  Sort: # Strong Buy ↓")
-    S4_HDRS = ["Sector", "# Stocks", "# Str.Buy", "# Buy", "# Comp.", "Avg CS", "Avg QC", "Avg 1Y%"]
-    S4_WD   = [16, 8, 9, 7, 8, 7, 7, 8]
-    for ci, (h, w) in enumerate(zip(S4_HDRS, S4_WD), 1):
-        ws.column_dimensions[CL(ci)].width = w
-        c = ws.cell(s4_row + 1, ci, h)
-        c.font = F(True, 9, "FFFFFF"); c.fill = BG("2C4F7C")
-        c.alignment = AL(); c.border = BD()
-    ws.row_dimensions[s4_row + 1].height = 18
-
-    sec_pivot = []
-    for sec, g in df.assign(Sector=df["Sector"].fillna("Unknown")).groupby("Sector"):
-        sec_pivot.append({
-            "s":   sec,
-            "n":   len(g),
-            "sb":  int((g["CS_Signal"] == "\U0001f7e2 STRONG BUY").sum()),
-            "b":   int((g["CS_Signal"] == "\U0001f535 BUY").sum()),
-            "cp":  int((g["QC_Signal"] == "\U0001f3c6 COMPOUNDER").sum()) if HAS_QC else 0,
-            "acs": g["CS_Score"].mean() if "CS_Score" in g.columns else None,
-            "aqc": g["QC_Score"].mean() if HAS_QC else None,
-            "a1y": g["1Y%"].dropna().mean() if "1Y%" in g.columns else None,
-        })
-    sec_pivot.sort(key=lambda x: x["sb"], reverse=True)
-    TOP3_BG = ["FFF2CC", "E8F5E9", "E3F2FD"]
-    for ri, row in enumerate(sec_pivot):
-        er = s4_row + 2 + ri
-        rbg = TOP3_BG[ri] if ri < 3 else ("F0F4FA" if ri % 2 == 0 else "FFFFFF")
-        ws.row_dimensions[er].height = 17
-        c = ws.cell(er, 1, row["s"]); c.border=BD(); c.fill=BG(rbg); c.alignment=AL("left"); c.font=F(False,9,"1B3A5C")
-        for ci, key in [(2,"n"),(3,"sb"),(4,"b"),(5,"cp")]:
-            v = row[key]; is_sb = ci == 3 and v > 0
-            c = ws.cell(er, ci, v); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
-            c.font = F(True if is_sb else False, 9, "276221" if is_sb else "000000")
-        for ci, key in [(6,"acs"),(7,"aqc")]:
-            v = row[key]
-            c = ws.cell(er, ci); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
-            c.value = round(v, 1) if v is not None and not pd.isna(v) else "—"
-            c.font = F(False, 9, "000000" if v is not None and not pd.isna(v) else "BBBBBB")
-        v8 = row["a1y"]
-        c = ws.cell(er, 8); c.border=BD(); c.fill=BG(rbg); c.alignment=AL()
-        if v8 is not None and not pd.isna(v8):
-            c.value = v8 / 100; c.number_format = '+0.0%;(0.0%);"-"'
-            c.font = F(False, 9, "276221" if v8 > 0 else "9C0006")
-        else:
-            c.value = "—"; c.font = F(size=9, color="BBBBBB")
-
-    # ZONE 2×2 QUADRANT TABLE — mirrors CS×QC scatter layout
-    # Layout:  Left cols (LC) = CS<7  |  divider  |  Right cols (RC) = CS≥7
-    #          Top rows = QC≥4  |  thick divider  |  Bottom rows = QC<4
-    LC = [1, 2, 3, 4]   # Ticker | CS | QC | 1Y%
-    DC = 5               # divider column (uses sector width, just colored gray)
-    RC = [6, 7, 8, 9]   # Ticker | CS | QC | 1Y%
-    ws.column_dimensions["I"].width = 8   # RC 1Y%
-
-    def _zh(r, cols, label, bg):
-        ws.merge_cells(f"{CL(cols[0])}{r}:{CL(cols[-1])}{r}")
-        c = ws.cell(r, cols[0], label)
-        c.font = F(True, 10, "FFFFFF"); c.fill = BG(bg)
-        c.alignment = AL("left"); c.border = BD()
-        ws.row_dimensions[r].height = 18
-
-    def _ch(r, cols):
-        for ci, h in zip(cols, ["Ticker", "CS", "QC", "1Y%"]):
-            c = ws.cell(r, ci, h)
-            c.font = F(True, 9, "FFFFFF"); c.fill = BG("2C4F7C")
-            c.alignment = AL(); c.border = BD()
-        ws.row_dimensions[r].height = 16
-
-    def _div(r):
-        c = ws.cell(r, DC); c.fill = BG("C5D5E8"); c.border = BD()
-
-    def _stock(r, cols, row, rbg):
-        c = ws.cell(r, cols[0], str(row.get("Ticker", "")))
-        c.border = BD(); c.fill = BG(rbg); c.alignment = AL("left"); c.font = F(True, 9, "1B3A5C")
-        c = ws.cell(r, cols[1], int(row.get("CS_Score", 0) or 0))
-        c.border = BD(); c.fill = BG(CG_BG); c.alignment = AL(); c.font = F(True, 9, CG_FG)
-        qc_v = row.get("QC_Score")
-        c = ws.cell(r, cols[2])
-        c.border = BD(); c.alignment = AL()
-        if qc_v is not None and not (isinstance(qc_v, float) and pd.isna(qc_v)):
-            c.value = int(qc_v); c.fill = BG(CB_BG); c.font = F(True, 9, CB_FG)
-        else:
-            c.value = "—"; c.fill = BG(rbg); c.font = F(size=9, color="BBBBBB")
-        v = row.get("1Y%")
-        c = ws.cell(r, cols[3])
-        c.border = BD(); c.alignment = AL(); c.fill = BG(rbg)
-        if v is not None and not (isinstance(v, float) and pd.isna(v)):
-            c.value = float(v) / 100; c.number_format = '+0.0%;(0.0%)'
-            c.font = F(size=9, color="276221" if float(v) > 0 else "9C0006")
-        else:
-            c.value = "—"; c.font = F(size=9, color="BBBBBB")
-        ws.row_dimensions[r].height = 17
-
-    def _pad(r, cols, bg):
-        for ci in cols:
-            c = ws.cell(r, ci); c.border = BD(); c.fill = BG(bg)
-
-    if not zone_data:
-        ws.merge_cells(f"A{ch_start}:I{ch_start}")
-        c = ws.cell(ch_start, 1, "— Bật yfinance Moat để xem phân vùng CS×QC —")
-        c.font = F(False, 10, "888888", italic=True); c.fill = BG("F5F5F5"); c.alignment = AL()
-    else:
-        _dual_df = zone_data[0][2]; _mom_df = zone_data[1][2]; _qual_df = zone_data[2][2]
-        top_n = max(len(_qual_df), len(_dual_df))
-        bot_n = max(1, len(_mom_df))
-        qual_rows = list(_qual_df.iterrows()); dual_rows = list(_dual_df.iterrows())
-        mom_rows  = list(_mom_df.iterrows())
-
-        # ── TOP HALF: 💎 Quality (left) | ⭐ Dual Leaders (right) ──
-        _zh(ch_start,     LC, "💎  Quality  (CS < 7,  QC ≥ 4)",        "1A5C2B")
-        _zh(ch_start,     RC, "⭐  Dual Leaders  (CS ≥ 7  &  QC ≥ 4)", "4A235A")
-        _div(ch_start)
-        _ch(ch_start + 1, LC); _ch(ch_start + 1, RC); _div(ch_start + 1)
-        ws.row_dimensions[ch_start + 1].height = 16
-
-        for i in range(top_n):
-            r = ch_start + 2 + i; _div(r)
-            if i < len(qual_rows):
-                _stock(r, LC, qual_rows[i][1], "EAFAF1" if i % 2 == 0 else "FFFFFF")
-            else:
-                _pad(r, LC, "F4FDF8")
-            if i < len(dual_rows):
-                _stock(r, RC, dual_rows[i][1], "F5F0FF" if i % 2 == 0 else "FFFFFF")
-            else:
-                _pad(r, RC, "FAF7FF")
-
-        # ── HORIZONTAL DIVIDER ──
-        div_r = ch_start + 2 + top_n
-        for ci in LC + [DC] + RC:
-            c = ws.cell(div_r, ci); c.fill = BG("334466"); c.border = BD()
-        ws.row_dimensions[div_r].height = 5
-
-        # ── BOTTOM HALF: 👀 Watchlist (left) | 🚀 Momentum (right) ──
-        b0 = div_r + 1
-        _zh(b0, LC, "👀  Watchlist  (CS < 7  &  QC < 4)", "555555")
-        _zh(b0, RC, "🚀  Momentum  (CS ≥ 7,  QC < 4)",    "1A5276")
-        _div(b0)
-
-        # Watchlist — merged cell spanning col-header + all data rows
-        ws.merge_cells(f"{CL(LC[0])}{b0+1}:{CL(LC[-1])}{b0+1+bot_n}")
-        c = ws.cell(b0 + 1, LC[0], f"{watch_n} mã\nXem sheet chính để lọc thêm")
-        c.font = F(False, 11, "999999", italic=True); c.fill = BG("F5F5F5")
-        c.alignment = AL("center"); c.border = BD()
-
-        # Momentum — col headers at b0+1, data from b0+2
-        _ch(b0 + 1, RC); _div(b0 + 1)
-        for i, (_, row) in enumerate(mom_rows):
-            r = b0 + 2 + i; _div(r)
-            _stock(r, RC, row, "EBF5FB" if i % 2 == 0 else "FFFFFF")
-        for i in range(len(mom_rows), bot_n):
-            r = b0 + 2 + i; _div(r); _pad(r, RC, "F0F8FF")
+def _score_fill(pct):
+    if pct >= 0.8:  return CG_FG, CG_BG
+    if pct >= 0.6:  return CB_FG, CB_BG
+    if pct >= 0.4:  return CY_FG, CY_BG
+    return CR_FG, CR_BG
 
 
 def _main_sheet(wb, df, market, top):
-    ws = wb.active; ws.title = f"Top{top}"
+    """Bảng chính: số liệu gốc + 6 tiêu chí nhóm A + 6 tiêu chí nhóm B + hai điểm."""
+    ws = wb.active
+    ws.title = "Screener"
     ws.sheet_view.showGridLines = False
-    bdr = BD(); nd = len(DATA_HEADERS)
-    CS_START    = nd + 1
-    CI_SCORE    = CS_START + N_CS
-    CI_CONV     = CS_START + N_CS + 1
-    CI_SIGNAL   = CS_START + N_CS + 2
-    TOTAL       = CI_SIGNAL
-    DR = 5
 
-    # Sort theo CS_Score → Conviction giảm dần để mã tốt nhất lên đầu
-    sort_cols = [c for c in ["CS_Score", "Conviction"] if c in df.columns]
-    df = df.sort_values(sort_cols, ascending=[False] * len(sort_cols)).reset_index(drop=True) if sort_cols else df
+    BASE = [("Ticker", "Ticker", 10), ("Tên Công Ty", "Công ty", 30),
+            ("Sector", "Ngành", 20), ("Price ($)", "Giá", 11),
+            ("MCap ($B)", "Vốn hóa (tỷ$)", 14),
+            ("ROIC%", "ROIC%", 9), ("Op Margin%", "Biên HĐ%", 10),
+            ("Gross Margin%", "Biên gộp%", 10), ("NI Growth%", "LN tăng%", 10),
+            ("Rev Growth%", "DT tăng%", 10), ("D/E", "D/E", 8),
+            ("FCF/NI", "FCF/LN", 9), ("FCF_Margin%", "Biên FCF%", 10),
+            ("EPS_NI_Gap", "EPS−LN", 9), ("ROE_ROIC_Gap", "ROE−ROIC", 10),
+            ("Net Cash ($B)", "Tiền ròng", 11), ("Current Ratio", "T.khoản", 9)]
+    PCT = {"ROIC%", "Op Margin%", "Gross Margin%", "NI Growth%", "Rev Growth%",
+           "FCF_Margin%", "EPS_NI_Gap", "ROE_ROIC_Gap"}
 
-    ws.merge_cells(f"A1:{CL(TOTAL)}1")
-    c = ws["A1"]; c.value = f"📊  TOP {top} {market.upper()}  —  FUNDAMENTAL + CAN SLIM SCREENER"
-    c.font = F(True,15,C_WHITE); c.fill = BG(C_DARK); c.alignment = AL(); ws.row_dimensions[1].height = 32
+    nb   = len(BASE)
+    a_st = nb + 1
+    b_st = a_st + len(FIN_KEYS)
+    s_st = b_st + len(REAL_KEYS)
+    total_cols = s_st + 2
 
-    ws.merge_cells(f"A2:{CL(TOTAL)}2")
-    c = ws["A2"]; c.value = f"Source: TradingView + yfinance (Moat)   |   {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Sorted by CS Score ↓"
-    c.font = F(False,8,"88AACC",True); c.fill = BG(C_DARK); c.alignment = AL(); ws.row_dimensions[2].height = 16
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+    t = ws.cell(1, 1, f"SCREENER TÀI CHÍNH  —  {market.upper()}  ·  TOP {top}  ·  "
+                      f"{datetime.now():%d/%m/%Y %H:%M}")
+    t.font = F(True, 13, C_WHITE); t.fill = BG(C_DARK); t.alignment = AL("left")
+    ws.row_dimensions[1].height = 26
 
-    groups = [
-        (1,1,"TICKER","213A5C"),(2,2,"TÊN CÔNG TY","1C3550"),
-        (3,3,"SECTOR","2C4F7C"),
-        (4,5,"PRICE","2E5E8E"),
-        (6,7,"🏰  MOAT (yfinance 5yr)","4A235A"),
-        (8,12,"GROWTH","1A5276"),
-        (13,16,"QUALITY","154360"),(17,20,"VALUATION","1B2631"),
-        (21,25,"PERFORMANCE","0E3251"),
-        (CS_START, CI_SCORE-1, "✅  CAN SLIM  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
-        (CI_SCORE, CI_SCORE, "SCORE", "0D3B1A"),
-        (CI_CONV, CI_CONV, "CONVICTION", "0D3B1A"),
-        (CI_SIGNAL, CI_SIGNAL, "SIGNAL", "0D3B1A"),
-    ]
-    ws.row_dimensions[3].height = 14
-    for cs, ce, lbl, bg in groups:
-        c = ws.cell(3, cs, lbl)
-        c.font = F(True,8,"C8DDEF"); c.fill = BG(bg); c.alignment = AL(); c.border = bdr
-        if cs < ce: ws.merge_cells(f"{CL(cs)}3:{CL(ce)}3")
+    for a, b, label, color in ((1, nb, "SỐ LIỆU", "1B3A5C"),
+                               (a_st, b_st - 1, "A — TÀI CHÍNH TỐT", "1A5C2B"),
+                               (b_st, s_st - 1, "B — CHỨNG MINH LÀ THỰC", "7A3E00"),
+                               (s_st, total_cols, "KẾT QUẢ", "4A235A")):
+        ws.merge_cells(start_row=2, start_column=a, end_row=2, end_column=b)
+        c = ws.cell(2, a, label)
+        c.font = F(True, 10, C_WHITE); c.fill = BG(color); c.alignment = AL()
+    ws.row_dimensions[2].height = 19
 
-    ws.row_dimensions[4].height = 30
-    for ci, h in enumerate(DATA_HEADERS, 1):
-        c = ws.cell(4,ci,h); c.font=F(True,8,C_WHITE); c.fill=BG(C_NAVY); c.alignment=AL(wrap=True); c.border=bdr
+    hdrs = ([h for _, h, _ in BASE]
+            + [FIN_CRITERIA[k]["label"] for k in FIN_KEYS]
+            + [REAL_CRITERIA[k]["label"] for k in REAL_KEYS]
+            + ["Tài chính", "Thực", "Tín hiệu"])
+    for i, h in enumerate(hdrs, 1):
+        c = ws.cell(3, i, h)
+        c.font = F(True, 9, C_WHITE); c.fill = BG(C_NAVY)
+        c.alignment = AL(wrap=True); c.border = BD()
+    ws.row_dimensions[3].height = 30
 
-    for i, key in enumerate(CS_KEYS):
-        ci = CS_START + i
-        c = ws.cell(4,ci,CANSLIM[key]["label"])
-        c.font=F(True,8,C_WHITE); c.fill=BG("1A5C2B"); c.alignment=AL(wrap=True); c.border=bdr
-    for ci, lbl in [(CI_SCORE,f"Score\n/{N_CS}"), (CI_CONV,"Conviction"), (CI_SIGNAL,"Signal")]:
-        c = ws.cell(4,ci,lbl); c.font=F(True,9,C_WHITE); c.fill=BG("0D3B1A"); c.alignment=AL(wrap=True); c.border=bdr
+    sort_cols = [c for c in ("FIN_Pct", "REAL_Pct") if c in df.columns]
+    d = df.sort_values(sort_cols, ascending=False) if sort_cols else df
 
-    for ri, (_, row) in enumerate(df.iterrows(), 1):
-        er = DR + ri - 1; alt = ri%2==0; rbg = C_ALT if alt else C_WHITE
-
-        for ci, h in enumerate(DATA_HEADERS, 1):
-            val = row.get(h); c = ws.cell(er,ci)
-            c.border=bdr; c.fill=BG(rbg); c.alignment=AL("left" if ci==1 else "center")
-            if ci==1:
-                c.value=val; c.font=F(True,9,C_NAVY); continue
-            if val is None or (isinstance(val,float) and pd.isna(val)):
-                c.font=F(size=9,color="BBBBBB"); continue
-            if h=="Tên Công Ty":
-                c.value=val; c.font=F(size=8,color="1C3550"); c.alignment=AL("left")
-            elif h=="Sector":
-                c.value=val; c.font=F(size=8,italic=True,color="334466"); c.alignment=AL("left")
-            elif h=="Moat Proxy":
-                c.value=val; c.font=F(size=8,italic=True,color="4A235A")
-                c.fill=BG("F5EEF8"); c.alignment=AL("left")
-            elif h=="Moat Score":
-                fg,bg = MOAT_SCORE_STYLE.get(val, ("000000",C_WHITE))
-                c.value=val; c.font=F(True,9,fg); c.fill=BG(bg); c.alignment=AL()
-            elif h=="PEG":
-                c.value=val; c.number_format='0.00'; c.alignment=AL()
-                if val <= 1.0:   c.font=F(True,9,CG_FG);  c.fill=BG("C6EFCE")
-                elif val <= 1.5: c.font=F(True,9,"1A5276"); c.fill=BG("DDEEFF")
-                elif val <= 2.5: c.font=F(size=9,color=CY_FG)
-                else:            c.font=F(size=9,color=CR_FG)
-            elif h=="EPS_Acc":
-                _acc_style = {
-                    "↑3Q": ("1A5C2B","C6EFCE"), "↑2Q": ("1A5C2B","D8F5E5"),
-                    "↑1Q": ("7D6608","FFF2CC"),  "↓":   ("9C0006","FFC7CE"),
-                }
-                fg2,bg2 = _acc_style.get(val, ("888888","F5F5F5"))
-                c.value=val; c.font=F(True,9,fg2); c.fill=BG(bg2); c.alignment=AL()
-            elif h=="Price ($)":
-                c.value=val; c.font=F(size=9)
-                c.number_format = '#,##0' if market.lower()=="vietnam" else '"$"#,##0.00'
-            elif h=="MCap ($B)":
-                c.value=val; c.font=F(size=9)
-                c.number_format = '#,##0.0' if market.lower()=="vietnam" else '#,##0.0'
-            elif ci in PCT_COLS:
-                c.value=val/100; c.number_format='+0.0%;(0.0%);"-"'
-                c.font = F(size=9,color=CG_FG,bold=(val>25)) if val>0 else (F(size=9,color=CR_FG) if val<0 else F(size=9))
+    for ri, (_, row) in enumerate(d.iterrows()):
+        r  = ri + 4
+        bg = C_ALT if ri % 2 else C_WHITE
+        for ci, (key, _, _) in enumerate(BASE, 1):
+            v = row.get(key)
+            c = ws.cell(r, ci)
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                c.value = "—"
+            elif key in PCT:
+                c.value = float(v) / 100; c.number_format = '+0.0%;(0.0%);"—"'
+            elif key == "MCap ($B)":
+                c.value = float(v); c.number_format = '#,##0.0'
+            elif key == "Price ($)":
+                c.value = float(v); c.number_format = '#,##0.00'
+            elif isinstance(v, (int, float)):
+                c.value = float(v); c.number_format = '0.00'
             else:
-                c.value=val; c.number_format='0.0'; c.font=F(size=9)
+                c.value = str(v)
+            c.font = F(size=9, bold=(ci == 1)); c.fill = BG(bg); c.border = BD()
+            c.alignment = AL("left" if ci in (1, 2, 3) else "right")
 
-        for i, key in enumerate(CS_KEYS):
-            ci = CS_START + i; v = row.get(f"CS_{key}"); c = ws.cell(er,ci)
-            c.border=bdr; c.alignment=AL()
-            if v is True:    c.value="✓"; c.font=F(True,11,CG_FG); c.fill=BG(CG_BG)
-            elif v is False: c.value="✗"; c.font=F(True,10,CR_FG); c.fill=BG(CR_BG)
-            else:            c.value="–"; c.font=F(size=9,color="AAAAAA"); c.fill=BG("F2F2F2")
+        for gi, (keys, prefix) in enumerate(((FIN_KEYS, "FIN"), (REAL_KEYS, "REAL"))):
+            start = a_st if gi == 0 else b_st
+            for ki, k in enumerate(keys):
+                v = row.get(f"{prefix}_{k}")
+                c = ws.cell(r, start + ki)
+                if v is True:
+                    c.value = "✓"; c.font = F(True, 11, CG_FG); c.fill = BG(CG_BG)
+                elif v is False:
+                    c.value = "✗"; c.font = F(True, 11, CR_FG); c.fill = BG(CR_BG)
+                else:
+                    c.value = "—"; c.font = F(size=9, color="94A3B8"); c.fill = BG(bg)
+                c.alignment = AL(); c.border = BD()
 
-        sc = row.get("CS_Score",0); c = ws.cell(er,CI_SCORE,sc)
-        c.border=bdr; c.alignment=AL(); c.number_format="0"
-        pct = sc/N_CS
-        if pct>=0.875:  c.fill=BG(CG_BG); c.font=F(True,11,CG_FG)
-        elif pct>=0.625: c.fill=BG(CB_BG); c.font=F(True,11,CB_FG)
-        elif pct>=0.375: c.fill=BG(CY_BG); c.font=F(True,11,CY_FG)
-        else:            c.fill=BG(CR_BG); c.font=F(True,11,CR_FG)
+        for off, (g, a) in enumerate(((row.get("FIN_Score"), row.get("FIN_App")),
+                                      (row.get("REAL_Score"), row.get("REAL_App")))):
+            txt, pct = _score_fmt(g, a)
+            fg, fbg  = _score_fill(pct)
+            c = ws.cell(r, s_st + off, txt)
+            c.font = F(True, 10, fg); c.fill = BG(fbg); c.alignment = AL(); c.border = BD()
 
-        cv = row.get("Conviction", sc); c = ws.cell(er, CI_CONV, cv)
-        c.border=bdr; c.alignment=AL(); c.number_format="0.0"
-        pct_cv = cv / (N_CS * 1.2)  # max conviction = N_CS × WIDE moat multiplier
-        if pct_cv>=0.75:  c.fill=BG(CG_BG); c.font=F(True,10,CG_FG)
-        elif pct_cv>=0.55: c.fill=BG(CB_BG); c.font=F(True,10,CB_FG)
-        elif pct_cv>=0.35: c.fill=BG(CY_BG); c.font=F(True,10,CY_FG)
-        else:              c.fill=BG(CR_BG); c.font=F(True,10,CR_FG)
+        sig = row.get("Signal", "") or ""
+        fg, fbg = _sig_style(sig)
+        c = ws.cell(r, s_st + 2, sig)
+        c.font = F(True, 9, fg); c.fill = BG(fbg); c.alignment = AL(); c.border = BD()
 
-        sig = row.get("CS_Signal",""); c = ws.cell(er,CI_SIGNAL,sig)
-        c.border=bdr; c.alignment=AL()
-        fg,bg = SIGNAL_STYLE.get(sig,("000000",C_WHITE))
-        c.font=F(True,9,fg); c.fill=BG(bg)
-
-    for ci,w in {1:9,2:22,3:16,4:8,5:9,
-                 6:28,7:13,
-                 8:8,9:8,10:8,11:8,12:8,13:7,14:7,15:6,
-                 16:6,17:6,18:6,
-                 19:6,20:6,21:6,22:6,23:7,24:7,25:7}.items():
-        ws.column_dimensions[CL(ci)].width=w
-    for i in range(N_CS): ws.column_dimensions[CL(CS_START+i)].width=9
-    ws.column_dimensions[CL(CI_SCORE)].width=7
-    ws.column_dimensions[CL(CI_CONV)].width=9
-    ws.column_dimensions[CL(CI_SIGNAL)].width=15
-    for ri in range(DR, DR+len(df)): ws.row_dimensions[ri].height=16
-
-    for col_i in [9,11,21]:
-        rng=f"{CL(col_i)}{DR}:{CL(col_i)}{DR+len(df)-1}"
-        ws.conditional_formatting.add(rng, ColorScaleRule(
-            start_type="num",start_value=-0.3,start_color="FFC7CE",
-            mid_type="num",mid_value=0,mid_color="FFFFFF",
-            end_type="num",end_value=0.5,end_color="C6EFCE"))
-
-    ws.freeze_panes = ws[f"B{DR}"]
+    for i, (_, _, w) in enumerate(BASE, 1):
+        ws.column_dimensions[CL(i)].width = w
+    for i in range(a_st, s_st):
+        ws.column_dimensions[CL(i)].width = 11
+    ws.column_dimensions[CL(s_st)].width     = 11
+    ws.column_dimensions[CL(s_st + 1)].width = 11
+    ws.column_dimensions[CL(s_st + 2)].width = 20
+    ws.freeze_panes = "B4"
+    ws.auto_filter.ref = f"A3:{CL(total_cols)}{len(d) + 3}"
 
 
 def _qc_sheet(wb, df):
-    """Quality Compounder sheet — metrics, QC checkmarks, score, signal, EQ badge."""
-    ws = wb.create_sheet("Quality Compounder")
+    """Sheet Cờ đỏ — số liệu đẹp nhưng không vượt được kiểm chứng."""
+    ws = wb.create_sheet("Cờ đỏ")
     ws.sheet_view.showGridLines = False
-    ws.sheet_tab_color = "1A5C2B"
-    bdr = BD()
 
-    # Sort by QC_Score desc → 1Y% desc
-    sort_cols = [c for c in ["QC_Score", "1Y%"] if c in df.columns]
-    df_qc = (df.sort_values(sort_cols, ascending=[False] * len(sort_cols))
-               .reset_index(drop=True) if sort_cols else df.reset_index(drop=True))
+    HDRS = ["Ticker", "Công ty", "Ngành", "Tài chính", "Thực", "Tín hiệu",
+            "Chưa chứng minh được ở điểm nào"]
+    WIDS = [10, 30, 20, 11, 11, 20, 62]
 
-    DATA_HDRS = [
-        ("Ticker",      "Ticker",        9),
-        ("Tên Công Ty", "Tên Công Ty",  22),
-        ("Sector",      "Sector",        14),
-        ("Price ($)",   "Price ($)",      8),
-        ("MCap ($B)",   "MCap ($B)",      9),
-        ("Moat Score",  "Moat Score",    13),
-        ("GM%",         "Gross Margin%",  7),
-        ("Op Margin%",  "Op Margin%",     9),
-        ("ROIC%",       "ROIC%",          7),
-        ("D/E",          "D/E",              6),
-        ("Net Cash($B)", "Net Cash ($B)",   9),
-        ("FCF/sh",       "FCF/sh",          7),
-        ("FCF Mgn%",     "FCF_Margin%",     8),
-        ("Curr.R",      "Current Ratio",  7),
-        ("EV/EBITDA",   "EV/EBITDA",      9),
-        ("P/E",         "P/E",            6),
-        ("1Y%",         "1Y%",            7),
-    ]
-    QC_CHECK_HDRS = [
-        ("ROIC✓",  "QC_ROIC"),
-        ("OpMgn✓", "QC_OPGM"),
-        ("GM✓",    "QC_GM"),
-        ("FCF✓",   "QC_FCF"),
-        ("DE✓",    "QC_DE"),
-        ("Moat✓",  "QC_MOAT"),
-    ]
-    RESULT_HDRS = [
-        ("Score",    "QC_Score"),
-        ("Quality",  "QC_Signal"),
-        ("EQ Badge", "EQ_Badge"),
-    ]
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(HDRS))
+    t = ws.cell(1, 1, "CỜ ĐỎ — SỐ LIỆU TÀI CHÍNH ĐẸP NHƯNG CHƯA CHỨNG MINH ĐƯỢC")
+    t.font = F(True, 12, C_WHITE); t.fill = BG("9C0006"); t.alignment = AL("left")
+    ws.row_dimensions[1].height = 24
 
-    ND   = len(DATA_HDRS)
-    NQC  = len(QC_CHECK_HDRS)
-    NR   = len(RESULT_HDRS)
-    TOTAL = ND + NQC + NR
-    PCT_COLS = {"Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "1Y%"}
-    DR = 5
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(HDRS))
+    s = ws.cell(2, 1, "Đạt ≥80% tiêu chí tài chính nhưng dưới 50% tiêu chí kiểm chứng. "
+                      "Đây là nhóm mà bộ lọc được thiết kế để phát hiện.")
+    s.font = F(False, 9, "5C0000", italic=True); s.fill = BG("FFF0F0"); s.alignment = AL("left")
 
-    # ── Title ─────────────────────────────────────────────────────────────────
-    ws.merge_cells(f"A1:{CL(TOTAL)}1")
-    c = ws["A1"]
-    c.value = "📊  QUALITY COMPOUNDER SCREENER"
-    c.font = Font(name="Calibri", bold=True, size=15, color="FFFFFF")
-    c.fill = BG("0D2137"); c.alignment = AL()
-    ws.row_dimensions[1].height = 32
+    for i, (h, w) in enumerate(zip(HDRS, WIDS), 1):
+        c = ws.cell(3, i, h)
+        c.font = F(True, 9, C_WHITE); c.fill = BG(C_NAVY)
+        c.alignment = AL(); c.border = BD()
+        ws.column_dimensions[CL(i)].width = w
+    ws.row_dimensions[3].height = 20
 
-    ws.merge_cells(f"A2:{CL(TOTAL)}2")
-    c = ws["A2"]
-    c.value = (f"Source: TradingView + yfinance   |   "
-               f"{datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Sorted by QC Score ↓")
-    c.font = F(False, 8, "88AACC", True); c.fill = BG("0D2137"); c.alignment = AL()
-    ws.row_dimensions[2].height = 16
+    _WHY = {
+        "CASH": "dòng tiền tự do không theo kịp lợi nhuận ghi sổ",
+        "FCFM": "biên dòng tiền tự do mỏng",
+        "BUYB": "EPS tăng nhanh hơn lợi nhuận — do mua cổ phiếu quỹ",
+        "LEV":  "ROE vượt xa ROIC — sinh lời đến từ đòn bẩy",
+        "BAL":  "bảng cân đối không chịu được kiểm tra thanh khoản",
+        "SUS":  "chưa có bề dày 5 năm để gọi là bền vững",
+    }
 
-    # ── Group headers (row 3) ─────────────────────────────────────────────────
-    groups = [
-        (1,       3,        "IDENTITY",                                    "1C3550"),
-        (4,       5,        "PRICE & SIZE",                                "2E5E8E"),
-        (6,       6,        "🏰  MOAT",                                    "4A235A"),
-        (7,       17,       "📊  QC METRICS",                              "0E3251"),
-        (18,      23,       "✅  QC CRITERIA  (✓ = đạt / ✗ = không đạt)", "1A5C2B"),
-        (24,      24,       "SCORE",                                       "0D3B1A"),
-        (25,      25,       "QUALITY",                                     "0D3B1A"),
-        (26,      26,       "EQ BADGE",                                    "0D2020"),
-    ]
-    ws.row_dimensions[3].height = 14
-    for cs, ce, lbl, bg_hex in groups:
-        c = ws.cell(3, cs, lbl)
-        c.font = F(True, 8, "C8DDEF"); c.fill = BG(bg_hex)
-        c.alignment = AL(); c.border = bdr
-        if cs < ce:
-            ws.merge_cells(f"{CL(cs)}3:{CL(ce)}3")
+    flag = df[df["Signal"] == "🔴 CỜ ĐỎ"] if "Signal" in df.columns else df.iloc[0:0]
+    flag = flag.sort_values("FIN_Pct", ascending=False) if "FIN_Pct" in flag.columns else flag
 
-    # ── Column headers (row 4) ────────────────────────────────────────────────
-    ws.row_dimensions[4].height = 28
-    for ci, (hdr, _, w) in enumerate(DATA_HDRS, 1):
-        c = ws.cell(4, ci, hdr)
-        c.font = F(True, 8, C_WHITE); c.fill = BG(C_NAVY)
-        c.alignment = AL(wrap=True); c.border = bdr
-        ws.column_dimensions[CL(ci)].width = w
+    if flag.empty:
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(HDRS))
+        c = ws.cell(4, 1, "Không có mã nào rơi vào nhóm này trong lần quét hiện tại.")
+        c.font = F(False, 10, "276221", italic=True); c.alignment = AL("left")
+        return
 
-    for i, (hdr, _) in enumerate(QC_CHECK_HDRS):
-        ci = ND + 1 + i
-        c = ws.cell(4, ci, hdr)
-        c.font = F(True, 8, "5EC472"); c.fill = BG("0D2A10")
-        c.alignment = AL(wrap=True); c.border = bdr
-        ws.column_dimensions[CL(ci)].width = 7
-
-    for i, (hdr, _) in enumerate(RESULT_HDRS):
-        ci = ND + NQC + 1 + i
-        bg_h = "0D3B1A" if i < 2 else "0D2020"
-        c = ws.cell(4, ci, hdr)
-        c.font = F(True, 8, C_WHITE); c.fill = BG(bg_h)
-        c.alignment = AL(wrap=True); c.border = bdr
-        ws.column_dimensions[CL(ci)].width = 7 if i == 0 else 16
-
-    # ── Data rows ─────────────────────────────────────────────────────────────
-    for ri, (_, row) in enumerate(df_qc.iterrows(), 1):
-        er  = DR + ri - 1
-        alt = ri % 2 == 0
-        rbg = C_ALT if alt else C_WHITE
-        ws.row_dimensions[er].height = 16
-
-        for ci, (_, key, _) in enumerate(DATA_HDRS, 1):
-            val = row.get(key)
-            c   = ws.cell(er, ci)
-            c.border = bdr; c.fill = BG(rbg)
-            c.alignment = AL("left" if ci <= 3 else "center")
-            if val is None or (isinstance(val, float) and pd.isna(val)):
-                c.value = "—"; c.font = F(size=9, color="BBBBBB"); continue
-            if key == "Ticker":
-                c.value = val; c.font = F(True, 9, C_NAVY); c.alignment = AL("left")
-            elif key == "Tên Công Ty":
-                c.value = val; c.font = F(size=8, color="1C3550"); c.alignment = AL("left")
-            elif key == "Sector":
-                c.value = val; c.font = F(size=8, italic=True, color="334466"); c.alignment = AL("left")
-            elif key == "Moat Score":
-                fg_m, bg_m = MOAT_SCORE_STYLE.get(val, ("000000", C_WHITE))
-                c.value = val; c.font = F(True, 9, fg_m); c.fill = BG(bg_m); c.alignment = AL()
-            elif key == "Price ($)":
-                c.value = val; c.number_format = '"$"#,##0.00'; c.font = F(size=9)
-            elif key == "MCap ($B)":
-                c.value = val; c.number_format = "#,##0.0"; c.font = F(size=9)
-            elif key == "Net Cash ($B)":
-                c.value = val; c.number_format = '+#,##0.0;-#,##0.0;"-"'
-                if val > 0:
-                    c.font = F(True,9,CG_FG) if val > 5 else F(size=9,color=CG_FG)
-                    if val > 5: c.fill = BG("C6EFCE")
-                elif val > -5:
-                    c.font = F(size=9,color=CY_FG)
-                else:
-                    c.font = F(True,9,CR_FG)
-            elif key == "FCF_Margin%":
-                c.value = val / 100; c.number_format = '+0.0%;(0.0%);"-"'
-                if val >= 25:
-                    c.font = F(True, 9, CG_FG); c.fill = BG("D5F5E3")
-                elif val >= 15:
-                    c.font = F(size=9, color=CG_FG)
-                elif val < 0:
-                    c.font = F(size=9, color=CR_FG)
-                else:
-                    c.font = F(size=9, color="888888")
-            elif key in PCT_COLS:
-                c.value = val / 100; c.number_format = '+0.0%;(0.0%);"-"'
-                c.font = (F(size=9, color=CG_FG, bold=(val > 25)) if val > 0
-                          else F(size=9, color=CR_FG) if val < 0 else F(size=9))
+    for ri, (_, row) in enumerate(flag.iterrows()):
+        r  = ri + 4
+        bg = C_ALT if ri % 2 else C_WHITE
+        why = "; ".join(_WHY[k] for k in REAL_KEYS if row.get(f"REAL_{k}") is False) or "—"
+        vals = [row.get("Ticker", ""), row.get("Tên Công Ty", ""), row.get("Sector", ""),
+                _score_fmt(row.get("FIN_Score"), row.get("FIN_App"))[0],
+                _score_fmt(row.get("REAL_Score"), row.get("REAL_App"))[0],
+                row.get("Signal", ""), why]
+        for ci, v in enumerate(vals, 1):
+            c = ws.cell(r, ci, v)
+            c.border = BD(); c.fill = BG(bg)
+            c.alignment = AL("left" if ci in (1, 2, 3, 7) else "center", wrap=(ci == 7))
+            if ci == 4:
+                c.font = F(True, 10, CG_FG); c.fill = BG(CG_BG)
+            elif ci == 5:
+                c.font = F(True, 10, CR_FG); c.fill = BG(CR_BG)
+            elif ci == 6:
+                c.font = F(True, 9, CR_FG); c.fill = BG(CR_BG)
+            elif ci == 7:
+                c.font = F(False, 9, "9C0006")
             else:
-                c.value = val; c.number_format = "0.0"; c.font = F(size=9)
+                c.font = F(ci == 1, 9)
+    ws.freeze_panes = "A4"
 
-        for i, (_, qc_key) in enumerate(QC_CHECK_HDRS):
-            ci = ND + 1 + i
-            v  = row.get(qc_key)
-            c  = ws.cell(er, ci)
-            c.border = bdr; c.alignment = AL()
-            if v is True:
-                c.value = "✓"; c.font = F(True, 11, CG_FG); c.fill = BG(CG_BG)
-            elif v is False:
-                c.value = "✗"; c.font = F(True, 10, CR_FG); c.fill = BG(CR_BG)
+
+def _dashboard_sheet(wb, df):
+    """Sheet tổng hợp: phân bố tín hiệu, tỷ lệ đạt từng tiêu chí, theo ngành."""
+    ws = wb.create_sheet("Tổng hợp")
+    ws.sheet_view.showGridLines = False
+    for i, w in enumerate([26, 13, 13, 13, 46], 1):
+        ws.column_dimensions[CL(i)].width = w
+
+    ws.merge_cells("A1:E1")
+    t = ws.cell(1, 1, f"TỔNG HỢP  ·  {len(df)} mã  ·  {datetime.now():%d/%m/%Y %H:%M}")
+    t.font = F(True, 13, C_WHITE); t.fill = BG(C_DARK); t.alignment = AL("left")
+    ws.row_dimensions[1].height = 26
+
+    r = 3
+
+    def section(title, color="1B3A5C"):
+        nonlocal r
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        c = ws.cell(r, 1, title)
+        c.font = F(True, 10, C_WHITE); c.fill = BG(color); c.alignment = AL("left")
+        r += 1
+
+    def head(cols):
+        nonlocal r
+        for i, h in enumerate(cols, 1):
+            c = ws.cell(r, i, h)
+            c.font = F(True, 9, C_WHITE); c.fill = BG(C_NAVY)
+            c.alignment = AL(); c.border = BD()
+        r += 1
+
+    section("PHÂN BỐ TÍN HIỆU")
+    head(["Tín hiệu", "Số mã", "Tỷ lệ", "", ""])
+    sig = df["Signal"] if "Signal" in df.columns else pd.Series(dtype=str)
+    for name in ["🟢 TỐT & THỰC", "🔵 KHÁ", "🔴 CỜ ĐỎ", "🟠 THẬT NHƯNG YẾU",
+                 "🟡 THEO DÕI", "⚫ LOẠI", "⚪ THIẾU DỮ LIỆU"]:
+        n = int((sig == name).sum())
+        fg, bg = _sig_style(name)
+        ws.cell(r, 1, name).font = F(True, 9, fg)
+        ws.cell(r, 1).fill = BG(bg); ws.cell(r, 1).border = BD()
+        c = ws.cell(r, 2, n); c.font = F(True, 10); c.alignment = AL(); c.border = BD()
+        p = ws.cell(r, 3, n / len(df) if len(df) else 0)
+        p.number_format = '0.0%'; p.alignment = AL(); p.border = BD()
+        r += 1
+    r += 1
+
+    section("TỶ LỆ ĐẠT CỦA TỪNG TIÊU CHÍ", "1A5C2B")
+    head(["Tiêu chí", "Nhóm", "Đạt / Áp dụng", "Tỷ lệ", "Nhận xét"])
+    for grp, keys, crit, pre in (("A", FIN_KEYS, FIN_CRITERIA, "FIN"),
+                                 ("B", REAL_KEYS, REAL_CRITERIA, "REAL")):
+        for k in keys:
+            col = f"{pre}_{k}"
+            if col not in df.columns:
+                continue
+            s   = df[col]
+            app = int(s.notna().sum())
+            got = int((s == True).sum())  # noqa: E712
+            pct = got / app if app else 0
+            if app == 0:
+                note, nc = "không có dữ liệu — tiêu chí đang vô hiệu", CR_FG
+            elif pct >= 0.9:
+                note, nc = "quá lỏng — hầu như mã nào cũng đạt", CY_FG
+            elif pct <= 0.05:
+                note, nc = "quá chặt — gần như không mã nào đạt", CY_FG
             else:
-                c.value = "–"; c.font = F(size=9, color="AAAAAA"); c.fill = BG("F2F2F2")
+                note, nc = "phân loại tốt", CG_FG
+            ws.cell(r, 1, crit[k]["label"]).font = F(True, 9)
+            ws.cell(r, 2, f"Nhóm {grp}").font = F(size=9)
+            ws.cell(r, 3, f"{got} / {app}").font = F(size=9)
+            pc = ws.cell(r, 4, pct); pc.number_format = '0.0%'; pc.font = F(True, 9)
+            ws.cell(r, 5, note).font = F(size=9, color=nc)
+            for i in range(1, 6):
+                ws.cell(r, i).border = BD()
+                ws.cell(r, i).alignment = AL("left" if i in (1, 5) else "center")
+            r += 1
+    r += 1
 
-        # Score
-        sc  = int(row.get("QC_Score", 0) or 0)
-        pct = sc / NQC
-        c   = ws.cell(er, ND + NQC + 1, sc)
-        c.border = bdr; c.alignment = AL(); c.number_format = "0"
-        if pct >= 5/6:   c.fill = BG(CG_BG); c.font = F(True, 11, CG_FG)
-        elif pct >= 3/6: c.fill = BG(CB_BG); c.font = F(True, 11, CB_FG)
-        elif pct >= 1/6: c.fill = BG(CY_BG); c.font = F(True, 11, CY_FG)
-        else:            c.fill = BG(CR_BG); c.font = F(True, 11, CR_FG)
+    section("THEO NGÀNH", "7A3E00")
+    head(["Ngành", "Số mã", "Tốt & Thực", "Cờ đỏ", "TB Tài chính / TB Thực"])
+    if "Sector" in df.columns:
+        stats = []
+        for name, g in df.groupby("Sector"):
+            if not name:
+                continue
+            gs = g["Signal"] if "Signal" in g.columns else pd.Series(dtype=str)
+            stats.append((str(name), len(g),
+                          int((gs == "🟢 TỐT & THỰC").sum()),
+                          int((gs == "🔴 CỜ ĐỎ").sum()),
+                          g["FIN_Pct"].mean() if "FIN_Pct" in g.columns else 0,
+                          g["REAL_Pct"].mean() if "REAL_Pct" in g.columns else 0))
+        for name, n, good, bad, fp, rp in sorted(stats, key=lambda x: -x[2]):
+            ws.cell(r, 1, name).font = F(True, 9)
+            ws.cell(r, 2, n).font = F(size=9)
+            ws.cell(r, 3, good).font = F(True, 9, CG_FG)
+            ws.cell(r, 4, bad).font = F(True, 9, CR_FG)
+            ws.cell(r, 5, f"{fp*100:.0f}%  /  {rp*100:.0f}%").font = F(size=9)
+            for i in range(1, 6):
+                ws.cell(r, i).border = BD()
+                ws.cell(r, i).alignment = AL("left" if i in (1, 5) else "center")
+            r += 1
 
-        # Quality signal
-        sig = row.get("QC_Signal", "")
-        fg_s, bg_s = QC_SIGNAL_STYLE.get(sig, ("000000", C_WHITE))
-        c = ws.cell(er, ND + NQC + 2, sig or "")
-        c.border = bdr; c.alignment = AL()
-        c.font = F(True, 9, fg_s); c.fill = BG(bg_s)
-
-        # EQ Badge
-        eq = row.get("EQ_Badge")
-        c  = ws.cell(er, ND + NQC + 3, eq if eq else "—")
-        c.border = bdr; c.alignment = AL()
-        if eq and eq in EQ_BADGE_STYLE:
-            fg_e, bg_e = EQ_BADGE_STYLE[eq]
-            c.font = F(True, 9, fg_e); c.fill = BG(bg_e)
-        else:
-            c.font = F(size=9, color="AAAAAA"); c.fill = BG(rbg)
-
-    ws.freeze_panes = ws[f"B{DR}"]
+    r += 1
+    ws.merge_cells(start_row=r, start_column=1, end_row=r + 2, end_column=5)
+    note = ws.cell(r, 1,
+                   "Điểm chấm theo tỷ lệ trên số tiêu chí thực sự áp dụng được. "
+                   "Nhóm A đo số liệu có đẹp không; nhóm B đo số liệu đó có thật không. "
+                   "Điểm A cao mà điểm B thấp là cảnh báo, không phải trung bình.")
+    note.font = F(False, 9, "64748B", italic=True)
+    note.alignment = AL("left", wrap=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2008,20 +1373,20 @@ def main():
     else:
         print("  ⚡ Bỏ qua yfinance — dùng TV TTM data cho Moat\n")
 
-    # 3. Market direction + Score + Moat
-    market_ok, index_1y = fetch_market_direction(a.market)
-    df = score_canslim(df, moat_cache, market_ok=market_ok, index_1y=index_1y)
+    # 3. Chấm điểm: nhóm A (tài chính tốt) + nhóm B (chứng minh là thực)
+    print("  📊 Chấm điểm Tài chính + Kiểm chứng...", end="", flush=True)
+    df = score_stocks(df, moat_cache)
+    print(f" ✅  ({int((df['Signal'] == '🟢 TỐT & THỰC').sum())} TỐT & THỰC, "
+          f"{int((df['Signal'] == '🔴 CỜ ĐỎ').sum())} CỜ ĐỎ)")
 
-    # 4. Quality Compounder scoring (áp dụng sau khi Moat đã được gán)
-    print("  🏆 Tính QC Score...", end="", flush=True)
-    qc_results = df.apply(lambda r: compute_qc_score(r.to_dict()), axis=1)
-    qc_df      = pd.DataFrame(list(qc_results))
-    df         = pd.concat([df.reset_index(drop=True), qc_df.reset_index(drop=True)], axis=1)
-    print(f" ✅  ({int((df['QC_Signal'] == '🏆 COMPOUNDER').sum())} COMPOUNDER, "
-          f"{int((df['QC_Signal'] == '⭐ QUALITY').sum())} QUALITY)")
+    # Hướng thị trường — chỉ in ra làm bối cảnh, không cộng vào điểm
+    market_ok, index_1y = fetch_market_direction(a.market)
+    if market_ok is not None:
+        print(f"  🧭 Thị trường: {'THUẬN LỢI' if market_ok else 'BẤT LỢI'}"
+              + (f"  ·  chỉ số 1 năm {index_1y:+.1f}%" if index_1y is not None else ""))
 
     # Preview
-    prev = ["Ticker","Moat Proxy","Moat Score","EPS Qtr%","ROE%","CS_Score","CS_Signal"]
+    prev = ["Ticker","Moat Score","ROIC%","FCF/NI","FIN_Score","REAL_Score","Signal"]
     print(df[[c for c in prev if c in df.columns]].head(10).to_string(index=False))
     print()
 
