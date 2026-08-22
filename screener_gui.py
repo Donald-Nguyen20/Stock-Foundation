@@ -2804,7 +2804,7 @@ class MainWindow(QMainWindow):
             ["REAL_Pct", "FIN_Pct"], ascending=False) if n_good else df.iloc[0:0]
         good_tbl = table(
             HDRS + ["ROIC%", "FCF/NI", "FCF Mgn%", "1Y%"],
-            rows_for(good.head(25), lambda r: [
+            rows_for(good, lambda r: [
                 num(r.get("ROIC%"), "{:.1f}%"),
                 num(r.get("FCF/NI"), "{:.2f}×", lambda v: v >= 0.8),
                 num(r.get("FCF_Margin%"), "{:.1f}%", lambda v: v > 8),
@@ -2840,7 +2840,7 @@ class MainWindow(QMainWindow):
 
         flag_tbl = table(
             HDRS + ["Vì sao chưa chứng minh được"],
-            rows_for(flag.head(25), lambda r: [cell(why(r), R)]),
+            rows_for(flag, lambda r: [cell(why(r), R)]),
             widths=["3%", "7%", "18%", "12%", "8%", "7%", "6%", "39%"])
 
         # ── 3. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
@@ -2911,10 +2911,10 @@ class MainWindow(QMainWindow):
   {kpis}
   {mk_html}
 
-  {sec('🟢  TỐT &amp; THỰC', 'số liệu tài chính mạnh VÀ vượt được các phép kiểm chứng', G)}
+  {sec(f'🟢  TỐT &amp; THỰC — {n_good} mã', 'số liệu tài chính mạnh VÀ vượt được các phép kiểm chứng', G)}
   {good_tbl}
 
-  {sec('🔴  CỜ ĐỎ — số đẹp nhưng chưa chứng minh được', 'tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 50%', R)}
+  {sec(f'🔴  CỜ ĐỎ — {n_flag} mã', 'số liệu tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 50% — số đẹp chưa chứng minh được', R)}
   {flag_tbl}
 
   {sec('📊  Tỷ lệ đạt của từng tiêu chí', 'tiêu chí quá lỏng hoặc quá chặt thì không phân loại được gì — dùng để hiệu chỉnh ngưỡng', B)}
