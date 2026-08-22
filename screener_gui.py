@@ -122,6 +122,7 @@ TABLE_COLS = [
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -155,6 +156,7 @@ REAL_COLS = [
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
 
@@ -308,6 +310,29 @@ COL_TIPS = {
         "<b>Điểm Kiểm chứng</b> — số tiêu chí nhóm B đạt / số tiêu chí thực sự áp dụng được.<br>"
         "Điểm này <b>không được cộng với điểm Tài chính</b>. Điểm Tài chính cao mà điểm này thấp "
         "là tín hiệu cảnh báo, không phải điểm trung bình.",
+    "Cảnh báo":
+        "<b>Ba chỉ báo cảnh báo về giá</b> — thuần hiển thị, <b>không chấm điểm và không dùng để lọc</b>. "
+        "Chúng không nói mã tốt hay xấu, chỉ nói giá đang ở trạng thái nào.<br><br>"
+        "<b>▼50</b> — giá thấp hơn đỉnh 52 tuần từ 50% trở lên. Mất hơn một nửa giá trị thường là "
+        "đặt lại kỳ vọng về doanh nghiệp, không phải một nhịp điều chỉnh.<br>"
+        "<b>&lt;MA250</b> — giá nằm dưới trung bình 250 phiên, tức dưới mức trung bình một năm giao dịch. "
+        "Ranh giới thường dùng để phân biệt nhịp điều chỉnh trong xu hướng tăng với đổi xu hướng.<br>"
+        "<b>−10%</b> — giá sụt từ 10% trở lên ngay trong phiên. Thường là phản ứng với tin bất ngờ: "
+        "hạ dự báo, kết quả hụt kỳ vọng, biến cố pháp lý.<br><br>"
+        "<i>Với người mua khi giá giảm: càng nhiều cờ thì càng nghiêng về «đang rơi» hơn là «đang chiết khấu». "
+        "Nhưng app không kết luận thay — hãy đối chiếu với tiêu chí «Còn đúng» ở tab Kiểm chứng để biết "
+        "số liệu quý gần nhất có xấu đi thật không.</i>",
+    "% từ đỉnh":
+        "<b>Khoảng cách tới đỉnh 52 tuần</b> = (Giá hiện tại / Đỉnh 52 tuần − 1) × 100.<br>"
+        "Số âm càng lớn thì giá càng xa đỉnh.<br>"
+        "<i>Chỉ hiển thị — không chấm điểm.</i>",
+    "Giá/MA250%":
+        "<b>Khoảng cách tới trung bình 250 phiên</b> = (Giá hiện tại / MA250 − 1) × 100.<br>"
+        "Dương nghĩa là giá đang trên mức trung bình một năm; âm là đang dưới.<br>"
+        "<i>Chỉ hiển thị — không chấm điểm.</i>",
+    "Chg%":
+        "<b>Thay đổi giá trong phiên hiện tại</b>, tính bằng phần trăm.<br>"
+        "<i>Chỉ hiển thị — không chấm điểm.</i>",
     "Signal":
         "<b>Tín hiệu tổng hợp</b> từ hai tỷ lệ đạt.<br>"
         "🟢 TỐT &amp; THỰC: cả hai ≥ 80%<br>"
@@ -2019,6 +2044,18 @@ class MainWindow(QMainWindow):
                         fg, bg = SIGNAL_COLORS[val]
                         cell.setForeground(QColor(fg))
                         cell.setBackground(QColor(bg))
+                elif key == "Cảnh báo":
+                    txt  = str(val) if val else ""
+                    cell = QTableWidgetItem(txt if txt else "—")
+                    nflag = len(txt.split()) if txt else 0
+                    if nflag >= 2:
+                        cell.setForeground(QColor("#9C0006")); cell.setBackground(QColor("#FFC7CE"))
+                    elif nflag == 1:
+                        cell.setForeground(QColor("#7A3E00")); cell.setBackground(QColor("#FFE0C2"))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+                    cell.setFont(QFont("Consolas", 8, QFont.Bold))
+
                 elif key == "FIN_Disp":
                     cell = _score_cell(rd.get("FIN_Score"), rd.get("FIN_App"))
                 elif key == "REAL_Disp":
@@ -2636,6 +2673,18 @@ class MainWindow(QMainWindow):
                         fg, bg = SIGNAL_COLORS[val]
                         cell.setForeground(QColor(fg))
                         cell.setBackground(QColor(bg))
+
+                elif key == "Cảnh báo":
+                    txt  = str(val) if val else ""
+                    cell = QTableWidgetItem(txt if txt else "—")
+                    nflag = len(txt.split()) if txt else 0
+                    if nflag >= 2:
+                        cell.setForeground(QColor("#9C0006")); cell.setBackground(QColor("#FFC7CE"))
+                    elif nflag == 1:
+                        cell.setForeground(QColor("#7A3E00")); cell.setBackground(QColor("#FFE0C2"))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+                    cell.setFont(QFont("Consolas", 8, QFont.Bold))
 
                 elif key == "FIN_Disp":
                     cell = _score_cell(row.get("FIN_Score"), row.get("FIN_App"))

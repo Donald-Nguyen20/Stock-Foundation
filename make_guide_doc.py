@@ -643,7 +643,39 @@ metric(doc, "Bền vững 5N — Số liệu tốt có lặp lại nhiều năm 
        "xếp hạng **WIDE** hoặc **NARROW**")
 
 # ── 3.6 ─────────────────────────────────────────────────────────────────────
-h2(doc, "3.6  Nhóm tham khảo — hiển thị nhưng không chấm điểm")
+h2(doc, "3.6  Cảnh báo giá — cột cuối cùng bên phải")
+
+para(doc,
+     "Cột **Cảnh báo** nằm ở cuối cùng bên phải cả hai bảng. Nó chứa tối đa ba dấu hiệu về trạng thái giá. "
+     "Ba dấu hiệu này **không chấm điểm, không đổi tín hiệu và không dùng để lọc** — chúng chỉ nói giá đang "
+     "ở đâu, không nói doanh nghiệp tốt hay xấu.")
+
+add_table(doc,
+          ["Dấu", "Điều kiện", "Nghĩa là gì"],
+          [
+              ["▼50", "Giá thấp hơn đỉnh 52 tuần từ 50% trở lên",
+               "Mất hơn một nửa giá trị thường là thị trường đặt lại kỳ vọng về doanh nghiệp, "
+               "không phải một nhịp điều chỉnh thông thường"],
+              ["<MA250", "Giá nằm dưới trung bình 250 phiên",
+               "Dưới mức trung bình của một năm giao dịch. Đây là ranh giới thường dùng để phân biệt "
+               "nhịp điều chỉnh trong xu hướng tăng với việc xu hướng đã đổi chiều"],
+              ["−10%", "Giá sụt từ 10% trở lên ngay trong phiên",
+               "Thường là phản ứng với tin bất ngờ: hạ dự báo, kết quả hụt kỳ vọng, biến cố pháp lý"],
+          ],
+          widths=[2.4, 5.6, 8.6], size=9)
+
+para(doc,
+     "Ô tô cam khi có một dấu, tô đỏ khi có từ hai dấu trở lên.", size=9)
+
+callout(doc, "Dùng cột này thế nào nếu bạn mua khi giá giảm",
+        "Càng nhiều dấu thì tình huống càng nghiêng về «đang rơi» hơn là «đang chiết khấu». Nhưng app "
+        "cố ý **không kết luận thay bạn** — vì cùng một mức giảm có thể là cơ hội hoặc là bẫy, tùy vào "
+        "doanh nghiệp bên dưới.\n"
+        "Cách đối chiếu hữu ích nhất: xem cột **Cảnh báo** cùng với tiêu chí **Còn đúng** ở tab Kiểm chứng. "
+        "Giá giảm sâu mà số liệu quý gần nhất vẫn nguyên vẹn là một tình huống; giá giảm sâu **và** quý gần "
+        "nhất đã xấu đi là tình huống hoàn toàn khác.")
+
+h2(doc, "3.7  Nhóm tham khảo — hiển thị nhưng không chấm điểm")
 
 add_table(doc,
           ["Chỉ số", "Công thức", "Đọc thế nào"],
@@ -993,6 +1025,8 @@ add_table(doc,
               ["NI Qtr% / Rev Qtr%", "Quý vừa công bố so với cùng quý năm trước"],
               ["Đà LN", "NI Qtr% − NI Growth%   (điểm phần trăm)"],
               ["Bền vững 5N", "Xếp hạng từ ROE 5 năm và Biên gộp 5 năm"],
+              ["% từ đỉnh", "(Giá / Đỉnh 52 tuần − 1) × 100"],
+              ["Giá/MA250%", "(Giá / Trung bình 250 phiên − 1) × 100"],
               ["Điểm hiển thị", "Số tiêu chí ✓ / Số tiêu chí áp dụng được"],
           ],
           widths=[4.0, 12.6], size=9)

@@ -103,6 +103,10 @@ FETCH_COLS = [
     "net_income_yoy_growth_fq",
     "cash_n_short_term_invest_fq",
     "total_debt_fq",
+    # ── Chỉ báo cảnh báo giá: chỉ hiển thị, không tham gia chấm điểm ──
+    "price_52_week_high",
+    "SMA250",
+    "change",
 ]
 
 RENAME = {
@@ -132,6 +136,9 @@ RENAME = {
     "enterprise_value_ebitda_ttm": "EV/EBITDA",
     "free_cash_flow_per_share_ttm": "FCF/sh",
     "current_ratio": "Current Ratio",
+    "price_52_week_high": "High52",
+    "SMA250": "MA250",
+    "change": "Chg%",
 }
 
 DATA_HEADERS = [
@@ -562,6 +569,38 @@ def _derive_fields(df, moat_cache=None):
     else:
         df["Moat Score"] = None
         df["52W_High%"]  = None
+
+    # ── Ba chỉ báo cảnh báo giá ────────────────────────────────────────
+    # Thuần hiển thị: không vào FIN/REAL, không đổi tín hiệu, không dùng để lọc.
+    # Với người mua khi giá giảm, đây là ranh giới giữa "nhịp điều chỉnh" và
+    # "đang rơi" — nhưng phải tự đọc, app không kết luận thay.
+    def _from_high(r):
+        px = _num(r.get("Price ($)")); hi = _num(r.get("High52"))
+        if px is None or hi is None or hi <= 0:
+            return None
+        return round((px / hi - 1) * 100, 1)
+    df["% từ đỉnh"] = df.apply(_from_high, axis=1)
+
+    def _vs_ma250(r):
+        px = _num(r.get("Price ($)")); ma = _num(r.get("MA250"))
+        if px is None or ma is None or ma <= 0:
+            return None
+        return round((px / ma - 1) * 100, 1)
+    df["Giá/MA250%"] = df.apply(_vs_ma250, axis=1)
+
+    def _flags(r):
+        out = []
+        fh = _num(r.get("% từ đỉnh"))
+        mv = _num(r.get("Giá/MA250%"))
+        ch = _num(r.get("Chg%"))
+        if fh is not None and fh <= -50:
+            out.append("▼50")            # mất hơn một nửa giá trị từ đỉnh 52 tuần
+        if mv is not None and mv < 0:
+            out.append("<MA250")         # dưới đường trung bình 250 phiên
+        if ch is not None and ch <= -10:
+            out.append("−10%")           # sụt mạnh ngay trong phiên
+        return "  ".join(out)
+    df["Cảnh báo"] = df.apply(_flags, axis=1)
 
     # PEG — hiển thị tham khảo, không chấm điểm
     def _peg(r):
@@ -1166,7 +1205,7 @@ def _main_sheet(wb, df, market, top):
     a_st = nb + 1
     b_st = a_st + len(FIN_KEYS)
     s_st = b_st + len(REAL_KEYS)
-    total_cols = s_st + 2
+    total_cols = s_st + 3
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
     t = ws.cell(1, 1, f"SCREENER TÀI CHÍNH  —  {market.upper()}  ·  TOP {top}  ·  "
@@ -1186,7 +1225,7 @@ def _main_sheet(wb, df, market, top):
     hdrs = ([h for _, h, _ in BASE]
             + [FIN_CRITERIA[k]["label"] for k in FIN_KEYS]
             + [REAL_CRITERIA[k]["label"] for k in REAL_KEYS]
-            + ["Tài chính", "Thực", "Tín hiệu"])
+            + ["Tài chính", "Thực", "Tín hiệu", "Cảnh báo"])
     for i, h in enumerate(hdrs, 1):
         c = ws.cell(3, i, h)
         c.font = F(True, 9, C_WHITE); c.fill = BG(C_NAVY)
@@ -1242,6 +1281,15 @@ def _main_sheet(wb, df, market, top):
         c = ws.cell(r, s_st + 2, sig)
         c.font = F(True, 9, fg); c.fill = BG(fbg); c.alignment = AL(); c.border = BD()
 
+        # Cảnh báo giá — chỉ hiển thị, không tham gia chấm điểm
+        warn = row.get("Cảnh báo", "") or ""
+        c = ws.cell(r, s_st + 3, warn if warn else "—")
+        nf = len(warn.split()) if warn else 0
+        if nf >= 2:   c.font = F(True, 8, CR_FG); c.fill = BG(CR_BG)
+        elif nf == 1: c.font = F(True, 8, "7A3E00"); c.fill = BG("FFE0C2")
+        else:         c.font = F(False, 8, "94A3B8"); c.fill = BG(bg)
+        c.alignment = AL(); c.border = BD()
+
     for i, (_, _, w) in enumerate(BASE, 1):
         ws.column_dimensions[CL(i)].width = w
     for i in range(a_st, s_st):
@@ -1249,6 +1297,7 @@ def _main_sheet(wb, df, market, top):
     ws.column_dimensions[CL(s_st)].width     = 11
     ws.column_dimensions[CL(s_st + 1)].width = 11
     ws.column_dimensions[CL(s_st + 2)].width = 20
+    ws.column_dimensions[CL(s_st + 3)].width = 18
     ws.freeze_panes = "B4"
     ws.auto_filter.ref = f"A3:{CL(total_cols)}{len(d) + 3}"
 
