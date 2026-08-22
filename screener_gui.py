@@ -141,6 +141,7 @@ REAL_COLS = [
     ("ROE−ROIC",   "ROE_ROIC_Gap",  74,  Qt.AlignRight  | Qt.AlignVCenter),
     ("NetCash$B",  "Net Cash ($B)", 76,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Curr.R",     "Current Ratio", 60,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Nợ/FCF",     "Nợ ròng/FCF",   62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Đà LN",      "NI_Trend_Gap",  64,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Bền vững",   "Moat Score",   110,  Qt.AlignCenter | Qt.AlignVCenter),
     # 6 tiêu chí nhóm B
@@ -279,11 +280,19 @@ COL_TIPS = {
     "Net Cash ($B)":
         "<b>Tiền ròng</b> = tiền và tương đương + đầu tư ngắn hạn − tổng nợ, đơn vị tỷ.<br>"
         "Dương nghĩa là doanh nghiệp có nhiều tiền hơn nợ.<br>"
-        "<i>Kết hợp với Current Ratio thành tiêu chí Bảng cân đối. Không áp dụng cho ngân hàng.</i>",
+        "<i>Là vế thứ nhất của tiêu chí Bảng cân đối. Số âm không tự động là xấu — xem thêm cột "
+        "Nợ/FCF để biết khoản nợ đó có nặng so với dòng tiền không. Không áp dụng cho ngân hàng.</i>",
     "Current Ratio":
         "<b>Hệ số thanh toán hiện hành</b> = tài sản ngắn hạn / nợ ngắn hạn.<br>"
         "Đo khả năng trả các khoản đến hạn trong vòng một năm.<br>"
-        "<i>Trên 1,5 được coi là an toàn.</i>",
+        "<i>Trên 1,5 được coi là an toàn — là vế thứ hai của tiêu chí Bảng cân đối. Lưu ý đây vốn là "
+        "thước đo cho doanh nghiệp sản xuất có tồn kho và khoản phải thu; với công ty dịch vụ tạo nhiều "
+        "tiền mặt thì cột Nợ/FCF phản ánh đúng bản chất hơn.</i>",
+    "Nợ ròng/FCF":
+        "<b>Số năm dòng tiền tự do cần để trả hết nợ ròng</b> = Nợ ròng / FCF một năm.<br>"
+        "Ví dụ nợ ròng 52 tỷ với FCF 67 tỷ mỗi năm thì chỉ số là 0,8 — trả hết trong chưa tới một năm.<br>"
+        "<i>Để trống khi doanh nghiệp đã có tiền ròng dương (không còn nợ để trả), hoặc khi FCF âm "
+        "(không trả được bằng dòng tiền). Là vế thứ ba của tiêu chí Bảng cân đối: dưới 3 năm là đạt.</i>",
     "Moat Score":
         "<b>Độ bền vững qua 5 năm</b> — xếp hạng từ ROE và biên lợi nhuận gộp trung bình 5 năm.<br>"
         "WIDE ★★★ khi ROE ≥ 20% và biên gộp ≥ 50%; NARROW ★★ khi ROE ≥ 15% và biên gộp ≥ 35%.<br>"
@@ -303,7 +312,7 @@ COL_TIPS = {
         "<b>Tín hiệu tổng hợp</b> từ hai tỷ lệ đạt.<br>"
         "🟢 TỐT &amp; THỰC: cả hai ≥ 80%<br>"
         "🔵 KHÁ: cả hai ≥ 60%<br>"
-        "🔴 CỜ ĐỎ: tài chính ≥ 80% nhưng kiểm chứng &lt; 50% — số đẹp chưa chứng minh được<br>"
+        "🔴 CỜ ĐỎ: tài chính ≥ 80% nhưng kiểm chứng &lt; 60% — số đẹp chưa chứng minh được<br>"
         "🟠 THẬT NHƯNG YẾU: kiểm chứng ≥ 80% nhưng tài chính &lt; 50%<br>"
         "🟡 THEO DÕI · ⚫ LOẠI · ⚪ THIẾU DỮ LIỆU (dưới 3 tiêu chí áp dụng được)",
 }
@@ -1349,7 +1358,7 @@ class HelpDialog(QDialog):
              "Số liệu tài chính mạnh và vượt được các phép kiểm chứng. Đây là nhóm đáng nghiên cứu sâu trước tiên."),
             ("🔵", "KHÁ", "A ≥ 60%  và  B ≥ 60%", "#1B3A5C", "#DDEEFF",
              "Cả hai mặt đều khá. Xem tiêu chí nào chưa đạt trước khi kết luận."),
-            ("🔴", "CỜ ĐỎ", "A ≥ 80%  nhưng  B &lt; 50%", "#9C0006", "#FFC7CE",
+            ("🔴", "CỜ ĐỎ", "A ≥ 80%  nhưng  B &lt; 60%", "#9C0006", "#FFC7CE",
              "Số liệu rất đẹp nhưng không chứng minh được bằng dòng tiền, cơ cấu vốn hay lịch sử. "
              "Đây chính là nhóm mà hệ thống được thiết kế để phát hiện — đẹp trên báo cáo, mỏng ở thực chất."),
             ("🟠", "THẬT NHƯNG YẾU", "B ≥ 80%  nhưng  A &lt; 50%", "#7A3E00", "#FFE0C2",
@@ -1963,7 +1972,7 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
             elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "D/E",
                          "Net Cash ($B)", "Current Ratio", "FCF/NI", "EPS_NI_Gap", "ROE_ROIC_Gap",
-                         "NI_Trend_Gap", "LN quý ($B)"):
+                         "NI_Trend_Gap", "LN quý ($B)", "Nợ ròng/FCF"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._qc_table.horizontalHeader().update()
 
@@ -2869,7 +2878,10 @@ class MainWindow(QMainWindow):
                 bad.append(f"ROE vượt ROIC {v:.0f} điểm % (đòn bẩy)"
                            if isinstance(v, (int, float)) and v == v else "ROE do đòn bẩy")
             if r.get("REAL_BAL") is False:
-                bad.append("bảng cân đối yếu")
+                v = r.get("Nợ ròng/FCF")
+                bad.append(f"nợ ròng cần {v:.1f} năm dòng tiền mới trả hết"
+                           if isinstance(v, (int, float)) and v == v
+                           else "nợ ròng lớn mà dòng tiền không đủ trả")
             if r.get("REAL_TREND") is False:
                 v = r.get("NI Qtr%")
                 bad.append(f"quý gần nhất lợi nhuận {v:+.0f}% — đã xấu đi"
@@ -2955,7 +2967,7 @@ class MainWindow(QMainWindow):
   {sec(f'🟢  TỐT &amp; THỰC — {n_good} mã', 'số liệu tài chính mạnh VÀ vượt được các phép kiểm chứng', G)}
   {good_tbl}
 
-  {sec(f'🔴  CỜ ĐỎ — {n_flag} mã', 'số liệu tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 50% — số đẹp chưa chứng minh được', R)}
+  {sec(f'🔴  CỜ ĐỎ — {n_flag} mã', 'số liệu tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 60% — số đẹp chưa chứng minh được', R)}
   {flag_tbl}
 
   {sec('📊  Tỷ lệ đạt của từng tiêu chí', 'tiêu chí quá lỏng hoặc quá chặt thì không phân loại được gì — dùng để hiệu chỉnh ngưỡng', B)}

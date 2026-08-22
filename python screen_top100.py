@@ -62,9 +62,10 @@ REAL_CRITERIA = {
     "LEV":  dict(label="ROE thật",   field="ROE_ROIC_Gap", thr=15, op="lt",
                  bac_bo="ROE cao nhờ đòn bẩy hoặc vốn chủ teo lại vì mua cổ phiếu quỹ",
                  desc="ROE không vượt ROIC quá 15 điểm % — sinh lời đến từ kinh doanh, không từ nợ"),
-    "BAL":  dict(label="Bảng cân đối", field="Net Cash ($B)", thr=0, op="bal",
-                 bac_bo="Bảng cân đối trông sạch nhưng thanh khoản thực tế yếu",
-                 desc="Net Cash > 0 hoặc Current Ratio > 1.5 — chịu được kiểm tra thanh khoản"),
+    "BAL":  dict(label="Bảng cân đối", field="Nợ ròng/FCF", thr=0, op="bal",
+                 bac_bo="Bảng cân đối trông sạch nhưng thực tế không gánh nổi nghĩa vụ nợ",
+                 desc="Có tiền ròng dương, hoặc thanh khoản tốt (Current Ratio > 1.5), "
+                      "hoặc trả hết được nợ ròng trong dưới 3 năm bằng dòng tiền tự do"),
     "TREND": dict(label="Còn đúng",  field="NI Qtr%",      thr=10, op="trend",
                  bac_bo="Số TTM còn đẹp chỉ vì ba quý cũ đè lên, quý gần nhất đã xấu đi",
                  desc="Quý gần nhất vẫn tăng trưởng lợi nhuận trên 10%, hoặc không tụt quá 15 điểm % "
@@ -539,6 +540,17 @@ def _derive_fields(df, moat_cache=None):
         return round(((cash or 0) - (debt or 0)) / 1e9, 2)
     df["Net Cash ($B)"] = df.apply(_net_cash, axis=1)
 
+    # Bao nhiêu năm dòng tiền tự do thì trả hết nợ ròng.
+    # Current Ratio vốn là thước đo cho doanh nghiệp sản xuất có tồn kho và khoản
+    # phải thu; với công ty dịch vụ tạo nhiều tiền mặt thì khả năng trả nợ đo bằng
+    # dòng tiền mới đúng bản chất. Rỗng khi đã có tiền ròng dương (không cần trả).
+    def _debt_years(r):
+        nc  = _num(r.get("Net Cash ($B)")); fcf = _num(r.get("FCF_abs"))
+        if nc is None or nc >= 0 or fcf is None or fcf <= 0:
+            return None
+        return round(-nc / (fcf / 1e9), 1)
+    df["Nợ ròng/FCF"] = df.apply(_debt_years, axis=1)
+
     # Moat Score = ROE & biên gộp trung bình 5 năm (chỉ từ yfinance).
     # Không có cache thì để trống — KHÔNG thay bằng số liệu một kỳ, vì tiêu chí
     # này đo tính BỀN VỮNG; lấy một kỳ mà gọi là bền vững thì chính là số ảo.
@@ -599,13 +611,21 @@ def _chk_real(row, key):
         v = _num(row.get("ROE_ROIC_Gap"))
         return None if v is None else v <= 15
 
-    if key == "BAL":                      # bảng cân đối chịu được kiểm tra thanh khoản
+    if key == "BAL":                      # bảng cân đối chịu được kiểm tra
         if is_fin:
             return None
-        nc = _num(row.get("Net Cash ($B)")); cr = _num(row.get("Current Ratio"))
+        nc = _num(row.get("Net Cash ($B)"))
+        cr = _num(row.get("Current Ratio"))
+        yr = _num(row.get("Nợ ròng/FCF"))
         if nc is None and cr is None:
             return None
-        return (nc is not None and nc > 0) or (cr is not None and cr > 1.5)
+        if nc is not None and nc > 0:            # có nhiều tiền hơn nợ
+            return True
+        if cr is not None and cr > 1.5:          # thanh khoản ngắn hạn dư dả
+            return True
+        if yr is not None and yr < 3:            # trả hết nợ trong dưới 3 năm bằng FCF
+            return True
+        return False
 
     if key == "TREND":                    # số TTM đẹp có còn đúng ở quý gần nhất không
         q   = _num(row.get("NI Qtr%"))
@@ -640,7 +660,9 @@ def _signal(fin_pct, real_pct, fin_app, real_app):
     if fin_app < 3 or real_app < 3:
         return "⚪ THIẾU DỮ LIỆU"
     if fin_pct >= 0.80 and real_pct >= 0.80: return "🟢 TỐT & THỰC"
-    if fin_pct >= 0.80 and real_pct <  0.50: return "🔴 CỜ ĐỎ"
+    # Ngưỡng 0.60 tương đương "trượt từ 3 tiêu chí kiểm chứng trở lên", ổn định
+    # với mọi mẫu số. Ngưỡng 0.50 cũ để lọt các mã rơi đúng 50% (3/6, 2/4).
+    if fin_pct >= 0.80 and real_pct <  0.60: return "🔴 CỜ ĐỎ"
     if fin_pct >= 0.60 and real_pct >= 0.60: return "🔵 KHÁ"
     if real_pct >= 0.80 and fin_pct <  0.50: return "🟠 THẬT NHƯNG YẾU"
     if fin_pct >= 0.50:                      return "🟡 THEO DÕI"
@@ -1134,7 +1156,8 @@ def _main_sheet(wb, df, market, top):
             ("D/E", "D/E", 8),
             ("FCF/NI", "FCF/LN", 9), ("FCF_Margin%", "Biên FCF%", 10),
             ("EPS_NI_Gap", "EPS−LN", 9), ("ROE_ROIC_Gap", "ROE−ROIC", 10),
-            ("Net Cash ($B)", "Tiền ròng", 11), ("Current Ratio", "T.khoản", 9)]
+            ("Net Cash ($B)", "Tiền ròng", 11), ("Current Ratio", "T.khoản", 9),
+            ("Nợ ròng/FCF", "Nợ/FCF", 9)]
     PCT = {"ROIC%", "Op Margin%", "Gross Margin%", "NI Growth%", "Rev Growth%",
            "FCF_Margin%", "EPS_NI_Gap", "ROE_ROIC_Gap",
            "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
@@ -1261,7 +1284,7 @@ def _qc_sheet(wb, df):
         "FCFM": "biên dòng tiền tự do mỏng",
         "BUYB": "EPS tăng nhanh hơn lợi nhuận — do mua cổ phiếu quỹ",
         "LEV":  "ROE vượt xa ROIC — sinh lời đến từ đòn bẩy",
-        "BAL":  "bảng cân đối không chịu được kiểm tra thanh khoản",
+        "BAL":  "nợ ròng lớn mà dòng tiền không đủ trả trong 3 năm",
         "TREND": "quý gần nhất đã xấu đi — số TTM đẹp chủ yếu nhờ các quý cũ",
         "SUS":  "chưa có bề dày 5 năm để gọi là bền vững",
     }
