@@ -2836,7 +2836,7 @@ class MainWindow(QMainWindow):
                 bad.append("bảng cân đối yếu")
             if r.get("REAL_SUS") is False:
                 bad.append("chưa bền vững qua 5 năm")
-            return "; ".join(bad[:3]) or "—"
+            return "; ".join(bad) or "—"
 
         flag_tbl = table(
             HDRS + ["Vì sao chưa chứng minh được"],
