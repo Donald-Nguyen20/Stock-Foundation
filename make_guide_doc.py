@@ -330,14 +330,14 @@ h2(doc, "1.1  Nguồn dữ liệu")
 add_table(doc,
           ["Nguồn", "Cung cấp", "Đặc điểm"],
           [
-              ["TradingView", "Toàn bộ 11 trên 12 tiêu chí, cùng mọi số liệu hiển thị",
+              ["TradingView", "Toàn bộ 12 trên 13 tiêu chí, cùng mọi số liệu hiển thị",
                "Một lệnh gọi cho cả danh sách. Nhanh, có cho mọi thị trường."],
               ["yfinance\n(tùy chọn)", "Duy nhất tiêu chí Bền vững 5 năm (ROE và biên gộp trung bình 5 năm)",
                "Gọi từng mã, khoảng 0,3 giây mỗi mã. Chỉ có dữ liệu cho thị trường Mỹ."],
           ],
           widths=[3.0, 7.0, 6.6], size=9.5)
 para(doc,
-     "Nếu **không bật** ô «yfinance Moat», app vẫn chạy đầy đủ với 11 tiêu chí và nhanh hơn rất nhiều. "
+     "Nếu **không bật** ô «yfinance Moat», app vẫn chạy đầy đủ với 12 tiêu chí và nhanh hơn rất nhiều. "
      "Tiêu chí Bền vững 5 năm khi đó để trống và không bị tính vào mẫu số — xem mục 5.", size=9.5)
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -486,6 +486,20 @@ metric(doc, "Rev Growth — Tăng trưởng doanh thu",
        "nhiều hơn. Khi lợi nhuận tăng mạnh mà doanh thu đứng yên, tăng trưởng đó khó lặp lại.",
        "trên **15%**")
 
+metric(doc, "NI Qtr% — Tăng trưởng lợi nhuận quý gần nhất",
+       "NI Qtr% = (Lợi nhuận quý vừa công bố / Lợi nhuận cùng quý năm trước - 1) x 100",
+       "TradingView · net_income_yoy_growth_fq",
+       "Chỉ riêng quý vừa công bố, không cộng dồn. Trong app cột này nằm **ngay cạnh NI Grw%** "
+       "(mức TTM) — cố ý, để bạn so hai con số ngay lập tức.\n"
+       "Vì sao cần: số TTM cộng dồn bốn quý nên **có độ trễ**. Một doanh nghiệp mới bắt đầu xấu đi "
+       "vẫn giữ số TTM đẹp thêm hai ba quý nữa, vì các quý tốt cũ còn đang đè lên. Nhìn riêng cột "
+       "TTM thì bạn hoàn toàn không thấy điều đó.")
+
+metric(doc, "Rev Qtr% — Tăng trưởng doanh thu quý gần nhất",
+       "Rev Qtr% = (Doanh thu quý vừa công bố / Doanh thu cùng quý năm trước - 1) x 100",
+       "TradingView · total_revenue_yoy_growth_fq",
+       "Tương tự chỉ số trên, đặt cạnh cột Rev Grw%. Chỉ hiển thị tham khảo, không chấm điểm.")
+
 metric(doc, "EPS Growth — Tăng trưởng lãi trên mỗi cổ phiếu",
        "EPS Growth = mức tăng của (Lợi nhuận ròng / Số cổ phiếu lưu hành)",
        "TradingView · earnings_per_share_diluted_yoy_growth_ttm",
@@ -534,6 +548,7 @@ add_table(doc,
               ["EPS tăng mạnh", "Mua cổ phiếu quỹ làm giảm mẫu số", "EPS−NI"],
               ["ROE cao", "Vay nhiều, hoặc vốn chủ teo vì mua cổ phiếu quỹ", "ROE−ROIC"],
               ["Bảng cân đối sạch", "Thanh khoản thực tế yếu", "Net Cash / Curr.R"],
+              ["Số TTM đang tăng", "Ba quý cũ đè lên, quý gần nhất đã xấu đi", "Đà LN · Còn đúng"],
               ["Một năm xuất sắc", "Một kỳ may mắn, không phải năng lực", "Bền vững 5N"],
           ],
           widths=[3.8, 7.2, 5.6], size=9)
@@ -581,6 +596,27 @@ metric(doc, "ROE−ROIC — Chênh lệch sinh lời vốn chủ so với toàn 
        "Không áp dụng cho ngân hàng và bảo hiểm, vì các doanh nghiệp này vận hành bằng đòn bẩy theo bản chất.",
        "không vượt quá **15 điểm %**")
 
+metric(doc, "Đà LN — Đà tăng trưởng lợi nhuận",
+       "Đà LN = NI Qtr% - NI Growth%     (đơn vị: điểm phần trăm)",
+       "Tính trong app",
+       "So tốc độ tăng trưởng của quý gần nhất với tốc độ trung bình cả năm. Dương nghĩa là đang "
+       "tăng tốc; âm nhiều nghĩa là đang giảm tốc, và con số TTM đẹp chủ yếu là dư âm của các quý cũ.\n"
+       "Ví dụ có thật từ một lần quét: IBM có lợi nhuận TTM tăng **84%**, nhưng lợi nhuận quý gần nhất "
+       "**giảm 1,3%**. Nhìn cột TTM thì đây là doanh nghiệp tăng trưởng rất mạnh; nhìn cột quý thì "
+       "đà tăng đã tắt từ mấy tháng trước.")
+
+metric(doc, "Còn đúng — Số liệu TTM có còn đúng ở quý gần nhất không",
+       "Đạt khi:  NI Qtr%  >=  10%\n"
+       "   hoặc:  NI Qtr%  >=  NI Growth% - 15 điểm %",
+       "Tính trong app",
+       "Tiêu chí này bác bỏ khả năng con số TTM đẹp chỉ là dư âm của quá khứ. Nó đạt trong hai "
+       "trường hợp: quý gần nhất **vẫn đang tăng trưởng tốt** (trên 10%), hoặc **không tụt quá xa** "
+       "so với chính mức TTM của nó.\n"
+       "Phải có vế thứ nhất, vì phép so bằng điểm phần trăm sẽ vô nghĩa với doanh nghiệp tăng trưởng "
+       "rất cao: một mã có TTM 295% và quý 225% thì chênh nhau tới 70 điểm, nhưng 225% nào có phải "
+       "là xấu đi. Ngược lại, một mã TTM 33% mà quý chỉ còn 8,8% thì đó là giảm tốc thật.",
+       "quý gần nhất **trên 10%**, hoặc **không tụt quá 15 điểm %** so với mức TTM")
+
 metric(doc, "Bền vững 5N — Số liệu tốt có lặp lại nhiều năm không",
        "Xếp hạng từ ROE trung bình 5 năm và Biên gộp trung bình 5 năm:\n"
        "  WIDE   ★★★  khi ROE ≥ 20% và GM ≥ 50%\n"
@@ -622,7 +658,7 @@ callout(doc, "Vì sao định giá không được chấm điểm",
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════════════════
-h1(doc, "4.  MƯỜI HAI TIÊU CHÍ CHẤM ĐIỂM")
+h1(doc, "4.  MƯỜI BA TIÊU CHÍ CHẤM ĐIỂM")
 
 h2(doc, "4.1  Nhóm A — Tài chính tốt")
 add_table(doc,
@@ -648,6 +684,7 @@ add_table(doc,
               ["Không buyback", "EPS−NI ≤ 10 điểm %", "EPS tăng nhờ mua cổ phiếu quỹ, không phải kinh doanh"],
               ["ROE thật", "ROE−ROIC ≤ 15 điểm %", "ROE cao nhờ đòn bẩy hoặc vốn chủ teo lại"],
               ["Bảng cân đối", "Net Cash > 0 hoặc Curr.R > 1,5", "Bảng cân đối trông sạch nhưng thanh khoản yếu"],
+              ["Còn đúng", "Quý > 10% hoặc ≥ TTM − 15 điểm %", "Số TTM đẹp chỉ vì các quý cũ còn đè lên"],
               ["Bền vững 5N", "WIDE hoặc NARROW", "Một kỳ may mắn được trình bày như năng lực dài hạn"],
           ],
           widths=[3.0, 4.4, 9.2], size=9.5)
@@ -890,7 +927,7 @@ h1(doc, "9.  CÂU HỎI THƯỜNG GẶP")
 
 for q, a in [
     ("Có bắt buộc bật «yfinance Moat» không?",
-     "Không. Tắt thì app chạy đầy đủ 11 trên 12 tiêu chí và nhanh hơn rất nhiều — vài giây thay vì 5–8 phút "
+     "Không. Tắt thì app chạy đầy đủ 12 trên 13 tiêu chí và nhanh hơn rất nhiều — vài giây thay vì 5–8 phút "
      "cho 100 mã. Chỉ mất tiêu chí Bền vững 5 năm, và tiêu chí đó khi thiếu sẽ để trống chứ không bị tính "
      "là trượt. Với thị trường ngoài Mỹ thì bật cũng không có tác dụng vì không có dữ liệu."),
     ("Vì sao hai mã cùng điểm 5 mà một mã ghi 5/6 còn mã kia ghi 5/5?",
@@ -907,10 +944,10 @@ for q, a in [
      "TradingView trả về số liệu TTM và quý gần nhất đã công bố. Nghĩa là sau khi doanh nghiệp ra báo cáo "
      "mới, có thể mất vài ngày để dữ liệu được cập nhật. Quét lại để lấy số mới nhất."),
     ("Có dùng được cho thị trường Việt Nam không?",
-     "Được. Chọn «vietnam» ở ô thị trường. Toàn bộ 11 tiêu chí lấy từ TradingView đều hoạt động; "
+     "Được. Chọn «vietnam» ở ô thị trường. Toàn bộ 12 tiêu chí lấy từ TradingView đều hoạt động; "
      "chỉ riêng tiêu chí Bền vững 5 năm không có dữ liệu. Giá và vốn hóa sẽ hiển thị theo đồng Việt Nam."),
     ("Excel xuất ra gồm những gì?",
-     "Ba sheet. **Screener**: toàn bộ mã kèm số liệu và cả 12 tiêu chí. **Cờ đỏ**: riêng nhóm số đẹp mà "
+     "Ba sheet. **Screener**: toàn bộ mã kèm số liệu và cả 13 tiêu chí. **Cờ đỏ**: riêng nhóm số đẹp mà "
      "chưa chứng minh được, kèm lý do cụ thể. **Tổng hợp**: phân bố tín hiệu, tỷ lệ đạt từng tiêu chí, "
      "và thống kê theo ngành. Nếu bật yfinance còn có thêm sheet Financials với biểu đồ từng mã."),
 ] :
@@ -940,6 +977,8 @@ add_table(doc,
               ["ROE−ROIC", "ROE% − ROIC%   (điểm phần trăm)"],
               ["Net Cash", "Tiền + Đầu tư ngắn hạn − Tổng nợ vay"],
               ["Current Ratio", "Tài sản ngắn hạn / Nợ ngắn hạn"],
+              ["NI Qtr% / Rev Qtr%", "Quý vừa công bố so với cùng quý năm trước"],
+              ["Đà LN", "NI Qtr% − NI Growth%   (điểm phần trăm)"],
               ["Bền vững 5N", "Xếp hạng từ ROE 5 năm và Biên gộp 5 năm"],
               ["Điểm hiển thị", "Số tiêu chí ✓ / Số tiêu chí áp dụng được"],
           ],
@@ -954,7 +993,8 @@ add_table(doc,
               ["Gross Mgn", "> 40%", "Không buyback", "≤ 10 điểm %"],
               ["NI Growth", "> 20%", "ROE thật", "≤ 15 điểm %"],
               ["Rev Growth", "> 15%", "Bảng cân đối", "Net Cash > 0 hoặc CR > 1,5"],
-              ["D/E", "< 1,0", "Bền vững 5N", "WIDE hoặc NARROW"],
+              ["D/E", "< 1,0", "Còn đúng", "Quý > 10% hoặc ≥ TTM − 15 đ%"],
+              ["", "", "Bền vững 5N", "WIDE hoặc NARROW"],
           ],
           widths=[3.8, 2.6, 4.2, 6.0], size=9)
 

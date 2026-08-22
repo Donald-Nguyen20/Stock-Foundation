@@ -297,8 +297,8 @@ add_table(doc,
           [
               ["A — Tài chính tốt", "Số liệu tài chính có mạnh không?", "6",
                "TradingView (có cho mọi thị trường)"],
-              ["B — Chứng minh là thực", "Số liệu đó có thật không?", "6",
-               "TradingView (5) + yfinance (1)"],
+              ["B — Chứng minh là thực", "Số liệu đó có thật không?", "7",
+               "TradingView (6) + yfinance (1)"],
           ],
           widths=[4.2, 6.4, 2.4, 5.0], size=9.5)
 
@@ -374,12 +374,14 @@ add_table(doc,
                "ROE − ROIC ≤ 15 điểm % — phần chênh chính là đóng góp của đòn bẩy"],
               ["Bảng cân đối sạch", "Thanh khoản thực tế yếu, nợ ẩn",
                "Net Cash > 0 hoặc Current Ratio > 1,5"],
+              ["Số TTM đang tăng", "Ba quý cũ còn đè lên, quý gần nhất đã xấu đi",
+               "Còn đúng — quý gần nhất > 10% hoặc không tụt quá 15 điểm % so với TTM"],
               ["Một năm xuất sắc", "Một kỳ may mắn trình bày như năng lực dài hạn",
                "ROE và biên gộp trung bình 5 năm đều ở mức cao"],
           ],
           widths=[3.6, 5.4, 8.6], size=9)
 
-h2(doc, "3.1  Ba tiêu chí đáng chú ý nhất")
+h2(doc, "3.1  Bốn tiêu chí đáng chú ý nhất")
 
 h3(doc, "FCF/NI — phép thử accrual")
 para(doc,
@@ -396,6 +398,19 @@ para(doc,
      "nó đến từ việc số cổ phiếu lưu hành giảm. Cổ đông hiện hữu vẫn hưởng lợi, nhưng đây không phải "
      "tăng trưởng nội tại, và nó không lặp lại được mãi. Phép thử này đơn giản nhưng rất ít bộ lọc có, "
      "và nó chỉ khả thi vì hệ thống đã chọn đo tăng trưởng lợi nhuận ròng ở nhóm A thay vì đo EPS.",
+     size=9.5)
+
+h3(doc, "Còn đúng — phép thử độ trễ của số TTM")
+para(doc,
+     "Mọi chỉ số tăng trưởng của nhóm A đều dùng số TTM, tức cộng dồn bốn quý. Cách này mượt và ít nhiễu "
+     "theo mùa vụ, nhưng đổi lại nó **có độ trễ**: một doanh nghiệp bắt đầu xấu đi vẫn giữ số TTM đẹp thêm "
+     "hai ba quý nữa vì các quý tốt cũ còn đang đè lên. Tiêu chí này so tăng trưởng lợi nhuận của riêng quý "
+     "gần nhất với mức TTM để phát hiện khoảng cách đó.\n"
+     "Ví dụ có thật: IBM có lợi nhuận TTM tăng 84% nhưng lợi nhuận quý gần nhất giảm 1,3%. Nhìn cột TTM thì "
+     "đây là doanh nghiệp tăng trưởng rất mạnh; nhìn cột quý thì đà tăng đã tắt.\n"
+     "Điều kiện đạt gồm hai vế: quý gần nhất trên 10%, **hoặc** không tụt quá 15 điểm % so với TTM. "
+     "Vế đầu là bắt buộc, vì phép so bằng điểm phần trăm vô nghĩa với doanh nghiệp tăng trưởng ba chữ số — "
+     "một mã có TTM 295% và quý 225% chênh nhau 70 điểm nhưng không hề xấu đi.",
      size=9.5)
 
 h3(doc, "Chênh lệch ROE trừ ROIC — phép thử đòn bẩy")
@@ -533,6 +548,7 @@ add_table(doc,
               ["Không buyback", "B", "Cao — phép thử trực tiếp và hiếm gặp", "Cao", "Tốt"],
               ["ROE thật", "B", "Cao — tách bạch đòn bẩy khỏi hiệu quả", "Cao", "Tốt"],
               ["Bảng cân đối", "B", "Trung bình — hai điều kiện hoặc", "Cao", "Trung bình"],
+              ["Còn đúng", "B", "Cao — bù đúng điểm mù của số TTM", "Cao", "Tốt"],
               ["Bền vững 5N", "B", "Cao", "Thấp — yfinance, chỉ thị trường Mỹ", "Tốt khi có dữ liệu"],
           ],
           widths=[3.0, 1.4, 5.4, 4.2, 2.6], size=8.5)
@@ -605,8 +621,8 @@ add_table(doc,
 h1(doc, "8.  KẾT LUẬN")
 
 para(doc,
-     "Bộ tiêu chí sau khi rút gọn có một điều mà bản trước không có: **một câu hỏi rõ ràng và một cấu trúc "
-     "phục vụ đúng câu hỏi đó**. Mười hai tiêu chí ít hơn mười lăm tiêu chí cũ, nhưng chúng đo mười hai thứ "
+     "Bộ tiêu chí sau khi làm lại có một điều mà bản trước không có: **một câu hỏi rõ ràng và một cấu trúc "
+     "phục vụ đúng câu hỏi đó**. Mười ba tiêu chí ít hơn mười lăm tiêu chí cũ, nhưng chúng đo mười ba thứ "
      "khác nhau thay vì đo bốn thứ lặp lại ba lần. Việc tách hai điểm và giữ chúng không cộng gộp là quyết "
      "định quan trọng nhất, vì nó biến một trường hợp trước đây vô hình — số liệu đẹp mà mỏng thực chất — "
      "thành một tín hiệu nổi bật.")
@@ -644,6 +660,11 @@ add_table(doc,
               ["FCF_Margin%", "free_cash_flow_margin_ttm", "TradingView"],
               ["NI_abs · Lợi nhuận ($B)", "net_income", "TradingView"],
               ["Rev_abs · Doanh thu ($B)", "total_revenue_ttm", "TradingView"],
+              ["Rev_q_abs · DThu quý ($B)", "total_revenue_fq", "TradingView"],
+              ["NI_q_abs · LN quý ($B)", "net_income_fq", "TradingView"],
+              ["NI Qtr%", "net_income_yoy_growth_fq", "TradingView"],
+              ["Rev Qtr%", "total_revenue_yoy_growth_fq", "TradingView"],
+              ["NI_Trend_Gap · Đà LN", "NI Qtr% − NI Growth%", "Tính trong code"],
               ["Cash_abs", "cash_n_short_term_invest_fq", "TradingView"],
               ["Debt_abs", "total_debt_fq", "TradingView"],
               ["Current Ratio", "current_ratio", "TradingView"],

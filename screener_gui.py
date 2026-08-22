@@ -99,11 +99,15 @@ TABLE_COLS = [
     ("MCap($B)",   "MCap ($B)",     72,  Qt.AlignRight  | Qt.AlignVCenter),
     ("DThu($B)",   "Doanh thu ($B)", 74, Qt.AlignRight  | Qt.AlignVCenter),
     ("LNhuận($B)", "Lợi nhuận ($B)", 78, Qt.AlignRight  | Qt.AlignVCenter),
+    ("DThu Q($B)", "DThu quý ($B)",  76, Qt.AlignRight  | Qt.AlignVCenter),
+    ("LN Q($B)",   "LN quý ($B)",    70, Qt.AlignRight  | Qt.AlignVCenter),
     ("ROIC%",      "ROIC%",         62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("OpMgn%",     "Op Margin%",    64,  Qt.AlignRight  | Qt.AlignVCenter),
     ("GM%",        "Gross Margin%", 60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("NI Grw%",    "NI Growth%",    64,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("NI Q%",      "NI Qtr%",       60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Rev Grw%",   "Rev Growth%",   66,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Rev Q%",     "Rev Qtr%",      62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("D/E",        "D/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ROE%",       "ROE%",          58,  Qt.AlignRight  | Qt.AlignVCenter),
     ("P/E",        "P/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
@@ -137,6 +141,7 @@ REAL_COLS = [
     ("ROE−ROIC",   "ROE_ROIC_Gap",  74,  Qt.AlignRight  | Qt.AlignVCenter),
     ("NetCash$B",  "Net Cash ($B)", 76,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Curr.R",     "Current Ratio", 60,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Đà LN",      "NI_Trend_Gap",  64,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Bền vững",   "Moat Score",   110,  Qt.AlignCenter | Qt.AlignVCenter),
     # 6 tiêu chí nhóm B
     ("Tiền",       "REAL_CASH",     42,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -144,6 +149,7 @@ REAL_COLS = [
     ("K.buyback",  "REAL_BUYB",     62,  Qt.AlignCenter | Qt.AlignVCenter),
     ("ROE thật",   "REAL_LEV",      56,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Cân đối",    "REAL_BAL",      52,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Còn đúng",   "REAL_TREND",    58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("5 năm",      "REAL_SUS",      46,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -179,6 +185,30 @@ COL_TIPS = {
         "thực sự có thể dùng để trả nợ, chia cổ tức hoặc mua lại cổ phiếu.<br>"
         "<i>FCF thấp hơn lợi nhuận kéo dài là dấu hiệu lợi nhuận nằm trên giấy.</i>",
 
+    "DThu quý ($B)":
+        "<b>Doanh thu quý gần nhất</b>, đơn vị tỷ.<br>"
+        "Chỉ riêng quý vừa công bố, không cộng dồn. So với cột Doanh thu (TTM) để thấy quý này "
+        "đóng góp bao nhiêu.<br>"
+        "<i>Chỉ để tham khảo — không chấm điểm.</i>",
+    "LN quý ($B)":
+        "<b>Lợi nhuận ròng quý gần nhất</b>, đơn vị tỷ.<br>"
+        "Chỉ riêng quý vừa công bố.<br>"
+        "<i>Chỉ để tham khảo — không chấm điểm.</i>",
+    "NI Qtr%":
+        "<b>Tăng trưởng lợi nhuận quý gần nhất</b> so với cùng quý năm trước.<br>"
+        "Đặt cạnh cột NI Grw% (mức TTM) là thấy ngay doanh nghiệp đang tăng tốc hay giảm tốc. "
+        "Số TTM cộng dồn bốn quý nên có độ trễ — một doanh nghiệp mới xấu đi vẫn giữ số TTM đẹp "
+        "thêm hai ba quý nữa vì các quý cũ còn đè lên.<br>"
+        "<i>Là dữ liệu cho tiêu chí «Còn đúng» ở tab Kiểm chứng.</i>",
+    "Rev Qtr%":
+        "<b>Tăng trưởng doanh thu quý gần nhất</b> so với cùng quý năm trước.<br>"
+        "Đặt cạnh cột Rev Grw% (mức TTM) để so đà tăng trưởng hiện tại với mức trung bình cả năm.<br>"
+        "<i>Chỉ để tham khảo — không chấm điểm.</i>",
+    "NI_Trend_Gap":
+        "<b>Đà tăng trưởng lợi nhuận</b> = NI Qtr% − NI Growth%   (điểm phần trăm).<br>"
+        "Dương nghĩa là quý gần nhất tăng nhanh hơn mức trung bình cả năm — đang tăng tốc. "
+        "Âm nhiều nghĩa là đang giảm tốc, và số TTM đẹp chủ yếu nhờ các quý cũ.<br>"
+        "<i>Là dữ liệu cho tiêu chí «Còn đúng».</i>",
     "ROIC%":
         "<b>Return on Invested Capital</b> — lợi nhuận trên toàn bộ vốn đầu tư, gồm cả vốn chủ và nợ.<br>"
         "Đây là thước đo chất lượng doanh nghiệp tốt nhất trong bảng: nó cho biết mỗi đồng vốn bỏ vào "
@@ -1932,7 +1962,8 @@ class MainWindow(QMainWindow):
             elif key == "Moat Score":
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
             elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "D/E",
-                         "Net Cash ($B)", "Current Ratio", "FCF/NI", "EPS_NI_Gap", "ROE_ROIC_Gap"):
+                         "Net Cash ($B)", "Current Ratio", "FCF/NI", "EPS_NI_Gap", "ROE_ROIC_Gap",
+                         "NI_Trend_Gap", "LN quý ($B)"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._qc_table.horizontalHeader().update()
 
@@ -1943,7 +1974,8 @@ class MainWindow(QMainWindow):
         self._qc_table.setRowCount(len(df))
 
         # Columns that are %-type and get green/red coloring
-        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%"}
+        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
+                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
         is_vn = self._market.currentText().lower() == "vietnam"
 
         for ri, (_, row) in enumerate(df.iterrows()):
@@ -1999,7 +2031,8 @@ class MainWindow(QMainWindow):
                 elif key == "MCap ($B)":
                     cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
 
-                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)"):
+                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)",
+                             "DThu quý ($B)", "LN quý ($B)"):
                     cell = NumItem(val, "bil_vnd" if is_vn else "bil")
                     if isinstance(val, float) and val == val:
                         # Lợi nhuận hoặc dòng tiền âm là thông tin quan trọng — tô đỏ ngay
@@ -2052,7 +2085,8 @@ class MainWindow(QMainWindow):
         self._apply_qc_filter()
 
     def _recolor_qc_table(self):
-        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%"}
+        PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
+                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
         for ri in range(self._qc_table.rowCount()):
             for ci, (_, key, _, _) in enumerate(REAL_COLS):
                 item = self._qc_table.item(ri, ci)
@@ -2189,8 +2223,8 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor(_cs_bg)); item.setForeground(QColor(_cs_fg))
             elif key == "Moat Score":
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
-            elif key in ("NI Growth%", "Rev Growth%", "Gross Margin%", "Op Margin%",
-                         "ROIC%", "ROE%", "D/E", "P/E", "1Y%"):
+            elif key in ("NI Growth%", "Rev Growth%", "NI Qtr%", "Rev Qtr%",
+                         "Gross Margin%", "Op Margin%", "ROIC%", "ROE%", "D/E", "P/E", "1Y%"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._table.horizontalHeader().update()
 
@@ -2553,6 +2587,7 @@ class MainWindow(QMainWindow):
         self._table.setRowCount(len(df))
 
         PCT_KEYS = {"NI Growth%","Rev Growth%","EPS Growth%","FCF_Margin%",
+                    "NI Qtr%","Rev Qtr%","NI_Trend_Gap",
                     "Gross Margin%","Net Margin%","ROE%",
                     "1W%","1M%","3M%","6M%","1Y%"}
         is_vn = self._market.currentText().lower() == "vietnam"
@@ -2630,7 +2665,8 @@ class MainWindow(QMainWindow):
                 elif key == "MCap ($B)":
                     cell = NumItem(val, "mcap_vnd" if is_vn else "mcap")
 
-                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)"):
+                elif key in ("Doanh thu ($B)", "Lợi nhuận ($B)", "FCF ($B)",
+                             "DThu quý ($B)", "LN quý ($B)"):
                     cell = NumItem(val, "bil_vnd" if is_vn else "bil")
                     if isinstance(val, float) and val == val:
                         # Lợi nhuận hoặc dòng tiền âm là thông tin quan trọng — tô đỏ ngay
@@ -2834,6 +2870,11 @@ class MainWindow(QMainWindow):
                            if isinstance(v, (int, float)) and v == v else "ROE do đòn bẩy")
             if r.get("REAL_BAL") is False:
                 bad.append("bảng cân đối yếu")
+            if r.get("REAL_TREND") is False:
+                v = r.get("NI Qtr%")
+                bad.append(f"quý gần nhất lợi nhuận {v:+.0f}% — đã xấu đi"
+                           if isinstance(v, (int, float)) and v == v
+                           else "quý gần nhất đã xấu đi")
             if r.get("REAL_SUS") is False:
                 bad.append("chưa bền vững qua 5 năm")
             return "; ".join(bad) or "—"
@@ -2934,6 +2975,7 @@ class MainWindow(QMainWindow):
     def _recolor_table(self):
         """Re-apply theme-sensitive foreground colors to existing cells."""
         PCT_KEYS = {"NI Growth%","Rev Growth%","EPS Growth%","FCF_Margin%",
+                    "NI Qtr%","Rev Qtr%","NI_Trend_Gap",
                     "Gross Margin%","Net Margin%","ROE%",
                     "1W%","1M%","3M%","6M%","1Y%"}
         _keys = [c[1] for c in TABLE_COLS]

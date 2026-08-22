@@ -65,6 +65,10 @@ REAL_CRITERIA = {
     "BAL":  dict(label="Bảng cân đối", field="Net Cash ($B)", thr=0, op="bal",
                  bac_bo="Bảng cân đối trông sạch nhưng thanh khoản thực tế yếu",
                  desc="Net Cash > 0 hoặc Current Ratio > 1.5 — chịu được kiểm tra thanh khoản"),
+    "TREND": dict(label="Còn đúng",  field="NI Qtr%",      thr=10, op="trend",
+                 bac_bo="Số TTM còn đẹp chỉ vì ba quý cũ đè lên, quý gần nhất đã xấu đi",
+                 desc="Quý gần nhất vẫn tăng trưởng lợi nhuận trên 10%, hoặc không tụt quá 15 điểm % "
+                      "so với mức TTM — số liệu tốt vẫn còn đúng ở kỳ mới nhất"),
     "SUS":  dict(label="Bền vững 5N", field="Moat Score",   thr=None, op="in",
                  bac_bo="Một kỳ may mắn được trình bày như năng lực dài hạn",
                  desc="ROE và biên gộp trung bình 5 năm ở mức cao — số đẹp lặp lại nhiều năm"),
@@ -91,6 +95,11 @@ FETCH_COLS = [
     "free_cash_flow_margin_ttm",
     "net_income",
     "total_revenue_ttm",
+    # ── Số liệu quý gần nhất: TTM có độ trễ, quý cho biết hiện tại ra sao ──
+    "total_revenue_fq",
+    "net_income_fq",
+    "total_revenue_yoy_growth_fq",
+    "net_income_yoy_growth_fq",
     "cash_n_short_term_invest_fq",
     "total_debt_fq",
 ]
@@ -105,6 +114,10 @@ RENAME = {
     "free_cash_flow_margin_ttm": "FCF_Margin%",
     "net_income": "NI_abs",
     "total_revenue_ttm": "Rev_abs",
+    "total_revenue_fq": "Rev_q_abs",
+    "net_income_fq": "NI_q_abs",
+    "total_revenue_yoy_growth_fq": "Rev Qtr%",
+    "net_income_yoy_growth_fq": "NI Qtr%",
     "cash_n_short_term_invest_fq": "Cash_abs",
     "total_debt_fq": "Debt_abs",
     "gross_margin": "Gross Margin%", "net_margin": "Net Margin%",
@@ -489,12 +502,31 @@ def _derive_fields(df, moat_cache=None):
         return round(roe - roic, 1)
     df["ROE_ROIC_Gap"] = df.apply(_lev_gap, axis=1)
 
+    # Đà tăng trưởng: quý gần nhất so với mức TTM.
+    # TTM có độ trễ — ba quý cũ tốt vẫn kéo số TTM lên trong khi quý mới đã xấu đi.
+    # Số âm lớn = đang giảm tốc; dương = đang tăng tốc.
+    def _trend(r):
+        q = _num(r.get("NI Qtr%")); t = _num(r.get("NI Growth%"))
+        if q is None or t is None:
+            return None
+        return round(q - t, 1)
+    df["NI_Trend_Gap"] = df.apply(_trend, axis=1)
+
+    def _trend_rev(r):
+        q = _num(r.get("Rev Qtr%")); t = _num(r.get("Rev Growth%"))
+        if q is None or t is None:
+            return None
+        return round(q - t, 1)
+    df["Rev_Trend_Gap"] = df.apply(_trend_rev, axis=1)
+
     # Số tuyệt đối quy về tỷ — chỉ để hiển thị, không chấm điểm.
     # Đặt Doanh thu · Lợi nhuận · FCF cạnh nhau thì đọc được bằng mắt
     # phép kiểm chứng FCF/NI thay vì chỉ thấy tỷ số.
-    for src, dst in (("Rev_abs", "Doanh thu ($B)"),
-                     ("NI_abs",  "Lợi nhuận ($B)"),
-                     ("FCF_abs", "FCF ($B)")):
+    for src, dst in (("Rev_abs",   "Doanh thu ($B)"),
+                     ("NI_abs",    "Lợi nhuận ($B)"),
+                     ("FCF_abs",   "FCF ($B)"),
+                     ("Rev_q_abs", "DThu quý ($B)"),
+                     ("NI_q_abs",  "LN quý ($B)")):
         df[dst] = df[src].apply(
             lambda v: round(_num(v) / 1e9, 2) if _num(v) is not None else None) \
             if src in df.columns else None
@@ -574,6 +606,18 @@ def _chk_real(row, key):
         if nc is None and cr is None:
             return None
         return (nc is not None and nc > 0) or (cr is not None and cr > 1.5)
+
+    if key == "TREND":                    # số TTM đẹp có còn đúng ở quý gần nhất không
+        q   = _num(row.get("NI Qtr%"))
+        gap = _num(row.get("NI_Trend_Gap"))
+        if q is None:
+            return None
+        # Đạt nếu quý gần nhất vẫn tăng trưởng tốt, HOẶC không tụt xa so với chính mức TTM.
+        # Phải có vế đầu: so bằng điểm phần trăm sẽ vô nghĩa khi tăng trưởng ba chữ số
+        # (TTM 295% mà quý 225% chênh 70 điểm, nhưng 225% nào có phải xấu đi).
+        if q >= 10:
+            return True
+        return None if gap is None else gap >= -15
 
     if key == "SUS":                      # số đẹp lặp lại nhiều năm, không phải một kỳ
         m = row.get("Moat Score")
@@ -1081,14 +1125,19 @@ def _main_sheet(wb, df, market, top):
             ("Doanh thu ($B)", "Doanh thu (tỷ)", 14),
             ("Lợi nhuận ($B)", "Lợi nhuận (tỷ)", 14),
             ("FCF ($B)", "FCF (tỷ)", 12),
+            ("DThu quý ($B)", "DThu quý (tỷ)", 13),
+            ("LN quý ($B)", "LN quý (tỷ)", 12),
             ("ROIC%", "ROIC%", 9), ("Op Margin%", "Biên HĐ%", 10),
             ("Gross Margin%", "Biên gộp%", 10), ("NI Growth%", "LN tăng%", 10),
-            ("Rev Growth%", "DT tăng%", 10), ("D/E", "D/E", 8),
+            ("Rev Growth%", "DT tăng%", 10), ("NI Qtr%", "LN quý%", 10),
+            ("Rev Qtr%", "DT quý%", 10), ("NI_Trend_Gap", "Đà LN", 9),
+            ("D/E", "D/E", 8),
             ("FCF/NI", "FCF/LN", 9), ("FCF_Margin%", "Biên FCF%", 10),
             ("EPS_NI_Gap", "EPS−LN", 9), ("ROE_ROIC_Gap", "ROE−ROIC", 10),
             ("Net Cash ($B)", "Tiền ròng", 11), ("Current Ratio", "T.khoản", 9)]
     PCT = {"ROIC%", "Op Margin%", "Gross Margin%", "NI Growth%", "Rev Growth%",
-           "FCF_Margin%", "EPS_NI_Gap", "ROE_ROIC_Gap"}
+           "FCF_Margin%", "EPS_NI_Gap", "ROE_ROIC_Gap",
+           "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
 
     nb   = len(BASE)
     a_st = nb + 1
@@ -1213,6 +1262,7 @@ def _qc_sheet(wb, df):
         "BUYB": "EPS tăng nhanh hơn lợi nhuận — do mua cổ phiếu quỹ",
         "LEV":  "ROE vượt xa ROIC — sinh lời đến từ đòn bẩy",
         "BAL":  "bảng cân đối không chịu được kiểm tra thanh khoản",
+        "TREND": "quý gần nhất đã xấu đi — số TTM đẹp chủ yếu nhờ các quý cũ",
         "SUS":  "chưa có bề dày 5 năm để gọi là bền vững",
     }
 
