@@ -665,7 +665,11 @@ add_table(doc,
           widths=[2.4, 5.6, 8.6], size=9)
 
 para(doc,
-     "Ô tô cam khi có một dấu, tô đỏ khi có từ hai dấu trở lên.", size=9)
+     "Ô tô cam khi có một dấu, tô đỏ khi có từ hai dấu trở lên. Cột này xuất hiện ở cuối cùng bên phải "
+     "của **cả bốn nơi**: hai bảng trong app, hai bảng trên Dashboard, và sheet Screener trong file Excel. "
+     "Dashboard còn có thêm hai ô KPI: **CÓ CẢNH BÁO GIÁ** đếm toàn bộ số mã bị gắn dấu, và "
+     "**TỐT NHƯNG GIÁ GIẢM** đếm riêng những mã vừa đạt 🟢 TỐT & THỰC vừa đang bị đánh xuống — "
+     "đây là nhóm đáng chú ý nhất nếu bạn mua khi giá giảm.", size=9)
 
 callout(doc, "Dùng cột này thế nào nếu bạn mua khi giá giảm",
         "Càng nhiều dấu thì tình huống càng nghiêng về «đang rơi» hơn là «đang chiết khấu». Nhưng app "
@@ -842,14 +846,17 @@ add_table(doc,
           ["Phần", "Cho biết điều gì", "Dùng thế nào"],
           [
               ["Dải KPI trên cùng",
-               "Tổng số mã, số mã TỐT & THỰC, số CỜ ĐỎ, số KHÁ, và điểm trung bình hai nhóm",
+               "Tổng số mã, số mã TỐT & THỰC, số CỜ ĐỎ, số KHÁ, điểm trung bình hai nhóm, "
+               "số mã có cảnh báo giá, và số mã vừa đạt chất lượng vừa đang bị đánh xuống",
                "Nhìn nhanh xem lần quét này có gì. Điểm trung bình Thực thấp hơn hẳn Tài chính "
                "nghĩa là cả thị trường đang có khoảng cách giữa lợi nhuận và tiền mặt."],
               ["🟢 TỐT & THỰC",
-               "Danh sách đầy đủ mọi mã đạt cả hai mặt, sắp xếp theo điểm Thực rồi tới điểm Tài chính",
+               "Danh sách đầy đủ mọi mã đạt cả hai mặt, sắp xếp theo điểm Thực rồi tới điểm Tài chính. "
+               "Cột cuối bên phải là cảnh báo giá",
                "Đây là danh sách rút gọn để bạn đọc kỹ. Không bị cắt bớt — số lượng ghi ngay trên tiêu đề."],
               ["🔴 CỜ ĐỎ",
-               "Mã có số liệu đẹp nhưng không chứng minh được, kèm cột nêu **chính xác** trượt ở điểm nào",
+               "Mã có số liệu đẹp nhưng không chứng minh được, kèm cột nêu **chính xác** trượt ở điểm nào "
+               "và cột cảnh báo giá ở cuối",
                "Đọc cột lý do. Đây thường là phần cho bạn nhiều thông tin nhất trong cả Dashboard."],
               ["📊 Tỷ lệ đạt từng tiêu chí",
                "Trong lần quét này, mỗi tiêu chí có bao nhiêu phần trăm số mã đạt",

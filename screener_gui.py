@@ -2795,13 +2795,18 @@ class MainWindow(QMainWindow):
         n_flag  = cnt("🔴 CỜ ĐỎ")
         n_ok    = cnt("🔵 KHÁ")
         n_weak  = cnt("🟠 THẬT NHƯNG YẾU")
+        _w = df["Cảnh báo"] if "Cảnh báo" in df.columns else pd.Series([""] * n)
+        n_warn = int((_w.fillna("") != "").sum())
+        # Mã đạt chất lượng nhưng giá đang bị đánh xuống — tình huống đáng chú ý
+        # nhất với người mua khi giá giảm.
+        n_gw   = int(((sig == "🟢 TỐT & THỰC") & (_w.fillna("") != "")).sum())
         avg_fin  = df["FIN_Pct"].mean() * 100  if "FIN_Pct"  in df.columns else 0
         avg_real = df["REAL_Pct"].mean() * 100 if "REAL_Pct" in df.columns else 0
 
         def kpi(val, label, color):
             return (f'<td style="background:{CARD};border:1px solid {BRD};border-radius:6px;'
-                    f'padding:12px 8px;text-align:center;width:16.6%;">'
-                    f'<div style="color:{color};font-size:26px;font-weight:700;'
+                    f'padding:12px 6px;text-align:center;width:12.5%;">'
+                    f'<div style="color:{color};font-size:23px;font-weight:700;'
                     f'font-family:Consolas,monospace;">{val}</div>'
                     f'<div style="color:{T2};font-size:10px;font-weight:600;letter-spacing:.5px;'
                     f'margin-top:3px;">{label}</div></td>')
@@ -2813,6 +2818,8 @@ class MainWindow(QMainWindow):
                 + kpi(n_ok, "KHÁ", B)
                 + kpi(f"{avg_fin:.0f}%", "TB TÀI CHÍNH", B)
                 + kpi(f"{avg_real:.0f}%", "TB THỰC", O)
+                + kpi(n_warn, "CÓ CẢNH BÁO GIÁ", A_)
+                + kpi(n_gw, "TỐT NHƯNG GIÁ GIẢM", O)
                 + '</tr></table>')
 
         # ── Bối cảnh thị trường: hiển thị, KHÔNG cộng vào điểm ────────────
@@ -2871,6 +2878,17 @@ class MainWindow(QMainWindow):
             c = G if p >= .8 else B if p >= .6 else A_ if p >= .4 else R
             return f'<span style="color:{c};font-weight:700;">{int(g)}/{int(a)}</span>'
 
+        def warn_cell(r):
+            """Ô cảnh báo giá — cùng bộ dấu với hai bảng chính."""
+            w = r.get("Cảnh báo", "") or ""
+            if not w:
+                return cell('<span style="color:%s;">—</span>' % T3)
+            c = R if len(w.split()) >= 2 else O
+            # Dấu "<MA250" phải escape, nếu không trình dựng coi là thẻ mở và nuốt mất
+            esc = w.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return cell('<span style="color:%s;font-weight:700;'
+                        'font-family:Consolas,monospace;">%s</span>' % (c, esc))
+
         def rows_for(sub, extra_cols):
             out = []
             for i, (_, r) in enumerate(sub.iterrows(), 1):
@@ -2897,12 +2915,13 @@ class MainWindow(QMainWindow):
         good = df[sig == "🟢 TỐT & THỰC"].sort_values(
             ["REAL_Pct", "FIN_Pct"], ascending=False) if n_good else df.iloc[0:0]
         good_tbl = table(
-            HDRS + ["ROIC%", "FCF/NI", "FCF Mgn%", "1Y%"],
+            HDRS + ["ROIC%", "FCF/NI", "FCF Mgn%", "1Y%", "Cảnh báo"],
             rows_for(good, lambda r: [
                 num(r.get("ROIC%"), "{:.1f}%"),
                 num(r.get("FCF/NI"), "{:.2f}×", lambda v: v >= 0.8),
                 num(r.get("FCF_Margin%"), "{:.1f}%", lambda v: v > 8),
                 num(r.get("1Y%"), "{:+.1f}%", lambda v: v > 0),
+                warn_cell(r),
             ]))
 
         # ── 2. CỜ ĐỎ — kết quả đặc trưng của hệ thống ────────────────────
@@ -2941,9 +2960,9 @@ class MainWindow(QMainWindow):
             return "; ".join(bad) or "—"
 
         flag_tbl = table(
-            HDRS + ["Vì sao chưa chứng minh được"],
-            rows_for(flag, lambda r: [cell(why(r), R)]),
-            widths=["3%", "7%", "18%", "12%", "8%", "7%", "6%", "39%"])
+            HDRS + ["Vì sao chưa chứng minh được", "Cảnh báo"],
+            rows_for(flag, lambda r: [cell(why(r), R), warn_cell(r)]),
+            widths=["3%", "6%", "16%", "11%", "7%", "6%", "5%", "34%", "12%"])
 
         # ── 3. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
         hit_rows = []
