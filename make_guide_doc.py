@@ -858,6 +858,11 @@ add_table(doc,
                "Mã có số liệu đẹp nhưng không chứng minh được, kèm cột nêu **chính xác** trượt ở điểm nào "
                "và cột cảnh báo giá ở cuối",
                "Đọc cột lý do. Đây thường là phần cho bạn nhiều thông tin nhất trong cả Dashboard."],
+              ["⚠️ Cảnh báo giá",
+               "Mục riêng liệt kê mọi mã bị gắn dấu, kèm % từ đỉnh, khoảng cách tới MA250 và "
+               "biến động trong phiên",
+               "Mã còn nguyên chất lượng được xếp lên đầu — đây là nhóm đáng đọc nhất nếu bạn "
+               "mua khi giá giảm. Đối chiếu cột Tín hiệu để biết doanh nghiệp bên dưới ra sao"],
               ["📊 Tỷ lệ đạt từng tiêu chí",
                "Trong lần quét này, mỗi tiêu chí có bao nhiêu phần trăm số mã đạt",
                "Tiêu chí nào trên 90% là quá lỏng, dưới 5% là quá chặt — cả hai đều không phân loại được gì. "

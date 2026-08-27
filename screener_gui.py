@@ -2964,7 +2964,34 @@ class MainWindow(QMainWindow):
             rows_for(flag, lambda r: [cell(why(r), R), warn_cell(r)]),
             widths=["3%", "6%", "16%", "11%", "7%", "6%", "5%", "34%", "12%"])
 
-        # ── 3. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
+        # ── 3. Cảnh báo giá — mục riêng ──────────────────────────────────
+        # Chỉ báo, không tham gia chấm điểm. Sắp mã còn nguyên chất lượng lên
+        # trước, vì đó là nhóm đáng đọc nhất với người mua khi giá giảm.
+        _wcol = df["Cảnh báo"].fillna("") if "Cảnh báo" in df.columns else pd.Series([""] * n)
+        warn_df = df[_wcol != ""].copy()
+        if not warn_df.empty:
+            _rank = {"🟢 TỐT & THỰC": 0, "🔵 KHÁ": 1, "🟠 THẬT NHƯNG YẾU": 2,
+                     "🟡 THEO DÕI": 3, "🔴 CỜ ĐỎ": 4, "⚫ LOẠI": 5, "⚪ THIẾU DỮ LIỆU": 6}
+            warn_df["_r"] = warn_df["Signal"].map(lambda x: _rank.get(x, 9))
+            warn_df = warn_df.sort_values(["_r", "% từ đỉnh"], ascending=[True, True])
+
+        def sig_cell(v):
+            fg, bg = SIGNAL_COLORS.get(v, (T2, None))
+            return cell(v or "—", fg, True, bg)
+
+        warn_tbl = table(
+            ["#", "Ticker", "Công ty", "Ngành", "Giá", "T.Chính", "Thực",
+             "% từ đỉnh", "Giá/MA250", "Phiên", "Cảnh báo", "Tín hiệu"],
+            rows_for(warn_df, lambda r: [
+                num(r.get("% từ đỉnh"), "{:+.1f}%", lambda v: v > -20),
+                num(r.get("Giá/MA250%"), "{:+.1f}%", lambda v: v > 0),
+                num(r.get("Chg%"), "{:+.1f}%", lambda v: v > -3),
+                warn_cell(r),
+                sig_cell(r.get("Signal", "")),
+            ]),
+            widths=["3%", "6%", "17%", "11%", "7%", "6%", "5%", "8%", "8%", "7%", "10%", "12%"])
+
+        # ── 4. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
         hit_rows = []
         for grp, keys, crit in (("A", FIN_KEYS, FIN_CRITERIA), ("B", REAL_KEYS, REAL_CRITERIA)):
             for k in keys:
@@ -3003,7 +3030,7 @@ class MainWindow(QMainWindow):
         hit_tbl = table(["Nhóm", "Tiêu chí", "Đạt", "Tỷ lệ", "Mức", "Nhận xét"], hit_rows,
                         widths=["8%", "17%", "9%", "7%", "14%", "45%"])
 
-        # ── 4. Theo ngành ────────────────────────────────────────────────
+        # ── 5. Theo ngành ────────────────────────────────────────────────
         sec_rows = []
         if "Sector" in df.columns:
             for name, g in df.groupby("Sector"):
@@ -3037,6 +3064,11 @@ class MainWindow(QMainWindow):
 
   {sec(f'🔴  CỜ ĐỎ — {n_flag} mã', 'số liệu tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 60% — số đẹp chưa chứng minh được', R)}
   {flag_tbl}
+
+  {sec(f'⚠️  CẢNH BÁO GIÁ — {n_warn} mã',
+       f'{n_gw} mã trong số này vẫn đạt 🟢 TỐT &amp; THỰC — chất lượng còn nguyên nhưng giá đã bị đánh xuống. '
+       f'Ba dấu này chỉ mô tả trạng thái giá, không tham gia chấm điểm và không dùng để lọc', A_)}
+  {warn_tbl}
 
   {sec('📊  Tỷ lệ đạt của từng tiêu chí', 'tiêu chí quá lỏng hoặc quá chặt thì không phân loại được gì — dùng để hiệu chỉnh ngưỡng', B)}
   {hit_tbl}
