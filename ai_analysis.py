@@ -215,9 +215,16 @@ def friendly_error(e: Exception) -> str:
     msg = str(e)
     low = msg.lower()
     if "credit balance is too low" in low or "purchase credits" in low:
-        return ("Tài khoản chưa có tín dụng API. Đăng nhập Claude và gói thuê bao "
-                "Claude là hai thứ khác với tín dụng API — muốn gọi API phải nạp "
-                "riêng tại console.anthropic.com → Plans & Billing.")
+        return (
+            "Liên kết tài khoản của bạn ĐANG HOẠT ĐỘNG BÌNH THƯỜNG — đây không phải "
+            "lỗi đăng nhập.\n"
+            "Vấn đề là tổ chức của bạn chưa có tín dụng API. Đăng nhập chỉ cấp quyền "
+            "gọi, còn mỗi lần gọi vẫn bị tính tiền vào tín dụng API, và số dư hiện "
+            "đang bằng 0.\n"
+            "Gói thuê bao Claude dùng cho claude.ai và Claude Code, không dùng để trả "
+            "cho lệnh gọi API của ứng dụng bên ngoài — hai thứ tính tiền riêng.\n"
+            "Nạp tín dụng tại console.anthropic.com → Plans & Billing. Khoảng 5 USD đủ "
+            "cho vài chục lần phân tích bằng Opus, hoặc hàng trăm lần nếu đổi sang Haiku.")
     if "rate_limit" in low or "429" in low:
         return "Bị giới hạn tần suất. Chờ một lát rồi thử lại."
     if "could not resolve authentication" in low:

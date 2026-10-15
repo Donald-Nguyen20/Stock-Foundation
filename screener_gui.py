@@ -1973,7 +1973,10 @@ class AnalysisPanel(QWidget):
         self._view.setHtml(self._html(
             f"<div style='background:#FFC7CE;color:#9C0006;border-radius:5px;"
             f"padding:14px 16px;font-size:12px;line-height:170%;'>"
-            f"<b>Không chạy được</b><br>{self._inline(msg)}</div>"))
+            f"<b>Không chạy được</b><br>"
+            + "<br>".join(f"<p style='margin:7px 0;'>{self._inline(x)}</p>"
+                          for x in msg.split(chr(10)) if x.strip())
+            + "</div>"))
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
     done     = Signal(str)        # output path
