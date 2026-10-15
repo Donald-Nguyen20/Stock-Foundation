@@ -353,7 +353,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
             ann.update(font=dict(size=10, color=C_DIM, family="Segoe UI"))
 
     mode_note = ("Full-year values" if mode == "annual"
-                 else "EPS & GM = single quarter  ·  ROE & CF/Share = TTM (trailing 4 quarters)")
+                 else "EPS và biên gộp = từng quý  ·  ROE, tổng vốn và FCF/Lợi nhuận = TTM bốn quý")
     fig.add_annotation(
         text=f"<span style='color:{C_DIM}'>■ Bars = value  ·  {mode_note}</span>",
         xref="paper", yref="paper", x=0.5, y=-0.05, showarrow=False,
@@ -367,19 +367,28 @@ def _build_chart(ticker, name, labels, eps, gm, roe, rev,
                  mode="quarterly", height=860, dark_mode=True):
     """Return interactive Plotly HTML string — fills 100% of the WebEngineView viewport."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
+                        roic=roic, fcfni=fcfni, shares=shares,
                         mode=mode, height=height, dark_mode=dark_mode)
-    fig.update_layout(height=None, autosize=True)
+    _tall = fcfni is not None and len(getattr(fcfni, "dropna", lambda: [])()) > 0
+    if not _tall:
+        fig.update_layout(height=None, autosize=True)
     div = fig.to_html(
         include_plotlyjs="cdn", full_html=False,
         config={"displayModeBar": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["select2d", "lasso2d"]},
     )
     bg = "#06080F" if dark_mode else "#FFFFFF"
+    if _tall:
+        # Sáu ô nén vào một màn hình thì cột bẹp hết — cho cuộn dọc
+        css = (f'html,body{{margin:0;padding:0;width:100%;background:{bg};}}'
+               f'.plotly-graph-div{{width:100%!important;}}')
+    else:
+        css = (f'html,body{{margin:0;padding:0;width:100%;height:100%;'
+               f'overflow:hidden;background:{bg};}}'
+               f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}')
     return (
         f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
-        f'html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{bg};}}'
-        f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}'
-        f'</style></head><body>{div}</body></html>'
+        f'{css}</style></head><body>{div}</body></html>'
     )
 
 
@@ -388,6 +397,7 @@ def _build_chart_png(ticker, name, labels, eps, gm, roe, rev,
                      mode="quarterly", height=680, width=920, dark_mode=True):
     """Return PNG bytes (legacy, requires kaleido)."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
+                        roic=roic, fcfni=fcfni, shares=shares,
                         mode=mode, height=height, dark_mode=dark_mode)
     return fig.to_image(format="png", width=width, height=height, scale=2)
 
