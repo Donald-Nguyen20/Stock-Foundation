@@ -3296,6 +3296,17 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _set_dataframe(self, df):
+        """Một chỗ duy nhất gán kết quả quét.
+
+        Trước đây đường nạp từ cache chỉ gán self._df mà quên báo cho hai
+        panel biểu đồ, nên bản đồ so sánh và đồ thị bằng chứng trống trơn
+        dù đã có dữ liệu.
+        """
+        self._df = df
+        self._chart_panel.set_universe(df)
+        self._ai_panel.set_universe(df)
+
     def _load_cache(self):
         import pickle
         try:
@@ -3317,7 +3328,7 @@ class MainWindow(QMainWindow):
 
             self._populate_table(df)
             self._populate_qc_table(df)
-            self._df = df
+            self._set_dataframe(df)
             self._update_dashboard(df)
             self._btn_export.setEnabled(True)
             # Khôi phục market/top settings nếu có
@@ -3341,9 +3352,7 @@ class MainWindow(QMainWindow):
         self._populate_table(df)
         self._populate_qc_table(df)
 
-        self._df = df
-        self._chart_panel.set_universe(df)
-        self._ai_panel.set_universe(df)
+        self._set_dataframe(df)
         self._update_dashboard(df)
         self._tabs_w.setCurrentIndex(0)
         _sig = df["Signal"] if "Signal" in df.columns else pd.Series(dtype=str)
