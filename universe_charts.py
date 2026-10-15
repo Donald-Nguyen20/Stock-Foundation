@@ -34,7 +34,7 @@ def _num(df, col):
     return pd.to_numeric(df[col], errors="coerce") if col in df.columns else pd.Series(dtype=float)
 
 
-def build_html(df: pd.DataFrame, dark: bool = True, height: int = 580) -> str:
+def build_html(df: pd.DataFrame, dark: bool = False, height: int = 580) -> str:
     """Hai bản đồ xếp dọc: Tài chính×Thực và ROIC×Định giá."""
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
@@ -112,7 +112,7 @@ def build_html(df: pd.DataFrame, dark: bool = True, height: int = 580) -> str:
     fig.update_yaxes(title_text="ROIC (%)", gridcolor=T["grid"], zeroline=False, row=2, col=1)
 
     fig.update_layout(
-        height=max(height, 560), margin=dict(l=52, r=16, t=46, b=44),
+        height=max(height, 560), margin=dict(l=48, r=14, t=46, b=42),
         paper_bgcolor=T["bg"], plot_bgcolor=T["panel"],
         font=dict(family="Segoe UI, sans-serif", size=10, color=T["text"]),
         legend=dict(orientation="h", yanchor="bottom", y=1.055, x=0,

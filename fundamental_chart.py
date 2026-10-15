@@ -238,7 +238,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
         rows=_rows, cols=2,
         subplot_titles=tuple(_titles),
         vertical_spacing=0.115 if _rows == 3 else 0.16,
-        horizontal_spacing=0.10,
+        horizontal_spacing=0.075,
     )
 
     # Sáu ô cần nhiều chiều dọc hơn bốn ô; để thấp quá thì cột bẹp hết
@@ -336,7 +336,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
             x=0.0, xanchor="left", pad=dict(l=14, t=4),
         ),
         showlegend=False, height=height,
-        margin=dict(l=56, r=56, t=52, b=40),
+        margin=dict(l=46, r=18, t=52, b=38),
         hovermode="x unified",
         hoverlabel=dict(bgcolor=_hover_bg, bordercolor=_hover_border,
                         font=dict(family="Segoe UI", size=12, color=C_TEXT)),

@@ -476,10 +476,12 @@ class ColoredHeader(QHeaderView):
 
 
 class ChartPanel(QWidget):
-    """Chart side panel — uses QWebEngineView + HTML (no kaleido dependency)."""
+    """Khung biểu đồ — QWebEngineView dựng HTML Plotly."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._dark     = True
+        # Khớp với theme mặc định của app (sáng); lệch nhau thì biểu đồ đen
+        # nằm giữa giao diện trắng.
+        self._dark     = False
         self._html_q   = ""
         self._html_a   = ""
         self._html_map = ""
@@ -2442,8 +2444,10 @@ class MainWindow(QMainWindow):
         split.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; width:1px; }}")
         split.addWidget(self._dash_browser)
         split.addWidget(self._chart_panel)
-        split.setSizes([980, 520])
+        split.setSizes([700, 800])   # biểu đồ cần bề ngang cho hai cột ô
+        # Cả hai cùng co giãn, nếu không thì phóng to cửa sổ chỉ nới bảng
         split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
         self._dash_split = split
         lay.addWidget(split)
         return w
