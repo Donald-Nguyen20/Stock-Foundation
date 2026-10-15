@@ -25,6 +25,8 @@ _spec = importlib.util.spec_from_file_location(
 _m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_m)
 
+import claude_auth
+
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
 score_stocks           = _m.score_stocks
@@ -1535,21 +1537,45 @@ class HelpDialog(QDialog):
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AI Settings — khung giao diện.
-# Phần đăng nhập OAuth mới dựng vỏ, chưa nối vào luồng xác thực thật:
-# _on_login() hiện chỉ đổi trạng thái hiển thị để kiểm tra bố cục.
-# ─────────────────────────────────────────────────────────────────────────────
-class AISettingsDialog(QDialog):
-    STATE_OUT = "chua_dang_nhap"
-    STATE_IN  = "da_dang_nhap"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Settings — đăng nhập Claude bằng OAuth.
+# Luồng thật nằm trong claude_auth.py; ở đây chỉ là giao diện và luồng nền.
+# ─────────────────────────────────────────────────────────────────────────────
+class _AuthWorker(QThread):
+    """Chạy các thao tác xác thực ngoài luồng giao diện.
+
+    `ant auth login` mở trình duyệt rồi chờ người dùng xác nhận — có thể mất
+    vài phút, nên tuyệt đối không gọi trên luồng chính.
+    """
+    done = Signal(str, bool, str, object)   # hành động, thành công, thông điệp, trạng thái
+
+    def __init__(self, action, parent=None):
+        super().__init__(parent)
+        self._action = action
+
+    def run(self):
+        try:
+            if self._action == "login":
+                ok, msg = claude_auth.login()
+            elif self._action == "logout":
+                ok, msg = claude_auth.logout()
+            else:
+                ok, msg = True, ""
+            state = claude_auth.read_state()
+            self.done.emit(self._action, ok, msg, state)
+        except Exception as e:                      # luồng nền không được chết lặng
+            self.done.emit(self._action, False, f"{type(e).__name__}: {e}", None)
+
+
+class AISettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("AI Settings")
-        self.setFixedSize(460, 340)
-        self._state   = self.STATE_OUT
-        self._account = ""
+        self.setFixedSize(560, 540)
+        self._state  = None
+        self._worker = None
+        self._busy   = False
 
         self.setStyleSheet(f"""
             QDialog {{ background:{BG}; }}
@@ -1561,7 +1587,6 @@ class AISettingsDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Tiêu đề ────────────────────────────────────────────────────────
         head = QWidget(); head.setFixedHeight(52)
         head.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
         hh = QHBoxLayout(head); hh.setContentsMargins(20, 0, 20, 0)
@@ -1570,123 +1595,248 @@ class AISettingsDialog(QDialog):
         hh.addWidget(t); hh.addStretch()
         root.addWidget(head)
 
-        # ── Thân ───────────────────────────────────────────────────────────
         body = QWidget(); body.setStyleSheet(f"background:{BG};")
         bv = QVBoxLayout(body)
-        bv.setContentsMargins(20, 18, 20, 18)
-        bv.setSpacing(10)
+        bv.setContentsMargins(20, 16, 20, 16)
+        bv.setSpacing(9)
 
-        sec = QLabel("TÀI KHOẢN")
-        sec.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
-        bv.addWidget(sec)
+        cap = QLabel("TÀI KHOẢN CLAUDE")
+        cap.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
+        bv.addWidget(cap)
 
         card = QWidget()
-        self._card = card
         card.setStyleSheet(f"background:{SURFACE}; border:1px solid {BORDER}; border-radius:5px;")
-        cv = QVBoxLayout(card)
-        cv.setContentsMargins(16, 14, 16, 14)
-        cv.setSpacing(10)
+        cv = QVBoxLayout(card); cv.setContentsMargins(16, 13, 16, 13); cv.setSpacing(9)
 
-        row = QHBoxLayout(); row.setSpacing(10)
-        self._dot = QLabel("●")
-        self._dot.setFixedWidth(12)
-        self._lbl_state = QLabel()
-        self._lbl_state.setWordWrap(True)
-        self._lbl_state.setStyleSheet(f"color:{TEXT1}; font-size:12px;")
-        row.addWidget(self._dot)
-        row.addWidget(self._lbl_state, stretch=1)
+        row = QHBoxLayout(); row.setSpacing(9)
+        self._dot = QLabel("●"); self._dot.setFixedWidth(12)
+        self._lbl_state = QLabel(); self._lbl_state.setWordWrap(True)
+        self._lbl_state.setStyleSheet(f"color:{TEXT1}; font-size:12px; font-weight:600;")
+        row.addWidget(self._dot); row.addWidget(self._lbl_state, stretch=1)
         cv.addLayout(row)
 
-        self._btn_login = QPushButton()
-        self._btn_login.setFixedHeight(34)
-        self._btn_login.setCursor(Qt.PointingHandCursor)
-        self._btn_login.clicked.connect(self._on_login)
-        cv.addWidget(self._btn_login)
+        self._lbl_req = QLabel(); self._lbl_req.setWordWrap(True)
+        self._lbl_req.setStyleSheet(f"color:{TEXT2}; font-size:10px; line-height:150%;")
+        cv.addWidget(self._lbl_req)
+
+        self._btn_main = QPushButton()
+        self._btn_main.setFixedHeight(34)
+        self._btn_main.setCursor(Qt.PointingHandCursor)
+        self._btn_main.clicked.connect(self._on_main)
+        cv.addWidget(self._btn_main)
+
+        self._btn_alt = QPushButton()
+        self._btn_alt.setFixedHeight(28)
+        self._btn_alt.setCursor(Qt.PointingHandCursor)
+        self._btn_alt.clicked.connect(self._on_alt)
+        cv.addWidget(self._btn_alt)
 
         bv.addWidget(card)
 
-        note = QLabel(
-            "Đăng nhập bằng OAuth — app mở trình duyệt để bạn xác nhận, "
-            "không bao giờ yêu cầu bạn dán mật khẩu hay API key vào đây.")
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color:{TEXT3}; font-size:10px; line-height:150%;")
-        bv.addWidget(note)
+        self._lbl_warn = QLabel(); self._lbl_warn.setWordWrap(True)
+        self._lbl_warn.setStyleSheet(
+            f"color:#7A3E00; background:#FFE0C2; border-radius:4px;"
+            f" padding:9px 11px; font-size:10px; line-height:150%;")
+        self._lbl_warn.hide()
+        bv.addWidget(self._lbl_warn)
 
-        bv.addSpacing(4)
-        sec2 = QLabel("TÍNH NĂNG")
-        sec2.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
-        bv.addWidget(sec2)
+        cap2 = QLabel("CHI TIẾT")
+        cap2.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
+        bv.addWidget(cap2)
 
-        soon = QLabel(
-            "Các tính năng AI sẽ được bổ sung sau khi phần đăng nhập hoàn tất.")
-        soon.setWordWrap(True)
-        soon.setStyleSheet(
-            f"color:{TEXT3}; font-size:11px; font-style:italic;"
-            f" background:{PANEL}; border-radius:4px; padding:10px 12px;")
-        bv.addWidget(soon)
-
-        bv.addStretch()
+        self._log = QTextBrowser()
+        self._log.setStyleSheet(
+            f"background:{SURFACE}; color:{TEXT2}; border:1px solid {BORDER};"
+            f" border-radius:4px; padding:8px 10px;"
+            f" font-family:Consolas,monospace; font-size:10px;")
+        bv.addWidget(self._log, stretch=1)
         root.addWidget(body, stretch=1)
 
-        # ── Chân ───────────────────────────────────────────────────────────
         foot = QWidget(); foot.setFixedHeight(46)
         foot.setStyleSheet(f"background:{SURFACE}; border-top:1px solid {BORDER};")
-        fh = QHBoxLayout(foot); fh.setContentsMargins(20, 0, 20, 0)
-        hint = QLabel("Esc  để đóng")
-        hint.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        fh = QHBoxLayout(foot); fh.setContentsMargins(20, 0, 20, 0); fh.setSpacing(8)
+        self._btn_recheck = QPushButton("KIỂM TRA LẠI")
+        self._btn_recheck.setFixedSize(116, 28)
+        self._btn_recheck.setCursor(Qt.PointingHandCursor)
+        self._btn_recheck.clicked.connect(lambda: self._refresh(async_=True))
         btn_close = QPushButton("ĐÓNG")
         btn_close.setFixedSize(84, 28)
         btn_close.setCursor(Qt.PointingHandCursor)
-        btn_close.setStyleSheet(
-            f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
-            f" border-radius:3px; font-size:10px; font-weight:700; letter-spacing:1.5px; }}"
-            f"QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}")
         btn_close.clicked.connect(self.close)
-        fh.addWidget(hint); fh.addStretch(); fh.addWidget(btn_close)
+        _flat = (f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
+                 f" border-radius:3px; font-size:10px; font-weight:700; letter-spacing:1.2px; }}"
+                 f"QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}"
+                 f"QPushButton:disabled {{ color:{TEXT3}; }}")
+        self._btn_recheck.setStyleSheet(_flat)
+        btn_close.setStyleSheet(_flat)
+        fh.addWidget(self._btn_recheck); fh.addStretch(); fh.addWidget(btn_close)
         root.addWidget(foot)
 
-        self._render()
+        self._refresh(async_=False)
 
-    # ── Trạng thái ─────────────────────────────────────────────────────────
-    def _render(self):
-        if self._state == self.STATE_IN:
-            self._dot.setStyleSheet(f"color:{GREEN}; font-size:13px;")
-            self._lbl_state.setText(
-                f"Đã đăng nhập{('  ·  ' + self._account) if self._account else ''}")
-            self._btn_login.setText("ĐĂNG XUẤT")
-            self._btn_login.setStyleSheet(
-                f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
+    # ── Hiển thị ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _btn_style(bg, hover, fg="#FFFFFF"):
+        return (f"QPushButton {{ background:{bg}; color:{fg}; border:none;"
                 f" border-radius:4px; font-size:11px; font-weight:700; letter-spacing:1px; }}"
-                f"QPushButton:hover {{ background:{RED}; color:#FFFFFF; }}")
+                f"QPushButton:hover {{ background:{hover}; }}"
+                f"QPushButton:disabled {{ background:{BORDER2}; color:{TEXT3}; }}")
+
+    def _render(self):
+        st = self._state
+        self._btn_alt.hide()
+
+        if st is None:
+            self._dot.setStyleSheet(f"color:{TEXT3}; font-size:13px;")
+            self._lbl_state.setText("Đang kiểm tra…")
+            self._lbl_req.setText("")
+            self._btn_main.setText("ĐANG KIỂM TRA…")
+            self._btn_main.setEnabled(False)
+            self._btn_main.setStyleSheet(self._btn_style(BORDER2, BORDER2, TEXT3))
+            return
+
+        # Cảnh báo bẫy số một: API key đặt sẵn sẽ che mọi profile OAuth
+        if st.api_key_shadow:
+            self._lbl_warn.setText(
+                "Biến môi trường <b>ANTHROPIC_API_KEY</b> đang được đặt. Khi có biến này, "
+                "SDK dùng nó và <b>bỏ qua hoàn toàn</b> tài khoản OAuth bạn đăng nhập ở đây — "
+                "kể cả khi nó là chuỗi rỗng. Hãy xoá hẳn biến đó nếu muốn dùng OAuth.")
+            self._lbl_warn.show()
+        else:
+            self._lbl_warn.hide()
+
+        if not st.sdk_ok:
+            self._dot.setStyleSheet(f"color:{RED}; font-size:13px;")
+            self._lbl_state.setText("Thiếu thư viện anthropic")
+            self._lbl_req.setText("Cài bằng lệnh:  pip install anthropic")
+            self._btn_main.setText("KHÔNG DÙNG ĐƯỢC")
+            self._btn_main.setEnabled(False)
+            self._btn_main.setStyleSheet(self._btn_style(BORDER2, BORDER2, TEXT3))
+            return
+
+        if not st.cli_ok:
+            self._dot.setStyleSheet(f"color:{AMBER}; font-size:13px;")
+            self._lbl_state.setText("Chưa cài công cụ đăng nhập")
+            self._lbl_req.setText(
+                "Đăng nhập OAuth của Claude đi qua CLI <b>ant</b> của Anthropic: nó mở trình "
+                "duyệt, đổi lấy token ngắn hạn và lưu thành profile mà app tự đọc. "
+                "App không bao giờ giữ token của bạn.")
+            self._btn_main.setText("MỞ TRANG TẢI CLI  ant")
+            self._btn_main.setEnabled(True)
+            self._btn_main.setStyleSheet(self._btn_style(BLUE, BLUE_HV))
+            self._btn_alt.setText("ĐÃ CÀI RỒI — KIỂM TRA LẠI")
+            self._btn_alt.setStyleSheet(self._btn_style(BORDER2, BLUE, TEXT1))
+            self._btn_alt.setEnabled(True)
+            self._btn_alt.show()
+            return
+
+        if st.logged_in:
+            self._dot.setStyleSheet(f"color:{GREEN}; font-size:13px;")
+            prof = ("  ·  profile: " + ", ".join(st.profiles)) if st.profiles else ""
+            self._lbl_state.setText(f"Đã đăng nhập{prof}")
+            self._lbl_req.setText(st.account)
+            self._btn_main.setText("ĐĂNG XUẤT")
+            self._btn_main.setEnabled(True)
+            self._btn_main.setStyleSheet(self._btn_style(BORDER2, RED, TEXT1))
         else:
             self._dot.setStyleSheet(f"color:{TEXT3}; font-size:13px;")
             self._lbl_state.setText("Chưa đăng nhập")
-            self._btn_login.setText("ĐĂNG NHẬP CLAUDE  (OAuth)")
-            self._btn_login.setStyleSheet(
-                f"QPushButton {{ background:{BLUE}; color:#FFFFFF; border:none;"
-                f" border-radius:4px; font-size:11px; font-weight:700; letter-spacing:1px; }}"
-                f"QPushButton:hover {{ background:{BLUE_HV}; }}")
+            self._lbl_req.setText(
+                "Bấm nút dưới đây, app sẽ mở trình duyệt để bạn xác nhận với tài khoản Claude. "
+                "Không cần dán API key hay mật khẩu vào app.")
+            self._btn_main.setText("ĐĂNG NHẬP CLAUDE  (OAuth)")
+            self._btn_main.setEnabled(True)
+            self._btn_main.setStyleSheet(self._btn_style(BLUE, BLUE_HV))
 
-    def _on_login(self):
-        """Chưa nối OAuth — mới chỉ đổi trạng thái để xem bố cục.
+    def _render_log(self):
+        st = self._state
+        if st is None:
+            return
+        lines = [
+            f"thư viện anthropic : {st.sdk_version if st.sdk_ok else 'chưa cài'}",
+            f"CLI ant            : {st.cli_path or 'chưa cài'}",
+            f"thư mục cấu hình   : {claude_auth.config_dir()}",
+            f"profile đã lưu     : {', '.join(st.profiles) if st.profiles else 'chưa có'}",
+            f"gọi API thử        : {'thành công' if st.verified else 'chưa được'}",
+        ]
+        if st.error:
+            lines += ["", "lỗi:", st.error]
+        if st.status_text:
+            lines += ["", "ant auth status:", st.status_text]
+        self._log.setPlainText("\n".join(lines))
 
-        Khi làm thật, chỗ này sẽ mở trình duyệt tới trang uỷ quyền, chạy một
-        máy chủ callback cục bộ để nhận authorization code, đổi lấy token và
-        lưu vào kho bảo mật của hệ điều hành. Không lưu token vào mã nguồn
-        hay vào file cấu hình dạng văn bản thuần.
-        """
-        if self._state == self.STATE_IN:
-            self._state, self._account = self.STATE_OUT, ""
+    # ── Hành động ──────────────────────────────────────────────────────────
+    def _set_busy(self, busy, msg=""):
+        self._busy = busy
+        self._btn_main.setEnabled(not busy)
+        self._btn_alt.setEnabled(not busy)
+        self._btn_recheck.setEnabled(not busy)
+        if busy and msg:
+            self._btn_main.setText(msg)
+            self._log.setPlainText(msg)
+
+    def _refresh(self, async_=True):
+        if async_:
+            self._set_busy(True, "ĐANG KIỂM TRA…")
+            self._start("check")
         else:
-            self._state, self._account = self.STATE_IN, "(chưa nối OAuth)"
+            self._state = claude_auth.read_state()
+            self._render(); self._render_log()
+
+    def _start(self, action):
+        self._worker = _AuthWorker(action, self)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_main(self):
+        if self._busy or self._state is None:
+            return
+        st = self._state
+        if not st.cli_ok:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(claude_auth.RELEASES_URL))
+            self._log.setPlainText(
+                f"Đã mở {claude_auth.RELEASES_URL}\n\n"
+                "Tải bản dành cho Windows, đặt ant.exe vào một thư mục nằm trong PATH "
+                "(hoặc vào %USERPROFILE%\\bin), rồi bấm «ĐÃ CÀI RỒI — KIỂM TRA LẠI».")
+            return
+        if st.logged_in:
+            self._set_busy(True, "ĐANG ĐĂNG XUẤT…")
+            self._start("logout")
+        else:
+            self._set_busy(True, "ĐANG CHỜ TRÌNH DUYỆT…")
+            self._log.setPlainText(
+                "Trình duyệt sẽ mở ra để bạn xác nhận tài khoản Claude.\n"
+                "Cửa sổ này chờ cho tới khi bạn hoàn tất (tối đa 5 phút).")
+            self._start("login")
+
+    def _on_alt(self):
+        if not self._busy:
+            self._refresh(async_=True)
+
+    def _on_done(self, action, ok, msg, state):
+        self._busy = False
+        self._btn_recheck.setEnabled(True)
+        if state is not None:
+            self._state = state
         self._render()
+        self._render_log()
+        if action in ("login", "logout") and msg:
+            prefix = "Thành công." if ok else "Chưa xong."
+            self._log.setPlainText(f"{prefix}\n\n{msg}\n\n" + self._log.toPlainText())
+
+    def closeEvent(self, event):
+        # Không để luồng nền sống sót sau khi dialog đóng
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.wait(2000)
+        super().closeEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.close()
         else:
             super().keyPressEvent(event)
-
 
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
