@@ -30,6 +30,7 @@ import re
 import claude_auth
 import ai_analysis
 import universe_charts
+import analysis_charts
 
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
@@ -1826,6 +1827,7 @@ class AnalysisPanel(QWidget):
         self._row    = None
         self._worker = None
         self._busy   = False
+        self._dark   = False
 
         self.setStyleSheet(f"background:{BG};")
         v = QVBoxLayout(self)
@@ -1881,14 +1883,33 @@ class AnalysisPanel(QWidget):
         # ── Nội dung ───────────────────────────────────────────────────────
         self._view = QTextBrowser()
         self._view.setOpenExternalLinks(True)
-        v.addWidget(self._view, stretch=1)
+
+        # Đồ thị bằng chứng: trả lời "mã này đứng ở đâu so với phần còn lại",
+        # tức đúng thứ mà phần chữ đang khẳng định.
+        self._eviden = QWebEngineView()
+        self._evi_df = None
+
+        split = QSplitter(Qt.Horizontal)
+        split.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; width:1px; }}")
+        split.addWidget(self._view)
+        split.addWidget(self._eviden)
+        split.setSizes([880, 620])
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        self._split = split
+        v.addWidget(split, stretch=1)
 
         self.apply_theme()
         self._render_empty()
 
     # ── Giao diện ──────────────────────────────────────────────────────────
-    def apply_theme(self):
+    def apply_theme(self, dark=None):
+        if dark is not None:
+            self._dark = dark
         self.setStyleSheet(f"background:{BG};")
+        self._split.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; width:1px; }}")
+        if self._row is not None:
+            self._render_evidence(self._row)
         self._bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
         self._view.setStyleSheet(
             f"QTextBrowser {{ background:{BG}; color:{TEXT1}; border:none;"
@@ -1904,21 +1925,52 @@ class AnalysisPanel(QWidget):
         self._btn_run.setStyleSheet(_b)
         self._btn_again.setStyleSheet(_f)
 
-    def _html(self, body, note=""):
-        """Bọc nội dung trong một cột hẹp — dòng chữ dài hết bề ngang 1500px
-        thì mắt rất khó bắt dòng kế tiếp."""
-        warn = (f'<tr><td style="background:#FFF2CC;color:#7D6608;padding:9px 14px;'
-                f'font-size:11px;font-style:italic;">{note}</td></tr>') if note else ""
+    def _html(self, body, note="", tiles=""):
+        warn = (f'<table width="100%" cellspacing="0" cellpadding="0" '
+                f'style="margin:0 0 12px 0;"><tr>'
+                f'<td style="background:#FFF2CC;color:#7D6608;padding:9px 14px;'
+                f'font-size:11px;font-style:italic;">{note}</td></tr></table>') if note else ""
         return f"""<body style="color:{TEXT1};font-family:'Segoe UI',sans-serif;">
-          <table width="100%" cellspacing="0" cellpadding="0"><tr>
-            <td></td>
-            <td width="880">
-              <table width="100%" cellspacing="0" cellpadding="0">{warn}
-                <tr><td>{body}</td></tr>
-              </table>
-            </td>
-            <td></td>
-          </tr></table></body>"""
+          {warn}{tiles}{body}</body>"""
+
+    def _tiles(self, row) -> str:
+        """Dải số liệu then chốt — những con số mà phần chữ sẽ nhắc tới."""
+        if not row:
+            return ""
+
+        def f(key, suffix="", dec=1, good=None):
+            v = row.get(key)
+            try:
+                v = float(v)
+                if v != v:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return "—", TEXT3
+            col = TEXT1
+            if good is not None:
+                col = GREEN if good(v) else RED
+            return f"{v:,.{dec}f}{suffix}", col
+
+        items = [
+            ("ROIC",        f("ROIC%", "%", 1, lambda v: v > 15)),
+            ("BIÊN GỘP",    f("Gross Margin%", "%", 1, lambda v: v > 40)),
+            ("LỢI NHUẬN ↑", f("NI Growth%", "%", 0, lambda v: v > 20)),
+            ("DOANH THU ↑", f("Rev Growth%", "%", 0, lambda v: v > 15)),
+            ("FCF / LN",    f("FCF/NI", "×", 2, lambda v: v >= 0.8)),
+            ("ROE − ROIC",  f("ROE_ROIC_Gap", "đ", 1, lambda v: v <= 15)),
+            ("NỢ / FCF",    f("Nợ ròng/FCF", " năm", 1, lambda v: v < 3)),
+            ("DỐC BIÊN",    f("Dốc biên", "đ/năm", 1, lambda v: v >= -1)),
+        ]
+        cells = "".join(
+            f'<td width="12%" style="background:{SURFACE};padding:9px 4px;'
+            f'text-align:center;">'
+            f'<div style="color:{col};font-size:15px;font-weight:700;'
+            f'font-family:Consolas,monospace;">{val}</div>'
+            f'<div style="color:{TEXT3};font-size:8px;font-weight:700;'
+            f'letter-spacing:1px;">{lab}</div></td>'
+            for lab, (val, col) in items)
+        return (f'<table width="100%" cellspacing="3" cellpadding="0" '
+                f'style="margin:0 0 14px 0;"><tr>{cells}</tr></table>')
 
     def _render_empty(self):
         rows = "".join(
@@ -2089,6 +2141,7 @@ class AnalysisPanel(QWidget):
         self._lbl_tk.setText(tk)
         self._lbl_co.setText(str(row.get("Tên Công Ty", ""))[:60] if row else "")
         self._fill_context(row)
+        self._render_evidence(row)
         cached = ai_analysis.load_cached(tk) if row else None
         if cached:
             self._show(cached, from_cache=True)
@@ -2097,6 +2150,19 @@ class AnalysisPanel(QWidget):
             self._render_empty()
         self._btn_run.setEnabled(bool(row))
         self._btn_again.setEnabled(bool(cached))
+
+    def set_universe(self, df):
+        """Nhận kết quả quét để xếp hạng mã trong nhóm."""
+        self._evi_df = df
+        if self._row is not None:
+            self._render_evidence(self._row)
+
+    def _render_evidence(self, row):
+        try:
+            self._eviden.setHtml(analysis_charts.build_html(
+                row, self._evi_df, dark=getattr(self, "_dark", False)))
+        except Exception:
+            pass
 
     def _show(self, res: dict, from_cache=False):
         when = (res.get("created", "") or "")[:16].replace("T", " ")
@@ -2110,7 +2176,8 @@ class AnalysisPanel(QWidget):
         self._lbl_meta.setText("  ·  ".join(bits))
         note = ("Kết quả bị cắt vì đạt giới hạn độ dài — bấm LÀM MỚI để chạy lại."
                 if res.get("truncated") else "")
-        self._view.setHtml(self._html(self._md_to_html(res.get("markdown", "")), note))
+        self._view.setHtml(self._html(self._md_to_html(res.get("markdown", "")),
+                                      note, self._tiles(self._row)))
 
     # ── Chạy ───────────────────────────────────────────────────────────────
     def _run(self, force=False):
@@ -3059,7 +3126,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_df") and self._df is not None and len(self._df) > 0:
             self._update_dashboard(self._df)
         if hasattr(self, "_ai_panel"):
-            self._ai_panel.apply_theme()
+            self._ai_panel.apply_theme(dark)
         # ── Status bar ──
         self._status_w.setStyleSheet(f"background:{SURFACE};")
         self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
@@ -3276,6 +3343,7 @@ class MainWindow(QMainWindow):
 
         self._df = df
         self._chart_panel.set_universe(df)
+        self._ai_panel.set_universe(df)
         self._update_dashboard(df)
         self._tabs_w.setCurrentIndex(0)
         _sig = df["Signal"] if "Signal" in df.columns else pd.Series(dtype=str)

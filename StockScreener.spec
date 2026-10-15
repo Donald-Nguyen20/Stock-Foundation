@@ -24,6 +24,7 @@ hiddenimports = [
     'claude_agent_sdk',
     # Biểu đồ so sánh toàn bộ mã
     'universe_charts',
+    'analysis_charts',
 ]
 hiddenimports += collect_submodules('claude_agent_sdk')
 hiddenimports += collect_submodules('tradingview_screener')
