@@ -2379,6 +2379,8 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
         self._dash_browser = QTextBrowser()
         self._dash_browser.setOpenExternalLinks(False)
+        self._dash_browser.setOpenLinks(False)       # tự xử lý thay vì mở trình duyệt
+        self._dash_browser.anchorClicked.connect(self._on_dash_link)
         self._dash_browser.setStyleSheet(f"""
             QTextBrowser {{
                 background:{BG}; color:#DCE4EE;
@@ -3391,7 +3393,11 @@ class MainWindow(QMainWindow):
         def rows_for(sub, extra_cols):
             out = []
             for i, (_, r) in enumerate(sub.iterrows(), 1):
-                base = [cell(str(i), T3), cell(r.get("Ticker", ""), "#00BFFF", True),
+                _tk = str(r.get("Ticker", "") or "")
+                base = [cell(str(i), T3),
+                        cell(f'<a href="tk:{_tk}" style="color:#4A9EFF;'
+                             f'text-decoration:none;font-weight:700;">{_tk}</a>'
+                             if _tk else "", None, True),
                         cell(str(r.get("Tên Công Ty", ""))[:34], T1),
                         cell(str(r.get("Sector", ""))[:20], T2),
                         cell(money(r.get("Price ($)")), T1),
@@ -3477,6 +3483,11 @@ class MainWindow(QMainWindow):
                      "🟡 THEO DÕI": 3, "🔴 CỜ ĐỎ": 4, "⚫ LOẠI": 5, "⚪ THIẾU DỮ LIỆU": 6}
             warn_df["_r"] = warn_df["Signal"].map(lambda x: _rank.get(x, 9))
             warn_df = warn_df.sort_values(["_r", "% từ đỉnh"], ascending=[True, True])
+
+        def tk_link(t):
+            t = str(t or "")
+            return (f'<a href="tk:{t}" style="color:#4A9EFF;text-decoration:none;'
+                    f'font-weight:700;">{t}</a>') if t else ""
 
         def sig_cell(v):
             fg, bg = SIGNAL_COLORS.get(v, (T2, None))
@@ -3719,6 +3730,30 @@ class MainWindow(QMainWindow):
         self._ticker_wkr.done.connect(self._on_ticker_done)
         self._ticker_wkr.failed.connect(lambda m: self._set_status(f"✕  {m}", RED))
         self._ticker_wkr.start()
+
+    def _on_dash_link(self, url):
+        """Bấm một mã trên Dashboard thì nạp biểu đồ và chi tiết cho mã đó.
+
+        Dashboard không có bảng để chọn dòng, nên đây là cách chọn mã khi
+        biểu đồ nằm trong chính tab này.
+        """
+        href = url.toString()
+        if not href.startswith("tk:"):
+            return
+        ticker = href[3:].strip().upper()
+        if not ticker:
+            return
+        self._dash_ticker = ticker
+        self._ticker_inp.setText(ticker)
+        self._chart_panel.load_ticker(ticker)
+        if self._df is not None:
+            m = self._df[self._df["Ticker"] == ticker]
+            if not m.empty:
+                rd = m.iloc[0].to_dict()
+                self._detail.show_row(rd)
+                self._qc_detail.show_row(rd)
+                self._ai_panel.set_row(rd)
+        self._set_status(f"📈  {ticker}  ·  đã nạp biểu đồ", BLUE)
 
     def _dash_find(self, ticker: str):
         """Scroll và highlight tất cả lần xuất hiện của ticker trong Dashboard."""
