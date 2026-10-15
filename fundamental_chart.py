@@ -237,14 +237,12 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
     fig = make_subplots(
         rows=_rows, cols=2,
         subplot_titles=tuple(_titles),
-        vertical_spacing=0.115 if _rows == 3 else 0.16,
+        vertical_spacing=0.085 if _rows == 3 else 0.16,
         horizontal_spacing=0.075,
     )
 
-    # Sáu ô cần nhiều chiều dọc hơn bốn ô; để thấp quá thì cột bẹp hết
-    if _rows == 3:
-        height = max(height, 860)
-    txt_size = 10 if height >= 800 else 9
+    # Sáu ô chia nhau cùng một khung nên chữ phải nhỏ lại mới vừa
+    txt_size = (8 if _rows == 3 else 10) if height >= 800 else (7 if _rows == 3 else 9)
 
     def panel(row, col, vals, bar_cols, texts):
         fig.add_trace(go.Bar(
@@ -336,7 +334,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
             x=0.0, xanchor="left", pad=dict(l=14, t=4),
         ),
         showlegend=False, height=height,
-        margin=dict(l=46, r=18, t=52, b=38),
+        margin=dict(l=46, r=18, t=46, b=30),
         hovermode="x unified",
         hoverlabel=dict(bgcolor=_hover_bg, bordercolor=_hover_border,
                         font=dict(family="Segoe UI", size=12, color=C_TEXT)),
@@ -369,26 +367,19 @@ def _build_chart(ticker, name, labels, eps, gm, roe, rev,
     fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
                         roic=roic, fcfni=fcfni, shares=shares,
                         mode=mode, height=height, dark_mode=dark_mode)
-    _tall = fcfni is not None and len(getattr(fcfni, "dropna", lambda: [])()) > 0
-    if not _tall:
-        fig.update_layout(height=None, autosize=True)
+    fig.update_layout(height=None, autosize=True)
     div = fig.to_html(
         include_plotlyjs="cdn", full_html=False,
         config={"displayModeBar": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["select2d", "lasso2d"]},
     )
     bg = "#06080F" if dark_mode else "#FFFFFF"
-    if _tall:
-        # Sáu ô nén vào một màn hình thì cột bẹp hết — cho cuộn dọc
-        css = (f'html,body{{margin:0;padding:0;width:100%;background:{bg};}}'
-               f'.plotly-graph-div{{width:100%!important;}}')
-    else:
-        css = (f'html,body{{margin:0;padding:0;width:100%;height:100%;'
-               f'overflow:hidden;background:{bg};}}'
-               f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}')
     return (
         f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
-        f'{css}</style></head><body>{div}</body></html>'
+        f'html,body{{margin:0;padding:0;width:100%;height:100%;'
+        f'overflow:hidden;background:{bg};}}'
+        f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}'
+        f'</style></head><body>{div}</body></html>'
     )
 
 

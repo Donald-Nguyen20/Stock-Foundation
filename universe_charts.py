@@ -112,7 +112,7 @@ def build_html(df: pd.DataFrame, dark: bool = False, height: int = 580) -> str:
     fig.update_yaxes(title_text="ROIC (%)", gridcolor=T["grid"], zeroline=False, row=2, col=1)
 
     fig.update_layout(
-        height=max(height, 560), margin=dict(l=48, r=14, t=46, b=42),
+        autosize=True, margin=dict(l=48, r=14, t=46, b=42),
         paper_bgcolor=T["bg"], plot_bgcolor=T["panel"],
         font=dict(family="Segoe UI, sans-serif", size=10, color=T["text"]),
         legend=dict(orientation="h", yanchor="bottom", y=1.055, x=0,
@@ -125,9 +125,13 @@ def build_html(df: pd.DataFrame, dark: bool = False, height: int = 580) -> str:
         a.x = 0
         a.xanchor = "left"
 
-    return fig.to_html(include_plotlyjs="cdn", full_html=True,
-                       config={"displayModeBar": False},
-                       default_height=f"{max(height, 560)}px")
+    div = fig.to_html(include_plotlyjs="cdn", full_html=False,
+                      config={"displayModeBar": False})
+    return (f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+            f'html,body{{margin:0;padding:0;width:100%;height:100%;'
+            f'overflow:hidden;background:{T["bg"]};}}'
+            f'.plotly-graph-div{{height:100vh!important;width:100%!important;}}'
+            f'</style></head><body>{div}</body></html>')
 
 
 def _empty(T, msg) -> str:
