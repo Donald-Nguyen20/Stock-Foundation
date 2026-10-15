@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -50,7 +51,16 @@ def _candidate_paths():
 
 
 def find_ant() -> str | None:
-    """Đường dẫn tới CLI `ant`, hoặc None nếu chưa cài."""
+    """Đường dẫn tới CLI `ant`, hoặc None nếu chưa cài.
+
+    Ưu tiên bản app tự cài để kết quả không đổi khi PATH thay đổi.
+    """
+    own = managed_bin_dir() / ("ant.exe" if sys.platform == "win32" else "ant")
+    try:
+        if own.is_file():
+            return str(own)
+    except OSError:
+        pass
     found = shutil.which("ant")
     if found:
         return found
@@ -202,3 +212,150 @@ def logout(all_profiles: bool = False) -> tuple[bool, str]:
     args = ["auth", "logout"] + (["--all"] if all_profiles else [])
     code, out = _run(args, timeout=60)
     return code == 0, out or ("Đã đăng xuất." if code == 0 else "Đăng xuất thất bại.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tự cài đặt
+# ─────────────────────────────────────────────────────────────────────────────
+GITHUB_API = "https://api.github.com/repos/anthropics/anthropic-cli/releases/latest"
+_DOWNLOAD_PREFIX = "https://github.com/anthropics/anthropic-cli/releases/download/"
+
+
+def managed_bin_dir() -> Path:
+    """Nơi app tự cài CLI, tách khỏi mọi bản cài sẵn của hệ thống."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return base / "StockFoundation" / "bin"
+
+
+def _asset_suffix() -> str:
+    """Hậu tố tên file phát hành khớp với máy đang chạy."""
+    m = platform.machine().lower()
+    arch = ("arm64" if m in ("arm64", "aarch64")
+            else "386" if m in ("i386", "i686", "x86")
+            else "amd64")
+    if sys.platform == "win32":
+        return f"windows_{arch}.zip"
+    if sys.platform == "darwin":
+        return f"macos_{arch}.zip"
+    return f"linux_{arch}.tar.gz"
+
+
+def install_cli(progress=None) -> tuple[bool, str]:
+    """Tải CLI `ant` từ trang phát hành chính thức và cài vào thư mục của app.
+
+    Trả về (thành công, thông điệp). `progress` nhận một chuỗi mô tả bước đang chạy.
+    """
+    import io
+    import json
+    import tarfile
+    import urllib.request
+    import zipfile
+
+    def say(msg):
+        if progress:
+            progress(msg)
+
+    try:
+        say("Đang tìm bản phát hành mới nhất…")
+        req = urllib.request.Request(
+            GITHUB_API, headers={"User-Agent": "stock-foundation",
+                                 "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            rel = json.load(r)
+
+        want = _asset_suffix()
+        asset = next((a for a in rel.get("assets", [])
+                      if a.get("name", "").endswith(want)), None)
+        if asset is None:
+            return False, f"Bản phát hành {rel.get('tag_name','?')} không có gói cho {want}."
+
+        url = asset["browser_download_url"]
+        # Chỉ nhận file từ đúng trang phát hành của Anthropic
+        if not url.startswith(_DOWNLOAD_PREFIX):
+            return False, "Đường dẫn tải về không thuộc kho chính thức — đã dừng."
+
+        size_mb = asset.get("size", 0) / 1e6
+        say(f"Đang tải {rel.get('tag_name','')} ({size_mb:.0f} MB)…")
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-foundation"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            blob = r.read()
+
+        say("Đang giải nén…")
+        exe_name = "ant.exe" if sys.platform == "win32" else "ant"
+        dest_dir = managed_bin_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / exe_name
+
+        data = None
+        if url.endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                name = next((n for n in z.namelist()
+                             if Path(n).name.lower() == exe_name.lower()), None)
+                if name is None:
+                    return False, f"Gói tải về không chứa {exe_name}."
+                data = z.read(name)
+        else:
+            with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as t:
+                member = next((m for m in t.getmembers()
+                               if Path(m.name).name == exe_name), None)
+                if member is None:
+                    return False, f"Gói tải về không chứa {exe_name}."
+                f = t.extractfile(member)
+                data = f.read() if f else None
+        if not data:
+            return False, "Không đọc được tệp thực thi trong gói tải về."
+
+        dest.write_bytes(data)
+        if sys.platform != "win32":
+            dest.chmod(0o755)
+
+        code, out = _run(["--version"], timeout=30)
+        if code != 0:
+            return False, f"Cài xong nhưng chưa chạy được: {out}"
+        say("Đã cài xong.")
+        return True, f"Đã cài {out.strip().splitlines()[0] if out else 'ant'} vào {dest}"
+
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def ensure_sdk(progress=None) -> tuple[bool, str]:
+    """Cài thư viện anthropic nếu thiếu."""
+    ok, ver = _sdk_info()
+    if ok:
+        return True, ver
+    if progress:
+        progress("Đang cài thư viện anthropic…")
+    try:
+        p = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "anthropic"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=600, creationflags=_NO_WINDOW,
+        )
+        if p.returncode != 0:
+            return False, (p.stderr or p.stdout or "").strip()[:300]
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    ok, ver = _sdk_info()
+    return ok, ver if ok else "Cài xong nhưng vẫn chưa import được."
+
+
+def connect(progress=None) -> tuple[bool, str]:
+    """Một bước duy nhất: lo đủ phụ thuộc rồi mở trình duyệt để đăng nhập."""
+    ok, msg = ensure_sdk(progress)
+    if not ok:
+        return False, f"Không cài được thư viện anthropic: {msg}"
+
+    if not find_ant():
+        ok, msg = install_cli(progress)
+        if not ok:
+            return False, msg
+
+    if progress:
+        progress("Đang mở trình duyệt để đăng nhập…")
+    return login()

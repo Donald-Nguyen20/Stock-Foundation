@@ -1545,7 +1545,8 @@ class _AuthWorker(QThread):
     Đăng nhập mở trình duyệt rồi chờ người dùng xác nhận — có thể mất vài phút,
     nên không được gọi trên luồng chính.
     """
-    done = Signal(bool, str, object)        # thành công, thông điệp, trạng thái
+    done     = Signal(bool, str, object)    # thành công, thông điệp, trạng thái
+    progress = Signal(str)                  # mô tả bước đang chạy
 
     def __init__(self, action, parent=None):
         super().__init__(parent)
@@ -1553,8 +1554,9 @@ class _AuthWorker(QThread):
 
     def run(self):
         try:
-            if self._action == "login":
-                ok, msg = claude_auth.login()
+            if self._action == "connect":
+                # Lo đủ phụ thuộc rồi mở trình duyệt, trong một bước
+                ok, msg = claude_auth.connect(progress=self.progress.emit)
             elif self._action == "logout":
                 ok, msg = claude_auth.logout()
             else:
@@ -1659,7 +1661,8 @@ class AISettingsDialog(QDialog):
             self._lbl_state.setText("Chưa liên kết")
             self._btn.setText("ĐĂNG NHẬP CLAUDE")
             self._btn.setStyleSheet(self._style(BLUE, BLUE_HV))
-            note = "Bấm để mở trình duyệt và xác nhận bằng tài khoản Claude."
+            note = ("Bấm một lần: app tự cài công cụ cần thiết rồi mở trình duyệt "
+                    "để bạn xác nhận bằng tài khoản Claude.")
 
         # Biến môi trường này che mọi profile OAuth, kể cả khi là chuỗi rỗng
         if st is not None and st.api_key_shadow:
@@ -1672,24 +1675,14 @@ class AISettingsDialog(QDialog):
         if self._busy or self._state is None:
             return
 
-        if not self._state.cli_ok:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-            QDesktopServices.openUrl(QUrl(claude_auth.RELEASES_URL))
-            self._lbl_note.setText(
-                "Chưa có CLI ant trên máy — đã mở trang tải. Đặt ant.exe vào một thư mục "
-                "trong PATH rồi bấm lại nút này.")
-            self._state = claude_auth.read_state()
-            return
-
-        action = "logout" if self._state.logged_in else "login"
+        action = "logout" if self._state.logged_in else "connect"
         self._busy = True
         self._btn.setEnabled(False)
-        self._btn.setText("ĐANG NGẮT…" if action == "logout" else "ĐANG CHỜ TRÌNH DUYỆT…")
-        self._lbl_note.setText(
-            "Đang ngắt liên kết…" if action == "logout"
-            else "Trình duyệt đã mở. Cửa sổ này chờ cho tới khi bạn xác nhận xong.")
+        self._btn.setText("ĐANG NGẮT…" if action == "logout" else "ĐANG LIÊN KẾT…")
+        self._lbl_note.setText("Đang ngắt liên kết…" if action == "logout"
+                               else "Đang chuẩn bị…")
         self._worker = _AuthWorker(action, self)
+        self._worker.progress.connect(self._lbl_note.setText)
         self._worker.done.connect(self._on_done)
         self._worker.start()
 
