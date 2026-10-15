@@ -1534,6 +1534,160 @@ class HelpDialog(QDialog):
 </body></html>"""
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Settings — khung giao diện.
+# Phần đăng nhập OAuth mới dựng vỏ, chưa nối vào luồng xác thực thật:
+# _on_login() hiện chỉ đổi trạng thái hiển thị để kiểm tra bố cục.
+# ─────────────────────────────────────────────────────────────────────────────
+class AISettingsDialog(QDialog):
+    STATE_OUT = "chua_dang_nhap"
+    STATE_IN  = "da_dang_nhap"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("AI Settings")
+        self.setFixedSize(460, 340)
+        self._state   = self.STATE_OUT
+        self._account = ""
+
+        self.setStyleSheet(f"""
+            QDialog {{ background:{BG}; }}
+            *       {{ background:transparent; color:{TEXT1};
+                       font-family:'Segoe UI',sans-serif; }}
+        """)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Tiêu đề ────────────────────────────────────────────────────────
+        head = QWidget(); head.setFixedHeight(52)
+        head.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
+        hh = QHBoxLayout(head); hh.setContentsMargins(20, 0, 20, 0)
+        t = QLabel("AI  SETTINGS")
+        t.setStyleSheet(f"color:{TEXT1}; font-size:12px; font-weight:700; letter-spacing:3px;")
+        hh.addWidget(t); hh.addStretch()
+        root.addWidget(head)
+
+        # ── Thân ───────────────────────────────────────────────────────────
+        body = QWidget(); body.setStyleSheet(f"background:{BG};")
+        bv = QVBoxLayout(body)
+        bv.setContentsMargins(20, 18, 20, 18)
+        bv.setSpacing(10)
+
+        sec = QLabel("TÀI KHOẢN")
+        sec.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
+        bv.addWidget(sec)
+
+        card = QWidget()
+        self._card = card
+        card.setStyleSheet(f"background:{SURFACE}; border:1px solid {BORDER}; border-radius:5px;")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(16, 14, 16, 14)
+        cv.setSpacing(10)
+
+        row = QHBoxLayout(); row.setSpacing(10)
+        self._dot = QLabel("●")
+        self._dot.setFixedWidth(12)
+        self._lbl_state = QLabel()
+        self._lbl_state.setWordWrap(True)
+        self._lbl_state.setStyleSheet(f"color:{TEXT1}; font-size:12px;")
+        row.addWidget(self._dot)
+        row.addWidget(self._lbl_state, stretch=1)
+        cv.addLayout(row)
+
+        self._btn_login = QPushButton()
+        self._btn_login.setFixedHeight(34)
+        self._btn_login.setCursor(Qt.PointingHandCursor)
+        self._btn_login.clicked.connect(self._on_login)
+        cv.addWidget(self._btn_login)
+
+        bv.addWidget(card)
+
+        note = QLabel(
+            "Đăng nhập bằng OAuth — app mở trình duyệt để bạn xác nhận, "
+            "không bao giờ yêu cầu bạn dán mật khẩu hay API key vào đây.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{TEXT3}; font-size:10px; line-height:150%;")
+        bv.addWidget(note)
+
+        bv.addSpacing(4)
+        sec2 = QLabel("TÍNH NĂNG")
+        sec2.setStyleSheet(f"color:{TEXT3}; font-size:9px; font-weight:700; letter-spacing:2px;")
+        bv.addWidget(sec2)
+
+        soon = QLabel(
+            "Các tính năng AI sẽ được bổ sung sau khi phần đăng nhập hoàn tất.")
+        soon.setWordWrap(True)
+        soon.setStyleSheet(
+            f"color:{TEXT3}; font-size:11px; font-style:italic;"
+            f" background:{PANEL}; border-radius:4px; padding:10px 12px;")
+        bv.addWidget(soon)
+
+        bv.addStretch()
+        root.addWidget(body, stretch=1)
+
+        # ── Chân ───────────────────────────────────────────────────────────
+        foot = QWidget(); foot.setFixedHeight(46)
+        foot.setStyleSheet(f"background:{SURFACE}; border-top:1px solid {BORDER};")
+        fh = QHBoxLayout(foot); fh.setContentsMargins(20, 0, 20, 0)
+        hint = QLabel("Esc  để đóng")
+        hint.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
+        btn_close = QPushButton("ĐÓNG")
+        btn_close.setFixedSize(84, 28)
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setStyleSheet(
+            f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
+            f" border-radius:3px; font-size:10px; font-weight:700; letter-spacing:1.5px; }}"
+            f"QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}")
+        btn_close.clicked.connect(self.close)
+        fh.addWidget(hint); fh.addStretch(); fh.addWidget(btn_close)
+        root.addWidget(foot)
+
+        self._render()
+
+    # ── Trạng thái ─────────────────────────────────────────────────────────
+    def _render(self):
+        if self._state == self.STATE_IN:
+            self._dot.setStyleSheet(f"color:{GREEN}; font-size:13px;")
+            self._lbl_state.setText(
+                f"Đã đăng nhập{('  ·  ' + self._account) if self._account else ''}")
+            self._btn_login.setText("ĐĂNG XUẤT")
+            self._btn_login.setStyleSheet(
+                f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
+                f" border-radius:4px; font-size:11px; font-weight:700; letter-spacing:1px; }}"
+                f"QPushButton:hover {{ background:{RED}; color:#FFFFFF; }}")
+        else:
+            self._dot.setStyleSheet(f"color:{TEXT3}; font-size:13px;")
+            self._lbl_state.setText("Chưa đăng nhập")
+            self._btn_login.setText("ĐĂNG NHẬP CLAUDE  (OAuth)")
+            self._btn_login.setStyleSheet(
+                f"QPushButton {{ background:{BLUE}; color:#FFFFFF; border:none;"
+                f" border-radius:4px; font-size:11px; font-weight:700; letter-spacing:1px; }}"
+                f"QPushButton:hover {{ background:{BLUE_HV}; }}")
+
+    def _on_login(self):
+        """Chưa nối OAuth — mới chỉ đổi trạng thái để xem bố cục.
+
+        Khi làm thật, chỗ này sẽ mở trình duyệt tới trang uỷ quyền, chạy một
+        máy chủ callback cục bộ để nhận authorization code, đổi lấy token và
+        lưu vào kho bảo mật của hệ điều hành. Không lưu token vào mã nguồn
+        hay vào file cấu hình dạng văn bản thuần.
+        """
+        if self._state == self.STATE_IN:
+            self._state, self._account = self.STATE_OUT, ""
+        else:
+            self._state, self._account = self.STATE_IN, "(chưa nối OAuth)"
+        self._render()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
     done     = Signal(str)        # output path
@@ -1655,6 +1809,14 @@ class MainWindow(QMainWindow):
         self._btn_theme.setCursor(Qt.PointingHandCursor)
         self._btn_theme.clicked.connect(self._toggle_theme)
         h.addWidget(self._btn_theme)
+        h.addSpacing(6)
+
+        self._btn_ai = QPushButton("✦")
+        self._btn_ai.setFixedSize(28, 28)
+        self._btn_ai.setToolTip("AI Settings")
+        self._btn_ai.setCursor(Qt.PointingHandCursor)
+        self._btn_ai.clicked.connect(self._show_ai_settings)
+        h.addWidget(self._btn_ai)
         h.addSpacing(6)
 
         self._btn_help = QPushButton("?")
@@ -2250,6 +2412,7 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}
         """
         self._btn_theme.setStyleSheet(_s)
+        self._btn_ai.setStyleSheet(_s)
         self._btn_help.setStyleSheet(_s)
 
     def _color_header_cols(self):
@@ -3271,6 +3434,11 @@ class MainWindow(QMainWindow):
 
     def _show_help(self):
         dlg = HelpDialog(self)
+        dlg.exec()
+
+    def _show_ai_settings(self):
+        # Dựng mới mỗi lần mở để dialog lấy đúng bảng màu của theme hiện tại
+        dlg = AISettingsDialog(self)
         dlg.exec()
 
     # ── Export ────────────────────────────────────────────────────────────────
