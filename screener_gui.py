@@ -25,7 +25,10 @@ _spec = importlib.util.spec_from_file_location(
 _m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_m)
 
+import re
+
 import claude_auth
+import ai_analysis
 
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
@@ -1706,6 +1709,271 @@ class AISettingsDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tab Phân tích — gọi Claude giải thích số liệu và tìm tin tức.
+# Logic nằm trong ai_analysis.py; ở đây là giao diện và luồng nền.
+# ─────────────────────────────────────────────────────────────────────────────
+class _AnalysisWorker(QThread):
+    delta  = Signal(str)        # mẩu chữ hiện dần
+    status = Signal(str)        # bước đang chạy
+    done   = Signal(object)     # dict kết quả
+    failed = Signal(str)
+
+    def __init__(self, context, ticker, company, model, parent=None):
+        super().__init__(parent)
+        self._ctx, self._tk = context, ticker
+        self._co, self._model = company, model
+
+    def run(self):
+        try:
+            res = ai_analysis.analyze(
+                self._ctx, self._tk, self._co, model=self._model,
+                on_delta=self.delta.emit, on_status=self.status.emit)
+            self.done.emit(res)
+        except Exception as e:
+            self.failed.emit(ai_analysis.friendly_error(e))
+
+
+class AnalysisPanel(QWidget):
+    """Hiển thị phân tích định tính cho mã đang chọn."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._row    = None
+        self._worker = None
+        self._busy   = False
+
+        self.setStyleSheet(f"background:{BG};")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        # ── Thanh trên ─────────────────────────────────────────────────────
+        bar = QWidget(); bar.setFixedHeight(52)
+        bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
+        self._bar = bar
+        h = QHBoxLayout(bar); h.setContentsMargins(18, 0, 18, 0); h.setSpacing(10)
+
+        self._lbl_tk = QLabel("—")
+        self._lbl_tk.setStyleSheet(
+            f"color:{TEXT1}; font-size:17px; font-weight:700;"
+            f" font-family:Consolas,monospace; letter-spacing:2px;")
+        self._lbl_co = QLabel("")
+        self._lbl_co.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
+        h.addWidget(self._lbl_tk); h.addWidget(self._lbl_co)
+        h.addStretch()
+
+        self._lbl_meta = QLabel("")
+        self._lbl_meta.setStyleSheet(f"color:{TEXT3}; font-size:10px;")
+        h.addWidget(self._lbl_meta)
+
+        self._btn_run = QPushButton("✦  PHÂN TÍCH")
+        self._btn_run.setFixedSize(132, 30)
+        self._btn_run.setCursor(Qt.PointingHandCursor)
+        self._btn_run.clicked.connect(lambda: self._run(force=False))
+        h.addWidget(self._btn_run)
+
+        self._btn_again = QPushButton("LÀM MỚI")
+        self._btn_again.setFixedSize(88, 30)
+        self._btn_again.setCursor(Qt.PointingHandCursor)
+        self._btn_again.clicked.connect(lambda: self._run(force=True))
+        h.addWidget(self._btn_again)
+        v.addWidget(bar)
+
+        # ── Nội dung ───────────────────────────────────────────────────────
+        self._view = QTextBrowser()
+        self._view.setOpenExternalLinks(True)
+        v.addWidget(self._view, stretch=1)
+
+        self.apply_theme()
+        self._render_empty()
+
+    # ── Giao diện ──────────────────────────────────────────────────────────
+    def apply_theme(self):
+        self.setStyleSheet(f"background:{BG};")
+        self._bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
+        self._view.setStyleSheet(
+            f"QTextBrowser {{ background:{BG}; color:{TEXT1}; border:none;"
+            f" padding:22px 28px; font-family:'Segoe UI',sans-serif; font-size:13px; }}")
+        _b = (f"QPushButton {{ background:{BLUE}; color:#FFFFFF; border:none;"
+              f" border-radius:4px; font-size:10px; font-weight:700; letter-spacing:1px; }}"
+              f"QPushButton:hover {{ background:{BLUE_HV}; }}"
+              f"QPushButton:disabled {{ background:{BORDER2}; color:{TEXT3}; }}")
+        _f = (f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
+              f" border-radius:4px; font-size:10px; font-weight:700; letter-spacing:1px; }}"
+              f"QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}"
+              f"QPushButton:disabled {{ color:{TEXT3}; }}")
+        self._btn_run.setStyleSheet(_b)
+        self._btn_again.setStyleSheet(_f)
+
+    def _html(self, body, note=""):
+        return f"""<body style="color:{TEXT1};font-family:'Segoe UI',sans-serif;">
+          {f'<p style="color:{TEXT3};font-size:11px;font-style:italic;">{note}</p>' if note else ''}
+          {body}</body>"""
+
+    def _render_empty(self):
+        self._view.setHtml(self._html(
+            f'<div style="color:{TEXT3};font-size:12px;line-height:180%;">'
+            f'<p><b style="color:{TEXT2};">Chọn một mã ở tab Tài chính hoặc Kiểm chứng, '
+            f'rồi bấm ✦ PHÂN TÍCH.</b></p>'
+            f'<p>Claude sẽ đọc chính các chỉ số mà bộ lọc đã tính cho mã đó, giải thích vì sao '
+            f'chúng như vậy, và tìm trên web những tin tức gần đây có thể ảnh hưởng.</p>'
+            f'<p>Năm phần: ngành kinh doanh · lợi thế cạnh tranh · tiềm năng phát triển · '
+            f'tin tức quan trọng · đối chiếu với số liệu.</p>'
+            f'<p style="margin-top:18px;">Kết quả lưu theo ngày, mở lại trong cùng ngày '
+            f'không gọi lại API. Mỗi lần chạy hiện chi phí thực tế.</p></div>'))
+
+    def _md_to_html(self, md: str) -> str:
+        """Dựng HTML từ Markdown mà Claude trả về — chỉ các dạng thực sự dùng tới."""
+        colors = {"nganh": BLUE, "loithe": GREEN, "tiemnang": BLUE,
+                  "tintuc": AMBER, "doichieu": RED}
+        parts, cur, buf = [], None, []
+
+        def flush():
+            if cur is None and not buf:
+                return
+            body = ""
+            lst = False
+            for ln in buf:
+                t = ln.strip()
+                if not t:
+                    continue
+                if t.startswith(("- ", "* ", "• ")):
+                    if not lst:
+                        body += "<ul style='margin:6px 0 6px 0;padding-left:20px;'>"; lst = True
+                    body += f"<li style='margin:5px 0;line-height:165%;'>{self._inline(t[2:])}</li>"
+                else:
+                    if lst:
+                        body += "</ul>"; lst = False
+                    body += (f"<p style='margin:7px 0;line-height:172%;'>"
+                             f"{self._inline(t)}</p>")
+            if lst:
+                body += "</ul>"
+            if cur:
+                key, title = cur
+                c = colors.get(key, BLUE)
+                parts.append(
+                    f"<div style='margin:0 0 22px 0;'>"
+                    f"<div style='color:{c};font-size:11px;font-weight:700;letter-spacing:2px;"
+                    f"border-bottom:1px solid {BORDER};padding-bottom:5px;margin-bottom:9px;'>"
+                    f"{title}</div>{body}</div>")
+            else:
+                parts.append(body)
+
+        titles = {t.upper(): (k, t) for k, t in ai_analysis.SECTIONS}
+        for line in (md or "").splitlines():
+            m = re.match(r"^\s*#{1,3}\s*(.+?)\s*$", line)
+            if m and m.group(1).strip().upper() in titles:
+                flush()
+                cur, buf = titles[m.group(1).strip().upper()], []
+            else:
+                buf.append(line)
+        flush()
+        return "".join(parts)
+
+    @staticmethod
+    def _inline(t: str) -> str:
+        t = (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+        t = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", t)
+        t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)",
+                   r"<a href='\2' style='color:#4A9EFF;'>\1</a>", t)
+        return t
+
+    # ── Dữ liệu ────────────────────────────────────────────────────────────
+    def set_row(self, row: dict):
+        """Đổi mã đang xem. Nếu có bản lưu trong ngày thì hiện luôn."""
+        if self._busy:
+            return
+        self._row = row
+        tk = row.get("Ticker", "—") if row else "—"
+        self._lbl_tk.setText(tk)
+        self._lbl_co.setText(str(row.get("Tên Công Ty", ""))[:60] if row else "")
+        cached = ai_analysis.load_cached(tk) if row else None
+        if cached:
+            self._show(cached, from_cache=True)
+        else:
+            self._lbl_meta.setText("")
+            self._render_empty()
+        self._btn_run.setEnabled(bool(row))
+        self._btn_again.setEnabled(bool(cached))
+
+    def _show(self, res: dict, from_cache=False):
+        when = (res.get("created", "") or "")[:16].replace("T", " ")
+        bits = [f"{'bản lưu' if from_cache else 'vừa chạy'} {when}"]
+        if res.get("model"):
+            bits.append(res["model"])
+        if res.get("cost_usd"):
+            bits.append(f"${res['cost_usd']:.3f}")
+        if res.get("searches"):
+            bits.append(f"{res['searches']} lần tìm web")
+        self._lbl_meta.setText("  ·  ".join(bits))
+        note = ("Kết quả bị cắt vì đạt giới hạn độ dài — bấm LÀM MỚI để chạy lại."
+                if res.get("truncated") else "")
+        self._view.setHtml(self._html(self._md_to_html(res.get("markdown", "")), note))
+
+    # ── Chạy ───────────────────────────────────────────────────────────────
+    def _run(self, force=False):
+        if self._busy or not self._row:
+            return
+        tk = self._row.get("Ticker", "")
+        if not force:
+            cached = ai_analysis.load_cached(tk)
+            if cached:
+                self._show(cached, from_cache=True)
+                return
+
+        try:
+            ctx = ai_analysis.build_context(
+                self._row, FIN_CRITERIA, FIN_KEYS, REAL_CRITERIA, REAL_KEYS)
+        except Exception as e:
+            self._fail(f"Không dựng được dữ liệu: {e}")
+            return
+
+        self._busy = True
+        self._btn_run.setEnabled(False)
+        self._btn_again.setEnabled(False)
+        self._buf = []
+        self._lbl_meta.setText("đang chạy…")
+        self._view.setHtml(self._html(
+            f"<p style='color:{TEXT3};font-size:12px;font-style:italic;'>Đang chuẩn bị…</p>"))
+
+        self._worker = _AnalysisWorker(
+            ctx, tk, str(self._row.get("Tên Công Ty", "")),
+            ai_analysis.MODEL_DEFAULT, self)
+        self._worker.status.connect(self._on_status)
+        self._worker.delta.connect(self._on_delta)
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._fail)
+        self._worker.start()
+
+    def _on_status(self, msg):
+        self._lbl_meta.setText(msg)
+
+    def _on_delta(self, piece):
+        self._buf.append(piece)
+        # Dựng lại từ đầu mỗi mẩu thì chậm; chỉ vẽ khi vừa xong một đoạn
+        if piece.endswith("\n") or len(self._buf) % 40 == 0:
+            self._view.setHtml(self._html(self._md_to_html("".join(self._buf))))
+            sb = self._view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+    def _on_done(self, res):
+        self._busy = False
+        self._btn_run.setEnabled(True)
+        self._btn_again.setEnabled(True)
+        ai_analysis.save_cache(res.get("ticker", ""), res)
+        self._show(res)
+
+    def _fail(self, msg):
+        self._busy = False
+        self._btn_run.setEnabled(bool(self._row))
+        self._btn_again.setEnabled(False)
+        self._lbl_meta.setText("")
+        self._view.setHtml(self._html(
+            f"<div style='background:#FFC7CE;color:#9C0006;border-radius:5px;"
+            f"padding:14px 16px;font-size:12px;line-height:170%;'>"
+            f"<b>Không chạy được</b><br>{self._inline(msg)}</div>"))
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
     done     = Signal(str)        # output path
@@ -2048,7 +2316,7 @@ class MainWindow(QMainWindow):
         self._cs_vsplit.addWidget(self._build_detail())
         self._cs_vsplit.setSizes([580, 180])
         cs_v.addWidget(self._cs_vsplit)
-        tabs.addTab(self._cs_w, "  Catalyst  ")
+        tabs.addTab(self._cs_w, "  Tài chính  ")
 
         # Tab 2 — Quality Compounder
         self._qc_w = QWidget(); self._qc_w.setStyleSheet(f"background:{BG};")
@@ -2060,11 +2328,13 @@ class MainWindow(QMainWindow):
         self._qc_vsplit.addWidget(self._build_qc_detail())
         self._qc_vsplit.setSizes([580, 180])
         qc_v.addWidget(self._qc_vsplit)
-        tabs.addTab(self._qc_w, "  Quality Compounder  ")
+        tabs.addTab(self._qc_w, "  Kiểm chứng  ")
 
         # Tab 3 — My Portfolio
         self._portfolio_panel = PortfolioPanel()
         tabs.addTab(self._portfolio_panel, "  💼 Portfolio  ")
+        self._ai_panel = AnalysisPanel()
+        tabs.addTab(self._ai_panel, "  ✦ Phân tích  ")
 
         return tabs
 
@@ -2341,6 +2611,7 @@ class MainWindow(QMainWindow):
             self._qc_detail.show_row(rd)
             self._ticker_inp.setText(ticker)
             self._chart_panel.load_ticker(ticker)
+            self._ai_panel.set_row(rd)
 
     def _on_tab_changed(self, idx: int):
         # Tab 0 = Dashboard → full width, ẩn chart panel
@@ -2568,6 +2839,8 @@ class MainWindow(QMainWindow):
         """)
         if hasattr(self, "_df") and self._df is not None and len(self._df) > 0:
             self._update_dashboard(self._df)
+        if hasattr(self, "_ai_panel"):
+            self._ai_panel.apply_theme()
         # ── Status bar ──
         self._status_w.setStyleSheet(f"background:{SURFACE};")
         self._ver_lbl.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
@@ -3346,9 +3619,11 @@ class MainWindow(QMainWindow):
         ticker = ticker_item.text()
         match = self._df[self._df["Ticker"] == ticker]
         if not match.empty:
-            self._detail.show_row(match.iloc[0].to_dict())
+            _rd = match.iloc[0].to_dict()
+            self._detail.show_row(_rd)
             self._ticker_inp.setText(ticker)
             self._chart_panel.load_ticker(ticker)
+            self._ai_panel.set_row(_rd)
 
     # ── Ticker lookup ─────────────────────────────────────────────────────────
 
