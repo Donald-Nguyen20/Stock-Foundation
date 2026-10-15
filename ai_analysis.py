@@ -9,6 +9,10 @@ Hai nguyên tắc chi phối thiết kế ở đây:
 
 2. Tin tức **bắt buộc đi qua công cụ tìm kiếm**, kèm nguồn và ngày. Không có
    tìm kiếm thì phần tin tức chỉ là hư cấu từ trí nhớ cũ.
+
+Dùng **claude_agent_sdk** chứ không phải thư viện `anthropic`: Agent SDK đóng gói
+sẵn Claude Code nên chạy bằng tài khoản đã đăng nhập và tiêu dung lượng của gói
+thuê bao, thay vì tính vào tín dụng API phải nạp riêng.
 """
 from __future__ import annotations
 
@@ -20,7 +24,8 @@ from pathlib import Path
 
 MODEL_DEFAULT = "claude-opus-5-5"
 
-# Bảng giá mỗi triệu token, để quy ra chi phí thực tế sau mỗi lần chạy
+# Agent SDK tự trả về total_cost_usd nên không cần tự tính; giữ bảng giá để
+# ước lượng khi cần hiển thị trước lúc chạy.
 PRICES = {
     "claude-opus-5-5":  (4.00, 20.00),
     "claude-opus-5":    (5.00, 25.00),
@@ -205,7 +210,16 @@ def cost_of(model: str, usage) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gọi Claude
+# Gọi Claude qua Claude Agent SDK
+#
+# Dùng claude_agent_sdk chứ không phải thư viện anthropic. Khác biệt quan trọng:
+# Agent SDK đóng gói sẵn Claude Code nên xác thực bằng chính tài khoản bạn đã
+# đăng nhập, dùng dung lượng của gói thuê bao. Thư viện anthropic gọi thẳng API
+# và luôn tính vào tín dụng API — thứ phải nạp riêng.
+#
+# Lưu ý về điều khoản: cách này dành cho việc dùng cá nhân với tài khoản của
+# chính mình. Nếu phát hành app cho người khác dùng thì Anthropic yêu cầu
+# chuyển sang xác thực bằng API key.
 # ─────────────────────────────────────────────────────────────────────────────
 BILLING_URL = "https://console.anthropic.com/settings/billing"
 
@@ -214,94 +228,99 @@ def friendly_error(e: Exception) -> str:
     """Đổi lỗi của SDK thành câu người dùng hiểu được."""
     msg = str(e)
     low = msg.lower()
+    if "not logged in" in low or "invalid api key" in low or "authentication" in low:
+        return ("Chưa đăng nhập tài khoản Claude. Mở AI Settings và bấm nút liên kết, "
+                "hoặc chạy `claude` trong terminal rồi đăng nhập.")
     if "credit balance is too low" in low or "purchase credits" in low:
-        return (
-            "Liên kết tài khoản của bạn ĐANG HOẠT ĐỘNG BÌNH THƯỜNG — đây không phải "
-            "lỗi đăng nhập.\n"
-            "Vấn đề là tổ chức của bạn chưa có tín dụng API. Đăng nhập chỉ cấp quyền "
-            "gọi, còn mỗi lần gọi vẫn bị tính tiền vào tín dụng API, và số dư hiện "
-            "đang bằng 0.\n"
-            "Gói thuê bao Claude dùng cho claude.ai và Claude Code, không dùng để trả "
-            "cho lệnh gọi API của ứng dụng bên ngoài — hai thứ tính tiền riêng.\n"
-            "Nạp tín dụng tại console.anthropic.com → Plans & Billing. Khoảng 5 USD đủ "
-            "cho vài chục lần phân tích bằng Opus, hoặc hàng trăm lần nếu đổi sang Haiku.")
-    if "rate_limit" in low or "429" in low:
-        return "Bị giới hạn tần suất. Chờ một lát rồi thử lại."
-    if "could not resolve authentication" in low:
-        return "Chưa liên kết tài khoản. Mở AI Settings và bấm đăng nhập."
+        return ("Đang bị tính vào tín dụng API thay vì gói thuê bao. Kiểm tra xem biến "
+                "môi trường ANTHROPIC_API_KEY có đang được đặt không — nếu có, xoá nó đi "
+                "để quay về dùng tài khoản đã đăng nhập.")
+    if "rate limit" in low or "429" in low or "usage limit" in low:
+        return ("Đã chạm giới hạn dung lượng của gói thuê bao. Chờ cửa sổ giới hạn "
+                "được làm mới rồi thử lại.")
+    if "cli" in low and ("not found" in low or "no such" in low):
+        return ("Không tìm thấy Claude Code đi kèm SDK. Cài lại bằng: "
+                "pip install --force-reinstall claude-agent-sdk")
     if "overloaded" in low or "529" in low:
         return "Máy chủ đang quá tải. Thử lại sau ít phút."
     if "connection" in low or "timeout" in low:
         return "Không kết nối được. Kiểm tra mạng rồi thử lại."
     return f"{type(e).__name__}: {msg[:300]}"
 
+
 def analyze(context: str, ticker: str, company: str = "",
             model: str = MODEL_DEFAULT,
-            on_delta=None, on_status=None,
-            max_continuations: int = 4) -> dict:
+            on_delta=None, on_status=None) -> dict:
     """Sinh phân tích. Trả về dict đã sẵn sàng lưu cache.
 
     `on_delta(text)` nhận từng mẩu chữ để hiện dần; `on_status(text)` nhận mô tả
-    bước đang chạy (ví dụ lúc model đang tìm web).
+    bước đang chạy.
     """
-    import anthropic
+    import asyncio
+
+    from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions,
+                                  ResultMessage, query)
 
     def say(m):
         if on_status:
             on_status(m)
 
-    client = anthropic.Anthropic()
-    user = (f"Phân tích cổ phiếu {ticker}" + (f" ({company})" if company else "") +
-            ".\n\nTìm trên web các tin tức quan trọng gần đây về doanh nghiệp này "
-            "trước khi viết phần TIN TỨC QUAN TRỌNG.\n\n" + context)
+    prompt = (f"Phân tích cổ phiếu {ticker}" + (f" ({company})" if company else "") +
+              ".\n\nDùng WebSearch tìm tin tức quan trọng gần đây về doanh nghiệp này "
+              "trước khi viết phần TIN TỨC QUAN TRỌNG.\n\n" + context)
 
-    messages = [{"role": "user", "content": user}]
-    text_parts: list[str] = []
-    total_cost = 0.0
-    searches = 0
-    stop_reason = None
+    opts = ClaudeAgentOptions(
+        system_prompt=SYSTEM,
+        # Chỉ cho phép tìm web. Agent SDK mang theo cả bộ công cụ đọc ghi tệp
+        # của Claude Code, không giới hạn thì nó có quyền đụng vào máy.
+        allowed_tools=["WebSearch"],
+        disallowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep",
+                          "NotebookEdit", "WebFetch"],
+        permission_mode="bypassPermissions",
+        model=model,
+        effort="high",
+        max_turns=12,
+        # Không nạp CLAUDE.md hay cấu hình của dự án vào ngữ cảnh
+        setting_sources=[],
+    )
 
-    for turn in range(max_continuations + 1):
-        say("Đang tìm tin tức và phân tích…" if turn == 0 else "Đang tiếp tục…")
-        with client.messages.stream(
-            model=model,
-            max_tokens=8000,
-            system=SYSTEM,
-            output_config={"effort": "high"},
-            tools=[{"type": "web_search_20260209", "name": "web_search"}],
-            messages=messages,
-        ) as stream:
-            for event in stream:
-                if event.type == "content_block_delta" and getattr(event.delta, "type", "") == "text_delta":
-                    piece = event.delta.text
-                    text_parts.append(piece)
-                    if on_delta:
-                        on_delta(piece)
-                elif event.type == "content_block_start":
-                    blk = getattr(event, "content_block", None)
-                    if getattr(blk, "type", "") == "server_tool_use":
-                        searches += 1
-                        say(f"Đang tìm web (lần {searches})…")
-            final = stream.get_final_message()
+    state = {"text": [], "cost": 0.0, "searches": 0, "subtype": "", "usage": None}
 
-        total_cost += cost_of(model, final.usage)
-        stop_reason = final.stop_reason
+    async def run():
+        say("Đang tìm tin tức và phân tích…")
+        async for msg in query(prompt=prompt, options=opts):
+            if isinstance(msg, AssistantMessage):
+                for b in msg.content:
+                    if hasattr(b, "text") and b.text:
+                        state["text"].append(b.text)
+                        if on_delta:
+                            on_delta(b.text)
+                    elif getattr(b, "name", "") == "WebSearch":
+                        state["searches"] += 1
+                        say(f"Đang tìm web (lần {state['searches']})…")
+            elif isinstance(msg, ResultMessage):
+                state["subtype"] = msg.subtype or ""
+                state["cost"] = getattr(msg, "total_cost_usd", 0.0) or 0.0
+                state["usage"] = getattr(msg, "usage", None)
 
-        if stop_reason == "refusal":
-            det = getattr(final, "stop_details", None)
-            raise RuntimeError(
-                "Claude từ chối trả lời"
-                + (f" ({getattr(det,'category','')})" if det else "") + ".")
+    # query() là coroutine nên cần vòng lặp riêng — hàm này luôn chạy trong
+    # luồng nền của giao diện, không có sẵn event loop.
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run())
+    finally:
+        try:
+            loop.close()
+        finally:
+            asyncio.set_event_loop(None)
 
-        if stop_reason != "pause_turn":
-            break
+    full = "".join(state["text"]).strip()
+    if state["subtype"] and state["subtype"] != "success":
+        raise RuntimeError(f"Phiên kết thúc với trạng thái: {state['subtype']}")
+    if not full:
+        raise RuntimeError("Không nhận được nội dung nào.")
 
-        # Server tool chạy hết vòng lặp của nó — gửi lại để tiếp tục,
-        # không thêm tin nhắn người dùng nào (API tự nhận biết để nối tiếp).
-        messages = [{"role": "user", "content": user},
-                    {"role": "assistant", "content": final.content}]
-
-    full = "".join(text_parts).strip()
     return {
         "ticker": ticker,
         "company": company,
@@ -309,9 +328,9 @@ def analyze(context: str, ticker: str, company: str = "",
         "created": datetime.now().isoformat(timespec="seconds"),
         "markdown": full,
         "sections": split_sections(full),
-        "cost_usd": round(total_cost, 4),
-        "searches": searches,
-        "truncated": stop_reason == "max_tokens",
+        "cost_usd": round(float(state["cost"]), 4),
+        "searches": state["searches"],
+        "truncated": False,
     }
 
 

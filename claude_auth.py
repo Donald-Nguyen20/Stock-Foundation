@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Đăng nhập Claude bằng OAuth.
+"""Liên kết tài khoản Claude cho các tính năng AI của app.
 
-Anthropic không mở luồng OAuth để ứng dụng bên thứ ba tự đăng ký client_id.
-Cách được hỗ trợ là CLI `ant`: `ant auth login` mở trình duyệt, đổi lấy token
-ngắn hạn và lưu thành một profile dưới thư mục cấu hình của hệ điều hành
-(trên Windows là %APPDATA%\\Anthropic). Sau đó mọi client `Anthropic()` không
-tham số — kể cả trong app này — tự đọc profile đó. Nghĩa là app không bao giờ
-chạm vào token, và cũng không cần bạn dán API key vào đâu cả.
+Phần phân tích chạy qua **claude_agent_sdk**, vốn đóng gói sẵn Claude Code và
+dùng chính tài khoản Claude đã đăng nhập — tiêu dung lượng của gói thuê bao
+chứ không tính vào tín dụng API.
 
-Module này chỉ bọc CLI và kiểm chứng kết quả, không tự lưu bí mật ở đâu.
+Vì vậy việc "liên kết" ở đây thực chất là đảm bảo Claude Code đã đăng nhập.
+Module này kiểm tra bằng cách chạy thử một truy vấn rất nhỏ: đó là cách duy
+nhất biết chắc, thay vì suy đoán từ tệp cấu hình.
+
+Lưu ý điều khoản: cách dùng này dành cho cá nhân với tài khoản của chính mình.
+Nếu phát hành app cho người khác dùng thì Anthropic yêu cầu chuyển sang xác
+thực bằng API key.
 """
 from __future__ import annotations
 
@@ -139,30 +142,53 @@ class AuthState:
 
 def _sdk_info() -> tuple[bool, str]:
     try:
-        import anthropic
-        return True, getattr(anthropic, "__version__", "?")
+        import claude_agent_sdk
+        return True, getattr(claude_agent_sdk, "__version__", "?")
     except Exception:
         return False, ""
 
 
 def verify_credentials() -> tuple[bool, str]:
-    """Chứng thực bằng một lệnh gọi API thật thay vì đoán từ output CLI.
+    """Chạy thử một truy vấn cực nhỏ để biết chắc liên kết dùng được.
 
-    `ant auth status` chỉ báo cáo trạng thái và tài liệu dặn không dùng mã
-    thoát của nó làm kiểm tra sức khoẻ, nên ở đây dùng models.list() — rẻ,
-    không sinh token, và chỉ thành công khi thông tin đăng nhập dùng được thật.
+    Không suy đoán từ tệp cấu hình: chỉ một lần chạy thật mới phân biệt được
+    "đã đăng nhập" với "có tệp nhưng token đã hết hạn".
     """
     try:
-        import anthropic
+        import asyncio
+
+        from claude_agent_sdk import (ClaudeAgentOptions, ResultMessage, query)
     except Exception as e:
-        return False, f"Chưa cài thư viện anthropic: {e}"
+        return False, f"Chưa cài claude-agent-sdk: {e}"
+
+    out = {"ok": False, "detail": ""}
+
+    async def probe():
+        async for m in query(
+            prompt="ok",
+            options=ClaudeAgentOptions(
+                allowed_tools=[], max_turns=1, setting_sources=[],
+                permission_mode="bypassPermissions"),
+        ):
+            if isinstance(m, ResultMessage):
+                out["ok"] = (m.subtype == "success")
+                out["detail"] = m.subtype or ""
+
+    loop = asyncio.new_event_loop()
     try:
-        client = anthropic.Anthropic()          # tự đọc profile OAuth
-        page = client.models.list(limit=1)
-        n = len(getattr(page, "data", []) or [])
-        return True, f"Gọi API thành công (đọc được {n} model)."
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(probe())
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+    finally:
+        try:
+            loop.close()
+        finally:
+            asyncio.set_event_loop(None)
+
+    if out["ok"]:
+        return True, "Chạy thử thành công — dùng dung lượng gói thuê bao."
+    return False, f"Phiên thử kết thúc với trạng thái: {out['detail'] or 'không rõ'}"
 
 
 def read_state(verify: bool = True) -> AuthState:
@@ -330,10 +356,10 @@ def ensure_sdk(progress=None) -> tuple[bool, str]:
     if ok:
         return True, ver
     if progress:
-        progress("Đang cài thư viện anthropic…")
+        progress("Đang cài claude-agent-sdk…")
     try:
         p = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "anthropic"],
+            [sys.executable, "-m", "pip", "install", "--quiet", "claude-agent-sdk"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=600, creationflags=_NO_WINDOW,
         )
@@ -349,7 +375,7 @@ def connect(progress=None) -> tuple[bool, str]:
     """Một bước duy nhất: lo đủ phụ thuộc rồi mở trình duyệt để đăng nhập."""
     ok, msg = ensure_sdk(progress)
     if not ok:
-        return False, f"Không cài được thư viện anthropic: {msg}"
+        return False, f"Không cài được claude-agent-sdk: {msg}"
 
     if not find_ant():
         ok, msg = install_cli(progress)

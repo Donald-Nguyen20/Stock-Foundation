@@ -20,10 +20,10 @@ hiddenimports = [
     # yfinance & screener
     'yfinance',
     'tradingview_screener',
-    # Anthropic SDK — client đọc profile OAuth do CLI `ant` lưu
-    'anthropic',
+    # Claude Agent SDK — chạy bằng tài khoản đã đăng nhập, dùng dung lượng gói thuê bao
+    'claude_agent_sdk',
 ]
-hiddenimports += collect_submodules('anthropic')
+hiddenimports += collect_submodules('claude_agent_sdk')
 hiddenimports += collect_submodules('tradingview_screener')
 hiddenimports += collect_submodules('openpyxl')
 

@@ -1658,14 +1658,16 @@ class AISettingsDialog(QDialog):
             self._lbl_state.setText(f"Đã liên kết{prof}")
             self._btn.setText("NGẮT LIÊN KẾT")
             self._btn.setStyleSheet(self._style(BORDER2, RED, TEXT1))
-            note = "App dùng tài khoản Claude của bạn qua CLI ant. Token do CLI giữ, app không lưu."
+            note = ("App dùng tài khoản Claude đã đăng nhập, tiêu dung lượng gói thuê bao "
+                    "chứ không tính vào tín dụng API.")
         else:
             self._dot.setStyleSheet(f"color:{TEXT3}; font-size:13px;")
             self._lbl_state.setText("Chưa liên kết")
             self._btn.setText("ĐĂNG NHẬP CLAUDE")
             self._btn.setStyleSheet(self._style(BLUE, BLUE_HV))
             note = ("Bấm một lần: app tự cài công cụ cần thiết rồi mở trình duyệt "
-                    "để bạn xác nhận bằng tài khoản Claude.")
+                    "để bạn xác nhận bằng tài khoản Claude. Tính năng AI sẽ tiêu dung "
+                    "lượng gói thuê bao, không cần nạp tín dụng API.")
 
         # Biến môi trường này che mọi profile OAuth, kể cả khi là chuỗi rỗng
         if st is not None and st.api_key_shadow:
