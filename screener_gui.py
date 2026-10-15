@@ -1833,35 +1833,49 @@ class AnalysisPanel(QWidget):
         v.setSpacing(0)
 
         # ── Thanh trên ─────────────────────────────────────────────────────
-        bar = QWidget(); bar.setFixedHeight(52)
+        bar = QWidget(); bar.setFixedHeight(74)
         bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
         self._bar = bar
-        h = QHBoxLayout(bar); h.setContentsMargins(18, 0, 18, 0); h.setSpacing(10)
+        bv = QVBoxLayout(bar)
+        bv.setContentsMargins(22, 9, 20, 9); bv.setSpacing(4)
 
+        # Dòng trên: mã, tên, nút
+        r1 = QHBoxLayout(); r1.setSpacing(10)
         self._lbl_tk = QLabel("—")
         self._lbl_tk.setStyleSheet(
-            f"color:{TEXT1}; font-size:17px; font-weight:700;"
+            f"color:{TEXT1}; font-size:19px; font-weight:700;"
             f" font-family:Consolas,monospace; letter-spacing:2px;")
         self._lbl_co = QLabel("")
         self._lbl_co.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
-        h.addWidget(self._lbl_tk); h.addWidget(self._lbl_co)
-        h.addStretch()
-
-        self._lbl_meta = QLabel("")
-        self._lbl_meta.setStyleSheet(f"color:{TEXT3}; font-size:10px;")
-        h.addWidget(self._lbl_meta)
+        r1.addWidget(self._lbl_tk); r1.addWidget(self._lbl_co); r1.addStretch()
 
         self._btn_run = QPushButton("✦  PHÂN TÍCH")
         self._btn_run.setFixedSize(132, 30)
         self._btn_run.setCursor(Qt.PointingHandCursor)
         self._btn_run.clicked.connect(lambda: self._run(force=False))
-        h.addWidget(self._btn_run)
+        r1.addWidget(self._btn_run)
 
         self._btn_again = QPushButton("LÀM MỚI")
         self._btn_again.setFixedSize(88, 30)
         self._btn_again.setCursor(Qt.PointingHandCursor)
         self._btn_again.clicked.connect(lambda: self._run(force=True))
-        h.addWidget(self._btn_again)
+        r1.addWidget(self._btn_again)
+        bv.addLayout(r1)
+
+        # Dòng dưới: giữ điểm số và tín hiệu trước mắt khi đang đọc phân tích
+        r2 = QHBoxLayout(); r2.setSpacing(8)
+        self._lbl_sig = QLabel("")
+        self._lbl_sig.setStyleSheet(
+            f"font-size:10px; font-weight:700; padding:2px 9px; border-radius:3px;")
+        self._lbl_score = QLabel("")
+        self._lbl_score.setStyleSheet(
+            f"color:{TEXT2}; font-size:11px; font-family:Consolas,monospace;")
+        r2.addWidget(self._lbl_sig); r2.addWidget(self._lbl_score)
+        r2.addStretch()
+        self._lbl_meta = QLabel("")
+        self._lbl_meta.setStyleSheet(f"color:{TEXT3}; font-size:10px;")
+        r2.addWidget(self._lbl_meta)
+        bv.addLayout(r2)
         v.addWidget(bar)
 
         # ── Nội dung ───────────────────────────────────────────────────────
@@ -1891,60 +1905,90 @@ class AnalysisPanel(QWidget):
         self._btn_again.setStyleSheet(_f)
 
     def _html(self, body, note=""):
+        """Bọc nội dung trong một cột hẹp — dòng chữ dài hết bề ngang 1500px
+        thì mắt rất khó bắt dòng kế tiếp."""
+        warn = (f'<tr><td style="background:#FFF2CC;color:#7D6608;padding:9px 14px;'
+                f'font-size:11px;font-style:italic;">{note}</td></tr>') if note else ""
         return f"""<body style="color:{TEXT1};font-family:'Segoe UI',sans-serif;">
-          {f'<p style="color:{TEXT3};font-size:11px;font-style:italic;">{note}</p>' if note else ''}
-          {body}</body>"""
+          <table width="100%" cellspacing="0" cellpadding="0"><tr>
+            <td></td>
+            <td width="880">
+              <table width="100%" cellspacing="0" cellpadding="0">{warn}
+                <tr><td>{body}</td></tr>
+              </table>
+            </td>
+            <td></td>
+          </tr></table></body>"""
 
     def _render_empty(self):
+        rows = "".join(
+            f'<tr>'
+            f'<td width="30" valign="top" style="padding:7px 0;color:{c};font-size:14px;'
+            f'font-weight:700;font-family:Consolas,monospace;">{i}</td>'
+            f'<td style="padding:7px 0;"><span style="color:{TEXT1};font-size:12px;'
+            f'font-weight:700;letter-spacing:1px;">{t}</span><br>'
+            f'<span style="color:{TEXT3};font-size:11px;">{d}</span></td></tr>'
+            for i, t, d, c in [
+                ("01", "NGÀNH KINH DOANH", "Doanh nghiệp kiếm tiền bằng cách nào, đối thủ là ai", BLUE),
+                ("02", "LỢI THẾ CẠNH TRANH", "Hào kinh tế có thật không, có giải thích được ROIC không", GREEN),
+                ("03", "TIỀM NĂNG PHÁT TRIỂN", "Động lực và rủi ro cụ thể trong 2–3 năm tới", BLUE),
+                ("04", "TIN TỨC QUAN TRỌNG", "Tìm trên web, mỗi tin kèm nguồn và ngày", AMBER),
+                ("05", "ĐỐI CHIẾU VỚI SỐ LIỆU", "Chỗ nào khớp và chỗ nào lệch với điểm bộ lọc", RED),
+            ])
         self._view.setHtml(self._html(
-            f'<div style="color:{TEXT3};font-size:12px;line-height:180%;">'
-            f'<p><b style="color:{TEXT2};">Chọn một mã ở tab Tài chính hoặc Kiểm chứng, '
-            f'rồi bấm ✦ PHÂN TÍCH.</b></p>'
-            f'<p>Claude sẽ đọc chính các chỉ số mà bộ lọc đã tính cho mã đó, giải thích vì sao '
-            f'chúng như vậy, và tìm trên web những tin tức gần đây có thể ảnh hưởng.</p>'
-            f'<p>Năm phần: ngành kinh doanh · lợi thế cạnh tranh · tiềm năng phát triển · '
-            f'tin tức quan trọng · đối chiếu với số liệu.</p>'
-            f'<p style="margin-top:18px;">Kết quả lưu theo ngày, mở lại trong cùng ngày '
-            f'không gọi lại API. Mỗi lần chạy hiện chi phí thực tế.</p></div>'))
+            f'<p style="color:{TEXT1};font-size:13px;font-weight:700;margin:4px 0 2px 0;">'
+            f'Chọn một mã rồi bấm ✦ PHÂN TÍCH</p>'
+            f'<p style="color:{TEXT3};font-size:11px;line-height:170%;margin:0 0 16px 0;">'
+            f'Claude đọc chính các chỉ số mà bộ lọc đã tính cho mã đó, giải thích vì sao chúng '
+            f'như vậy, rồi tìm trên web những tin tức gần đây có thể ảnh hưởng.</p>'
+            f'<table width="100%" cellspacing="0" cellpadding="0" '
+            f'style="background:{SURFACE};">'
+            f'<tr><td style="padding:10px 18px;">'
+            f'<table width="100%" cellspacing="0" cellpadding="0">{rows}</table>'
+            f'</td></tr></table>'
+            f'<p style="color:{TEXT3};font-size:10px;margin:14px 0 0 0;line-height:165%;">'
+            f'Kết quả lưu theo ngày — mở lại trong cùng ngày không chạy lại. '
+            f'Mỗi lần chạy hiện chi phí thực tế.</p>'))
 
     def _md_to_html(self, md: str) -> str:
-        """Dựng HTML từ Markdown mà Claude trả về — chỉ các dạng thực sự dùng tới."""
-        colors = {"nganh": BLUE, "loithe": GREEN, "tiemnang": BLUE,
-                  "tintuc": AMBER, "doichieu": RED}
+        """Dựng HTML từ Markdown Claude trả về.
+
+        Mỗi mục thành một thẻ riêng có số thứ tự và vạch màu, thay vì một
+        khối chữ liền — đọc báo cáo dài thì mắt cần chỗ nghỉ giữa các phần.
+        """
+        meta = {
+            "nganh":    (BLUE,  "01", "Doanh nghiệp kiếm tiền bằng cách nào"),
+            "loithe":   (GREEN, "02", "Hào kinh tế có thật không"),
+            "tiemnang": (BLUE,  "03", "Động lực và rủi ro phía trước"),
+            "tintuc":   (AMBER, "04", "Có nguồn và ngày, lấy từ web"),
+            "doichieu": (RED,   "05", "Chỗ khớp và chỗ lệch với điểm bộ lọc"),
+        }
+        titles = {t.upper(): (k, t) for k, t in ai_analysis.SECTIONS}
         parts, cur, buf = [], None, []
 
         def flush():
             if cur is None and not buf:
                 return
-            body = ""
-            lst = False
-            for ln in buf:
-                t = ln.strip()
-                if not t:
-                    continue
-                if t.startswith(("- ", "* ", "• ")):
-                    if not lst:
-                        body += "<ul style='margin:6px 0 6px 0;padding-left:20px;'>"; lst = True
-                    body += f"<li style='margin:5px 0;line-height:165%;'>{self._inline(t[2:])}</li>"
-                else:
-                    if lst:
-                        body += "</ul>"; lst = False
-                    body += (f"<p style='margin:7px 0;line-height:172%;'>"
-                             f"{self._inline(t)}</p>")
-            if lst:
-                body += "</ul>"
-            if cur:
-                key, title = cur
-                c = colors.get(key, BLUE)
-                parts.append(
-                    f"<div style='margin:0 0 22px 0;'>"
-                    f"<div style='color:{c};font-size:11px;font-weight:700;letter-spacing:2px;"
-                    f"border-bottom:1px solid {BORDER};padding-bottom:5px;margin-bottom:9px;'>"
-                    f"{title}</div>{body}</div>")
-            else:
+            key, title = cur if cur else (None, None)
+            body = self._body_html(buf, key)
+            if key is None:
                 parts.append(body)
+                return
+            color, num, hint = meta.get(key, (BLUE, "", ""))
+            parts.append(
+                f'<table width="100%" cellspacing="0" cellpadding="0" '
+                f'style="margin:0 0 16px 0;">'
+                f'<tr><td style="background:{SURFACE};border-left:3px solid {color};'
+                f'padding:14px 20px 4px 18px;">'
+                f'<span style="color:{color};font-size:17px;font-weight:700;'
+                f'font-family:Consolas,monospace;">{num}</span>'
+                f'<span style="color:{TEXT1};font-size:12px;font-weight:700;'
+                f'letter-spacing:2px;">&nbsp;&nbsp;{title}</span><br>'
+                f'<span style="color:{TEXT3};font-size:10px;">{hint}</span>'
+                f'</td></tr>'
+                f'<tr><td style="background:{SURFACE};padding:2px 20px 15px 18px;'
+                f'border-left:3px solid {color};">{body}</td></tr></table>')
 
-        titles = {t.upper(): (k, t) for k, t in ai_analysis.SECTIONS}
         for line in (md or "").splitlines():
             m = re.match(r"^\s*#{1,3}\s*(.+?)\s*$", line)
             if m and m.group(1).strip().upper() in titles:
@@ -1954,6 +1998,57 @@ class AnalysisPanel(QWidget):
                 buf.append(line)
         flush()
         return "".join(parts)
+
+    def _body_html(self, lines, key=None) -> str:
+        """Thân một mục. Tin tức và đối chiếu được tô riêng vì đọc khác nhau."""
+        out, lst = "", False
+
+        def close():
+            nonlocal out, lst
+            if lst:
+                out += "</table>"
+                lst = False
+
+        for ln in lines:
+            t = ln.strip()
+            if not t:
+                continue
+            bullet = t.startswith(("- ", "* ", "• "))
+            txt = t[2:] if bullet else t
+
+            if bullet:
+                if not lst:
+                    out += ('<table width="100%" cellspacing="0" cellpadding="0" '
+                            'style="margin:5px 0;">')
+                    lst = True
+                # Tin tức: tách ngày ra thành nhãn riêng cho dễ quét mắt
+                dot = RED if key == "doichieu" else AMBER if key == "tintuc" else BLUE
+                mark = "▸"
+                if key == "tintuc":
+                    md_ = re.match(r"^\**\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", txt)
+                    if md_:
+                        mark = md_.group(1)
+                out += (f'<tr>'
+                        f'<td width="62" valign="top" style="padding:4px 8px 4px 0;'
+                        f'color:{dot};font-size:9px;font-weight:700;'
+                        f'font-family:Consolas,monospace;">{mark}</td>'
+                        f'<td style="padding:4px 0;color:{TEXT1};font-size:12px;'
+                        f'line-height:168%;">{self._inline(txt)}</td></tr>')
+            else:
+                close()
+                col = TEXT1
+                low = txt.lower()
+                if key == "doichieu":
+                    if low.startswith(("**khớp", "khớp", "**những chỗ khớp",
+                                       "những chỗ câu chuyện khớp")):
+                        col = GREEN
+                    elif low.startswith(("**lệch", "lệch", "**những chỗ lệch",
+                                         "những chỗ lệch")):
+                        col = RED
+                out += (f'<p style="margin:8px 0;color:{col};font-size:12px;'
+                        f'line-height:172%;">{self._inline(txt)}</p>')
+        close()
+        return out
 
     @staticmethod
     def _inline(t: str) -> str:
@@ -1965,6 +2060,26 @@ class AnalysisPanel(QWidget):
         return t
 
     # ── Dữ liệu ────────────────────────────────────────────────────────────
+    def _fill_context(self, row):
+        """Giữ tín hiệu và hai điểm trước mắt trong lúc đọc phân tích."""
+        if not row:
+            self._lbl_sig.setText(""); self._lbl_sig.setStyleSheet("")
+            self._lbl_score.setText("")
+            return
+        sig = row.get("Signal", "") or ""
+        if sig in SIGNAL_COLORS:
+            fg, bg = SIGNAL_COLORS[sig]
+            self._lbl_sig.setText(f"  {sig}  ")
+            self._lbl_sig.setStyleSheet(
+                f"color:{fg}; background:{bg}; font-size:10px; font-weight:700;"
+                f" padding:2px 9px; border-radius:3px;")
+        else:
+            self._lbl_sig.setText(""); self._lbl_sig.setStyleSheet("")
+        self._lbl_score.setText(
+            f"Tài chính {row.get('FIN_Score','?')}/{row.get('FIN_App','?')}"
+            f"   ·   Thực {row.get('REAL_Score','?')}/{row.get('REAL_App','?')}"
+            f"   ·   {row.get('Sector','') or ''}")
+
     def set_row(self, row: dict):
         """Đổi mã đang xem. Nếu có bản lưu trong ngày thì hiện luôn."""
         if self._busy:
@@ -1973,6 +2088,7 @@ class AnalysisPanel(QWidget):
         tk = row.get("Ticker", "—") if row else "—"
         self._lbl_tk.setText(tk)
         self._lbl_co.setText(str(row.get("Tên Công Ty", ""))[:60] if row else "")
+        self._fill_context(row)
         cached = ai_analysis.load_cached(tk) if row else None
         if cached:
             self._show(cached, from_cache=True)
@@ -2020,7 +2136,13 @@ class AnalysisPanel(QWidget):
         self._buf = []
         self._lbl_meta.setText("đang chạy…")
         self._view.setHtml(self._html(
-            f"<p style='color:{TEXT3};font-size:12px;font-style:italic;'>Đang chuẩn bị…</p>"))
+            f'<table width="100%" cellspacing="0" cellpadding="0" '
+            f'style="background:{SURFACE};"><tr>'
+            f'<td style="padding:22px 20px;border-left:3px solid {BLUE};">'
+            f'<span style="color:{BLUE};font-size:12px;font-weight:700;letter-spacing:2px;">'
+            f'ĐANG PHÂN TÍCH</span><br>'
+            f'<span style="color:{TEXT3};font-size:11px;">Claude đang tìm tin tức và đối chiếu '
+            f'số liệu. Thường mất một tới hai phút.</span></td></tr></table>'))
 
         self._worker = _AnalysisWorker(
             ctx, tk, str(self._row.get("Tên Công Ty", "")),
