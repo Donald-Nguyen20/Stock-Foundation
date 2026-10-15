@@ -141,10 +141,40 @@ def _compute(fin, cf, bal, info, ttm=False):
         eq_for_roe = eq
     roe = (net_roe / eq_for_roe * 100).round(1) if not eq.empty else pd.Series(dtype=float)
 
-    return eps, gm, roe, rev
+    # Sinh lời trên TOÀN BỘ vốn (vốn chủ + nợ vay). Khoảng cách giữa đường này
+    # và ROE chính là phần đòn bẩy đóng góp — thứ mà tiêu chí "ROE thật" đo.
+    debt = _col(bal, "Total Debt", "TotalDebt")
+    if debt.empty:
+        ld = _col(bal, "Long Term Debt", "LongTermDebt")
+        sd = _col(bal, "Current Debt", "Short Long Term Debt")
+        debt = ld.add(sd, fill_value=0) if not ld.empty else pd.Series(dtype=float)
+    if not eq.empty and not debt.empty:
+        cap = (eq_for_roe.add(debt, fill_value=0))
+        roic = (net_roe / cap * 100).round(1)
+    else:
+        roic = pd.Series(dtype=float)
+
+    # FCF chia lợi nhuận ròng — tiêu chí quan trọng nhất của bộ lọc, nhưng ở
+    # bảng chỉ là một con số của hôm nay. Chuỗi cho biết khoảng cách đó là
+    # kinh niên hay chỉ là một chu kỳ đầu tư.
+    ocf   = _col(cf, "Operating Cash Flow", "Total Cash From Operating Activities",
+                 "Cash Flow From Continuing Operating Activities")
+    capex = _col(cf, "Capital Expenditure", "CapitalExpenditures")
+    if not ocf.empty:
+        fcf = ocf.add(capex, fill_value=0) if not capex.empty else ocf
+        base = net.rolling(4, min_periods=1).sum() if (ttm and not net.empty) else net
+        fcf_b = fcf.rolling(4, min_periods=1).sum() if ttm else fcf
+        fcfni = (fcf_b / base.where(base > 0)).round(2)
+    else:
+        fcfni = pd.Series(dtype=float)
+
+    shares = (dil_sh / 1e6).round(0) if not dil_sh.empty else pd.Series(dtype=float)
+
+    return eps, gm, roe, rev, roic, fcfni, shares
 
 
 def _build_figure(ticker, name, labels, eps, gm, roe, rev,
+                  roic=None, fcfni=None, shares=None,
                   mode="quarterly", height=860, dark_mode=True):
     """Build and return a go.Figure (2×2 grid). Shared by HTML and PNG paths."""
     if dark_mode:
@@ -189,18 +219,31 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
         if abs(v) >= 1e6:  return f"${v/1e6:.0f}M"
         return f"${v/1e3:.0f}K"
 
+    _has5 = fcfni is not None and len(fcfni.dropna()) > 0
+    _has6 = shares is not None and len(shares.dropna()) > 0
+    _rows = 3 if (_has5 or _has6) else 2
+
+    _titles = [
+        "EPS  ·  Lãi trên mỗi cổ phiếu",
+        "Biên lợi nhuận gộp",
+        ("Sinh lời: ROE (cột) vs trên tổng vốn (đường)" if roic is not None
+         and len(roic.dropna()) else ("ROE TTM" if mode == "quarterly" else "ROE")),
+        "Doanh thu",
+    ]
+    if _rows == 3:
+        _titles += ["FCF / Lợi nhuận ròng  ·  ≥0,8× là lành mạnh",
+                    "Số cổ phiếu lưu hành (triệu)"]
+
     fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=(
-            "EPS  ·  Earnings Per Share",
-            "Gross Margin",
-            "Return on Equity  (ROE TTM)" if mode == "quarterly"
-                else "Return on Equity  (ROE)",
-            "Revenue",
-        ),
-        vertical_spacing=0.16, horizontal_spacing=0.10,
+        rows=_rows, cols=2,
+        subplot_titles=tuple(_titles),
+        vertical_spacing=0.115 if _rows == 3 else 0.16,
+        horizontal_spacing=0.10,
     )
 
+    # Sáu ô cần nhiều chiều dọc hơn bốn ô; để thấp quá thì cột bẹp hết
+    if _rows == 3:
+        height = max(height, 860)
     txt_size = 10 if height >= 800 else 9
 
     def panel(row, col, vals, bar_cols, texts):
@@ -226,6 +269,50 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
     rev_pct = ((rev - rev_shifted) / rev_shifted.abs() * 100).round(1)
     rev_colors = [bar_color(p, 20, 5, C_GREEN, C_BLUE, C_RED) for p in rev_pct.fillna(0)]
     panel(2, 2, rev, rev_colors, with_yoy(rev, fmt_rev))
+
+    # Đường sinh lời trên tổng vốn chồng lên cột ROE — khoảng cách giữa
+    # hai thứ chính là phần do đòn bẩy tạo ra.
+    if roic is not None and len(roic.dropna()):
+        fig.add_trace(go.Scatter(
+            x=labels, y=roic, mode="lines+markers", name="trên tổng vốn",
+            line=dict(color=C_GOLD, width=2),
+            marker=dict(size=5, color=C_GOLD), showlegend=False,
+            hovertemplate="trên tổng vốn: %{y:.1f}%<extra></extra>",
+        ), row=2, col=1)
+
+    if _rows == 3:
+        if _has5:
+            fig.add_trace(go.Bar(
+                x=labels, y=fcfni, marker_opacity=0.88, showlegend=False,
+                marker_color=[C_GREEN if (v or 0) >= 0.8 else
+                              C_ORG if (v or 0) >= 0.4 else C_RED
+                              for v in fcfni.fillna(0)],
+                text=[f"{v:.2f}×" if pd.notna(v) else "" for v in fcfni],
+                textposition="outside",
+                textfont=dict(size=txt_size, color=C_TEXT),
+                hovertemplate="FCF/Lợi nhuận: %{y:.2f}×<extra></extra>",
+            ), row=3, col=1)
+            fig.add_hline(y=0.8, line_dash="dot", line_color=C_GREEN, line_width=1,
+                          row=3, col=1, annotation_text="0,8×",
+                          annotation_font=dict(size=8, color=C_GREEN),
+                          annotation_position="top right")
+        if _has6:
+            # Đi xuống = mua cổ phiếu quỹ, đi lên = pha loãng
+            first = shares.dropna().iloc[0] if len(shares.dropna()) else None
+            cols = []
+            for v in shares:
+                if pd.isna(v) or first is None:
+                    cols.append(C_DIM)
+                else:
+                    cols.append(C_GREEN if v <= first else C_ORG)
+            fig.add_trace(go.Bar(
+                x=labels, y=shares, marker_color=cols, marker_opacity=0.88,
+                showlegend=False,
+                text=[f"{v:,.0f}" if pd.notna(v) else "" for v in shares],
+                textposition="outside",
+                textfont=dict(size=txt_size, color=C_TEXT),
+                hovertemplate="%{y:,.0f} triệu cổ phiếu<extra></extra>",
+            ), row=3, col=2)
 
     fig.add_hline(y=40, line_dash="dot", line_color=C_GREEN, line_width=1,
                   row=1, col=2, secondary_y=False,
@@ -276,6 +363,7 @@ def _build_figure(ticker, name, labels, eps, gm, roe, rev,
 
 
 def _build_chart(ticker, name, labels, eps, gm, roe, rev,
+                 roic=None, fcfni=None, shares=None,
                  mode="quarterly", height=860, dark_mode=True):
     """Return interactive Plotly HTML string — fills 100% of the WebEngineView viewport."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
@@ -296,6 +384,7 @@ def _build_chart(ticker, name, labels, eps, gm, roe, rev,
 
 
 def _build_chart_png(ticker, name, labels, eps, gm, roe, rev,
+                     roic=None, fcfni=None, shares=None,
                      mode="quarterly", height=680, width=920, dark_mode=True):
     """Return PNG bytes (legacy, requires kaleido)."""
     fig = _build_figure(ticker, name, labels, eps, gm, roe, rev,
@@ -340,7 +429,7 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
     q_cf  = tk.quarterly_cashflow.T.sort_index()
     q_bal = tk.quarterly_balance_sheet.T.sort_index()
 
-    q_eps, q_gm, q_roe, q_rev = _compute(q_fin, q_cf, q_bal, info, ttm=True)
+    q_eps, q_gm, q_roe, q_rev, q_roic, q_fcfni, q_sh = _compute(q_fin, q_cf, q_bal, info, ttm=True)
 
     q_dates = []
     for s in (q_eps, q_gm, q_roe, q_rev):
@@ -352,12 +441,15 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
                else pd.Series([None]*len(q_idx), index=q_idx)
     q_eps, q_gm, q_roe, q_rev = (
         q_align(q_eps), q_align(q_gm), q_align(q_roe), q_align(q_rev))
+    q_roic, q_fcfni, q_sh = (
+        q_align(q_roic), q_align(q_fcfni), q_align(q_sh))
     q_labels = [d.strftime("%b %Y") if hasattr(d, "strftime") else str(d)[:7]
                 for d in q_idx]
 
     _msg("Loading annual data…")
     a_labels = []; a_fin = None
     a_eps = a_gm = a_roe = a_rev = pd.Series(dtype=float)
+    a_roic = a_fcfni = a_sh = pd.Series(dtype=float)
     a_idx = pd.DatetimeIndex([])
     try:
         a_fin = tk.income_stmt
@@ -367,7 +459,7 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
             a_fin = a_fin.T.sort_index()
             a_cf  = a_cf.T.sort_index()  if not a_cf.empty  else pd.DataFrame()
             a_bal = a_bal.T.sort_index() if not a_bal.empty else pd.DataFrame()
-            a_eps, a_gm, a_roe, a_rev = _compute(a_fin, a_cf, a_bal, info)
+            a_eps, a_gm, a_roe, a_rev, a_roic, a_fcfni, a_sh = _compute(a_fin, a_cf, a_bal, info)
             a_idx = a_fin.index
 
             def a_align(s):
@@ -375,6 +467,8 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
                        else pd.Series([None]*len(a_idx), index=a_idx)
             a_eps, a_gm, a_roe, a_rev = (
                 a_align(a_eps), a_align(a_gm), a_align(a_roe), a_align(a_rev))
+            a_roic, a_fcfni, a_sh = (
+                a_align(a_roic), a_align(a_fcfni), a_align(a_sh))
             a_labels = [f"FY{d.year}" for d in a_idx]
     except Exception:
         pass
@@ -429,7 +523,9 @@ def _fetch_data_for_chart(ticker, msg_cb=None):
     return dict(
         name=name,
         q_labels=q_labels, q_eps=q_eps, q_gm=q_gm, q_roe=q_roe, q_rev=q_rev,
+        q_roic=q_roic, q_fcfni=q_fcfni, q_sh=q_sh,
         a_labels=a_labels, a_eps=a_eps, a_gm=a_gm, a_roe=a_roe, a_rev=a_rev,
+        a_roic=a_roic, a_fcfni=a_fcfni, a_sh=a_sh,
     )
 
 
@@ -454,10 +550,12 @@ class ChartWorker(QThread):
             self.msg.emit("Rendering chart…")
             html_q = _build_chart(self.ticker, d["name"], d["q_labels"],
                                   d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
+                                  d.get("q_roic"), d.get("q_fcfni"), d.get("q_sh"),
                                   mode="quarterly", height=self._height,
                                   dark_mode=self._dark_mode)
             html_a = (_build_chart(self.ticker, d["name"], d["a_labels"],
                                    d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
+                                   d.get("a_roic"), d.get("a_fcfni"), d.get("a_sh"),
                                    mode="annual", height=self._height,
                                    dark_mode=self._dark_mode)
                       if d["a_labels"] else "")
@@ -490,11 +588,13 @@ class ChartWorkerPng(QThread):
             self.msg.emit("Rendering chart…")
             png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
                                      d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
+                                  d.get("q_roic"), d.get("q_fcfni"), d.get("q_sh"),
                                      mode="quarterly",
                                      height=self._height, width=self._width,
                                      dark_mode=self._dark_mode)
             png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
                                       d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
+                                   d.get("a_roic"), d.get("a_fcfni"), d.get("a_sh"),
                                       mode="annual",
                                       height=self._height, width=self._width,
                                       dark_mode=self._dark_mode)
@@ -527,11 +627,13 @@ class _RenderWorkerPng(QThread):
             self.msg.emit("Rendering chart…")
             png_q = _build_chart_png(self.ticker, d["name"], d["q_labels"],
                                      d["q_eps"], d["q_gm"], d["q_roe"], d["q_rev"],
+                                  d.get("q_roic"), d.get("q_fcfni"), d.get("q_sh"),
                                      mode="quarterly",
                                      height=self._height, width=self._width,
                                      dark_mode=self._dark_mode)
             png_a = (_build_chart_png(self.ticker, d["name"], d["a_labels"],
                                       d["a_eps"], d["a_gm"], d["a_roe"], d["a_rev"],
+                                   d.get("a_roic"), d.get("a_fcfni"), d.get("a_sh"),
                                       mode="annual",
                                       height=self._height, width=self._width,
                                       dark_mode=self._dark_mode)

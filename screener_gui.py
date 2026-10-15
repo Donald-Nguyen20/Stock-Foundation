@@ -29,6 +29,7 @@ import re
 
 import claude_auth
 import ai_analysis
+import universe_charts
 
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
@@ -481,6 +482,8 @@ class ChartPanel(QWidget):
         self._dark     = True
         self._html_q   = ""
         self._html_a   = ""
+        self._html_map = ""
+        self._df       = None
         self._mode     = "quarterly"
         self._worker   = None
         self._ticker   = ""
@@ -523,13 +526,15 @@ class ChartPanel(QWidget):
         self._chart_status = QLabel("Click a row to load chart")
         self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
         h.addWidget(self._chart_status); h.addSpacing(10)
-        self._btn_q = QPushButton("Quarterly")
-        self._btn_a = QPushButton("Annual")
-        for btn in (self._btn_q, self._btn_a):
-            btn.setFixedSize(84, 22); btn.setCursor(Qt.PointingHandCursor)
+        self._btn_q = QPushButton("Theo quý")
+        self._btn_a = QPushButton("Theo năm")
+        self._btn_m = QPushButton("Bản đồ")
+        for btn in (self._btn_q, self._btn_a, self._btn_m):
+            btn.setFixedSize(78, 22); btn.setCursor(Qt.PointingHandCursor)
         self._btn_q.clicked.connect(lambda: self._switch_mode("quarterly"))
         self._btn_a.clicked.connect(lambda: self._switch_mode("annual"))
-        h.addWidget(self._btn_q); h.addWidget(self._btn_a)
+        self._btn_m.clicked.connect(lambda: self._switch_mode("map"))
+        h.addWidget(self._btn_q); h.addWidget(self._btn_a); h.addWidget(self._btn_m)
         self._refresh_btns()
         return w
 
@@ -540,6 +545,8 @@ class ChartPanel(QWidget):
     def load_ticker(self, ticker: str):
         ticker = ticker.upper()
         if ticker == self._ticker and (self._html_q or self._html_a):
+            if self._mode == "map":      # đang xem bản đồ thì quay về mã đã nạp
+                self._switch_mode("quarterly")
             return
         self._ticker = ticker
         self._html_q = ""; self._html_a = ""
@@ -578,11 +585,42 @@ class ChartPanel(QWidget):
         self._set_status(f"✕  {msg}", RED)
 
     def _switch_mode(self, mode):
-        if mode == self._mode: return
+        if mode == self._mode:
+            return
+        if mode == "map":
+            if not self._html_map:
+                return
+            self._mode = "map"
+            self._chart_lbl.setText("TOÀN BỘ MÃ")
+            self._set_status("so sánh giữa các mã", TEXT3)
+            self._web.setHtml(self._html_map)
+            self._refresh_btns()
+            return
         html = self._html_a if mode == "annual" else self._html_q
-        if not html: return
+        if not html:
+            return
         self._mode = mode
+        if self._ticker:
+            self._chart_lbl.setText(self._ticker)
         self._web.setHtml(html)
+        self._refresh_btns()
+
+    def set_universe(self, df):
+        """Nhận kết quả quét để dựng bản đồ so sánh.
+
+        Dùng đúng dữ liệu đã có trong bảng, không gọi mạng thêm.
+        """
+        self._df = df
+        try:
+            self._html_map = universe_charts.build_html(df, dark=self._dark)
+        except Exception:
+            self._html_map = ""
+        # Chưa chọn mã nào thì mở thẳng bản đồ — hữu ích hơn ô trống
+        if self._html_map and not self._ticker:
+            self._mode = "map"
+            self._chart_lbl.setText("TOÀN BỘ MÃ")
+            self._set_status("so sánh giữa các mã", TEXT3)
+            self._web.setHtml(self._html_map)
         self._refresh_btns()
 
     def _set_status(self, text, color=TEXT3):
@@ -606,13 +644,23 @@ class ChartPanel(QWidget):
         dis = (f"QPushButton {{ background:transparent; color:{TEXT3};"
                f" border:1px solid {BORDER}; border-radius:3px; font-size:9px;"
                f" font-family:'Segoe UI',sans-serif; }}")
+        has_m = bool(self._html_map)
         self._btn_q.setEnabled(has_q)
         self._btn_a.setEnabled(has_a)
+        self._btn_m.setEnabled(has_m)
         self._btn_q.setStyleSheet(act if (self._mode == "quarterly" and has_q) else off if has_q else dis)
         self._btn_a.setStyleSheet(act if (self._mode == "annual"    and has_a) else off if has_a else dis)
+        self._btn_m.setStyleSheet(act if (self._mode == "map"       and has_m) else off if has_m else dis)
 
     def set_theme(self, dark: bool):
         self._dark = dark
+        if self._df is not None:
+            try:
+                self._html_map = universe_charts.build_html(self._df, dark=dark)
+                if self._mode == "map":
+                    self._web.setHtml(self._html_map)
+            except Exception:
+                pass
         self.setStyleSheet(f"background:{BG};")
         self._bar_w.setStyleSheet(f"background:{SURFACE};")
         self._sep_line.setStyleSheet(f"background:{BORDER}; border:none;")
@@ -3101,6 +3149,7 @@ class MainWindow(QMainWindow):
         self._populate_qc_table(df)
 
         self._df = df
+        self._chart_panel.set_universe(df)
         self._update_dashboard(df)
         self._tabs_w.setCurrentIndex(0)
         _sig = df["Signal"] if "Signal" in df.columns else pd.Series(dtype=str)
