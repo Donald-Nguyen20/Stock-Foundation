@@ -73,8 +73,9 @@ REAL_CRITERIA = {
                       "so với mức TTM — số liệu tốt vẫn còn đúng ở kỳ mới nhất"),
     "EROD": dict(label="Chưa xói mòn", field="Xói mòn",   thr=None, op="erod",
                  bac_bo="Chỉ số đẹp của kỳ này là đỉnh đang trôi xuống, không phải mặt bằng mới",
-                 desc="Biên gộp không tụt quá 1 điểm % và ROIC không tụt quá 15% so với năm "
-                      "tài chính gần nhất — chất lượng đang giữ hoặc cải thiện, không bào mòn"),
+                 desc="Biên gộp không đi xuống qua các năm (dốc ≥ −1 điểm %/năm và không giảm "
+                      "3 năm liên tiếp). Khi chưa bật yfinance thì lùi về so TTM với năm trước: "
+                      "biên gộp không tụt quá 1 điểm % và ROIC không tụt quá 15%"),
     "SUS":  dict(label="Bền vững 5N", field="Moat Score",   thr=None, op="in",
                  bac_bo="Một kỳ may mắn được trình bày như năng lực dài hạn",
                  desc="ROE và biên gộp trung bình 5 năm ở mức cao — số đẹp lặp lại nhiều năm"),
@@ -226,6 +227,74 @@ def _moat_score_from_metrics(roe_avg, gm_avg, sector=""):
     elif r >= 15 and g >= 35: return "NARROW ★★"
     elif r >= 10:             return "UNCERTAIN ★"
     return "WEAK"
+
+def _margin_trend(tk) -> dict:
+    """Chuỗi biên lợi nhuận nhiều năm từ báo cáo yfinance đã tải sẵn.
+
+    Panel biểu đồ vẫn tải đúng dữ liệu này rồi vẽ xong là bỏ. Ở đây dùng nó để
+    chấm điểm: một chỉ số ở mức 16% đi lên từ 8% khác hẳn cùng mức đó rơi từ
+    40%, mà ảnh chụp một thời điểm thì không phân biệt được.
+
+    Trả về dict rỗng nếu không đủ dữ liệu — mọi thứ phía sau phải chịu được điều đó.
+    """
+    out = {}
+    try:
+        inc = tk.income_stmt
+        if inc is None or inc.empty:
+            return out
+        inc = inc.sort_index(axis=1, ascending=True)      # cũ trước, mới sau
+        rev = _get_row(inc, "Total Revenue", "TotalRevenue")
+        gp  = _get_row(inc, "Gross Profit", "GrossProfit")
+        op  = _get_row(inc, "Operating Income", "OperatingIncome", "EBIT")
+        if rev.empty or len(rev) < 3:
+            return out
+
+        def series(num):
+            vals = []
+            for i in range(len(rev)):
+                try:
+                    r = float(rev.iloc[i]); x = float(num.iloc[i])
+                    vals.append(x / r * 100 if (r and pd.notna(r) and pd.notna(x)) else None)
+                except Exception:
+                    vals.append(None)
+            return [v for v in vals if v is not None]
+
+        gm = series(gp) if not gp.empty else []
+        om = series(op) if not op.empty else []
+
+        def slope(v):
+            """Điểm phần trăm thay đổi mỗi năm, khớp đường thẳng."""
+            if len(v) < 3:
+                return None
+            x = np.arange(len(v), dtype=float)
+            return round(float(np.polyfit(x, np.array(v, dtype=float), 1)[0]), 2)
+
+        def decline_streak(v):
+            """Số năm giảm liên tiếp tính từ gần nhất lùi lại."""
+            k = 0
+            for i in range(len(v) - 1, 0, -1):
+                if v[i] < v[i - 1]:
+                    k += 1
+                else:
+                    break
+            return k
+
+        if len(gm) >= 3:
+            out["gm_years"]   = len(gm)
+            out["gm_slope"]   = slope(gm)
+            out["gm_streak"]  = decline_streak(gm)
+            out["gm_last"]    = round(gm[-1], 1)
+            out["gm_range"]   = (round(min(gm), 1), round(max(gm), 1))
+            # Biên hiện tại nằm ở đâu trong dải lịch sử của chính nó
+            lo, hi = min(gm), max(gm)
+            out["gm_pos"] = round((gm[-1] - lo) / (hi - lo) * 100, 0) if hi > lo else None
+        if len(om) >= 3:
+            out["om_slope"] = slope(om)
+            out["om_streak"] = decline_streak(om)
+    except Exception:
+        return {}
+    return out
+
 
 def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
     """
@@ -389,12 +458,16 @@ def fetch_moat_yfinance(ticker: str, sector: str = "") -> tuple:
         except Exception:
             pass
 
-        return proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash
+        try:
+            trend = _margin_trend(tk)
+        except Exception:
+            trend = {}
+        return proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash, trend
 
     except Exception as e:
         # Fallback: sector hardcode + UNCERTAIN
         proxy = MOAT_PROXY_MAP.get(sector, "Cost Advantage")
-        return proxy, "UNCERTAIN ★", None, None, (0, []), None, None
+        return proxy, "UNCERTAIN ★", None, None, (0, []), None, None, {}
 
 
 def build_moat_cache(tickers: list, sectors: dict) -> dict:
@@ -408,8 +481,8 @@ def build_moat_cache(tickers: list, sectors: dict) -> dict:
     for i, ticker in enumerate(tickers, 1):
         sector = sectors.get(ticker, "")
         print(f"  [{i:>3}/{total}] {ticker:<8}", end="", flush=True)
-        proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = fetch_moat_yfinance(ticker, sector)
-        cache[ticker] = (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)
+        cache[ticker] = fetch_moat_yfinance(ticker, sector)
+        proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = cache[ticker][:7]
         eq_str  = f" [{eq_badge}]" if eq_badge else ""
         acc_str = f" [ACC:{eps_acc[0]}Q]" if eps_acc and eps_acc[0] > 0 else ""
         fcf_str = f" [FCF:{fcf_margin:.0f}%]" if fcf_margin is not None else ""
@@ -621,6 +694,21 @@ def _derive_fields(df, moat_cache=None):
         df["Moat Score"] = None
         df["52W_High%"]  = None
 
+    # ── Xu hướng nhiều năm (yfinance) ──────────────────────────────────
+    # Lấy từ chính báo cáo mà panel biểu đồ vẫn tải: dốc biên gộp qua các năm
+    # và vị trí biên hiện tại trong dải lịch sử của chính doanh nghiệp.
+    def _tr(ticker, key):
+        if not moat_cache:
+            return None
+        t = moat_cache.get(ticker)
+        if not t or len(t) < 8 or not isinstance(t[7], dict):
+            return None
+        return t[7].get(key)
+
+    for key, col in (("gm_slope", "Dốc biên"), ("gm_streak", "Năm giảm"),
+                     ("gm_pos", "Vị trí biên"), ("gm_years", "Số năm")):
+        df[col] = df["Ticker"].apply(lambda t, k=key: _tr(t, k))
+
     # ── Xu hướng một năm: TTM so với năm tài chính gần nhất ────────────
     # Mọi chỉ số chất lượng còn lại đều là ảnh chụp một thời điểm. Hai doanh
     # nghiệp cùng ROIC 16% nhưng một bên đi lên từ 8%, một bên rơi từ 40% —
@@ -647,6 +735,14 @@ def _derive_fields(df, moat_cache=None):
 
     def _erod(r):
         """Tóm tắt xói mòn để hiển thị."""
+        sl = _num(r.get("Dốc biên")); st = _num(r.get("Năm giảm"))
+        if sl is not None:
+            bad = []
+            if sl < -1.0:
+                bad.append(f"biên gộp {sl:+.1f}đ/năm")
+            if st is not None and st >= 3:
+                bad.append(f"giảm {int(st)} năm liền")
+            return "; ".join(bad) if bad else f"giữ vững ({sl:+.1f}đ/năm)"
         g = _num(r.get("ΔBiên gộp")); rc = _num(r.get("ΔROIC%"))
         if g is None and rc is None:
             return None
@@ -794,6 +890,17 @@ def _chk_real(row, key):
         return None if gap is None else gap >= -15
 
     if key == "EROD":                     # chất lượng đang giữ hay đang bào mòn
+        # Ưu tiên chuỗi nhiều năm: một đường dốc xuống suốt 4 năm nói được
+        # nhiều hơn hẳn phép so hai điểm TTM với năm trước.
+        slope  = _num(row.get("Dốc biên"))
+        streak = _num(row.get("Năm giảm"))
+        if slope is not None:
+            if slope < -1.0:
+                return False
+            if streak is not None and streak >= 3:
+                return False
+            return True
+
         g  = _num(row.get("ΔBiên gộp"))
         rc = _num(row.get("ΔROIC%"))
         if g is None and rc is None:

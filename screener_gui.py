@@ -152,6 +152,8 @@ REAL_COLS = [
     ("Đà LN",      "NI_Trend_Gap",  64,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ΔBiên gộp",  "ΔBiên gộp",     70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ΔROIC",      "ΔROIC%",        62,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Dốc biên",   "Dốc biên",      64,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Vị trí biên","Vị trí biên",   70,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Bền vững",   "Moat Score",   110,  Qt.AlignCenter | Qt.AlignVCenter),
     # 6 tiêu chí nhóm B
     ("Tiền",       "REAL_CASH",     42,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -319,6 +321,18 @@ COL_TIPS = {
         "−20% nghĩa là ROIC còn 80% mức năm ngoái.<br>"
         "<i>Hai doanh nghiệp cùng ROIC 16% nhưng một bên đi lên từ 8%, một bên rơi từ 40% — "
         "nếu không nhìn cột này thì chúng được chấm giống hệt nhau. Ngưỡng trượt: dưới −15%.</i>",
+    "Dốc biên":
+        "<b>Dốc biên lợi nhuận gộp qua các năm</b>, tính bằng điểm phần trăm mỗi năm.<br>"
+        "Khớp một đường thẳng qua chuỗi biên gộp 4–5 năm lấy từ báo cáo thường niên. "
+        "−3,1 nghĩa là mỗi năm mất khoảng 3 điểm biên.<br>"
+        "<i>Mạnh hơn hẳn phép so hai điểm: một đường đi xuống suốt bốn năm nói được nhiều hơn "
+        "«năm nay thấp hơn năm ngoái». Ngưỡng trượt: dốc dưới −1 điểm/năm, hoặc giảm 3 năm liên "
+        "tiếp. Cần bật yfinance; không có thì tiêu chí lùi về so TTM với năm trước.</i>",
+    "Vị trí biên":
+        "<b>Vị trí biên gộp hiện tại trong dải lịch sử của chính doanh nghiệp</b>, từ 0 đến 100.<br>"
+        "0 nghĩa là đang ở mức thấp nhất trong 4–5 năm qua; 100 là cao nhất.<br>"
+        "<i>Chỉ hiển thị, không chấm điểm. Một mã biên 35% có thể là đỉnh lịch sử của nó, "
+        "hoặc là đáy — con số tuyệt đối không phân biệt được.</i>",
     "Moat Score":
         "<b>Độ bền vững qua 5 năm</b> — xếp hạng từ ROE và biên lợi nhuận gộp trung bình 5 năm.<br>"
         "WIDE ★★★ khi ROE ≥ 20% và biên gộp ≥ 50%; NARROW ★★ khi ROE ≥ 15% và biên gộp ≥ 35%.<br>"
@@ -710,9 +724,8 @@ class ScanWorker(QThread):
                         self.failed.emit("Cancelled.")
                         return
                     sector = sectors.get(ticker, "")
-                    proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash = fetch_moat_yfinance(ticker, sector)
-                    moat_cache[ticker] = (proxy, score, w52_pct, eq_badge, eps_acc, fcf_margin, net_cash)
-                    self.ticker_update.emit(i, total, ticker, score)
+                    moat_cache[ticker] = fetch_moat_yfinance(ticker, sector)
+                    self.ticker_update.emit(i, total, ticker, moat_cache[ticker][1])
                     time.sleep(0.3)
 
             # Hướng thị trường chỉ dùng để hiển thị bối cảnh trên Dashboard —
@@ -2070,22 +2083,21 @@ class MainWindow(QMainWindow):
         vbox.addWidget(self._build_controls())
         vbox.addWidget(self._sep())
 
-        # Right: chart panel (always visible)
-        self._chart_panel = ChartPanel()
+        # Biểu đồ: dựng trước vì tab Dashboard sẽ gắn nó vào
+        self._chart_panel = ChartPanel()   # được gắn vào trong tab Dashboard
 
-        # Left: tab widget (CAN SLIM | Quality Compounder)
+        # Các tab
         self._tabs_w = self._build_tabs()
         self._tabs_w.currentChanged.connect(self._on_tab_changed)
 
-        # Horizontal splitter: tabs | chart
+
+        # Biểu đồ nay nằm trong tab Dashboard, không còn chiếm chỗ cố định
+        # bên phải nữa — các tab bảng vì thế có trọn chiều ngang.
         h_split = QSplitter(Qt.Horizontal)
         h_split.setStyleSheet(
             f"QSplitter::handle {{ background:{BORDER}; width:2px; }}")
         h_split.addWidget(self._tabs_w)
-        h_split.addWidget(self._chart_panel)
-        h_split.setSizes([920, 580])
-        # Dashboard là tab mặc định (index 0) → ẩn chart panel ngay từ đầu
-        self._chart_panel.setVisible(False)
+        h_split.setSizes([1500])
         vbox.addWidget(h_split, stretch=1)
 
         vbox.addWidget(self._sep())
@@ -2375,7 +2387,15 @@ class MainWindow(QMainWindow):
             }}
         """)
         self._dash_browser.setHtml(self._dash_placeholder())
-        lay.addWidget(self._dash_browser)
+
+        split = QSplitter(Qt.Horizontal)
+        split.setStyleSheet(f"QSplitter::handle {{ background:{BORDER}; width:1px; }}")
+        split.addWidget(self._dash_browser)
+        split.addWidget(self._chart_panel)
+        split.setSizes([980, 520])
+        split.setStretchFactor(0, 1)
+        self._dash_split = split
+        lay.addWidget(split)
         return w
 
     def _dash_placeholder(self):
@@ -2472,7 +2492,7 @@ class MainWindow(QMainWindow):
             elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "D/E",
                          "Net Cash ($B)", "Current Ratio", "FCF/NI", "EPS_NI_Gap", "ROE_ROIC_Gap",
                          "NI_Trend_Gap", "LN quý ($B)", "Nợ ròng/FCF",
-                         "ΔBiên gộp", "ΔROIC%"):
+                         "ΔBiên gộp", "ΔROIC%", "Dốc biên", "Vị trí biên"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._qc_table.horizontalHeader().update()
 
@@ -2485,7 +2505,7 @@ class MainWindow(QMainWindow):
         # Columns that are %-type and get green/red coloring
         PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
                          "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap",
-                         "ΔBiên gộp", "ΔROIC%"}
+                         "ΔBiên gộp", "ΔROIC%", "Dốc biên"}
         is_vn = self._market.currentText().lower() == "vietnam"
 
         for ri, (_, row) in enumerate(df.iterrows()):
@@ -2609,7 +2629,7 @@ class MainWindow(QMainWindow):
     def _recolor_qc_table(self):
         PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
                          "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap",
-                         "ΔBiên gộp", "ΔROIC%"}
+                         "ΔBiên gộp", "ΔROIC%", "Dốc biên"}
         for ri in range(self._qc_table.rowCount()):
             for ci, (_, key, _, _) in enumerate(REAL_COLS):
                 item = self._qc_table.item(ri, ci)
@@ -2641,10 +2661,6 @@ class MainWindow(QMainWindow):
             self._ai_panel.set_row(rd)
 
     def _on_tab_changed(self, idx: int):
-        # Tab 0 = Dashboard → full width, ẩn chart panel
-        is_dash = (idx == 0)
-        if hasattr(self, "_chart_panel"):
-            self._chart_panel.setVisible(not is_dash)
         self._apply_filter()
 
     def _apply_qc_filter(self):
