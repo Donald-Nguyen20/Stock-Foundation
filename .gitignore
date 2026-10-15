@@ -66,3 +66,4 @@ $RECYCLE.BIN/
 *.lnk
 ai_cache/
 snapshots/
+scan_cache.pkl
