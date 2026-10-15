@@ -33,6 +33,7 @@ import ai_analysis
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
 score_stocks           = _m.score_stocks
+save_snapshot          = _m.save_snapshot
 fetch_moat_yfinance    = _m.fetch_moat_yfinance
 fetch_market_direction = _m.fetch_market_direction
 _MKT_INDEX          = _m._MKT_INDEX
@@ -149,6 +150,8 @@ REAL_COLS = [
     ("Curr.R",     "Current Ratio", 60,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Nợ/FCF",     "Nợ ròng/FCF",   62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Đà LN",      "NI_Trend_Gap",  64,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("ΔBiên gộp",  "ΔBiên gộp",     70,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("ΔROIC",      "ΔROIC%",        62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Bền vững",   "Moat Score",   110,  Qt.AlignCenter | Qt.AlignVCenter),
     # 6 tiêu chí nhóm B
     ("Tiền",       "REAL_CASH",     42,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -157,6 +160,7 @@ REAL_COLS = [
     ("ROE thật",   "REAL_LEV",      56,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Cân đối",    "REAL_BAL",      52,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Còn đúng",   "REAL_TREND",    58,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Chưa mòn",   "REAL_EROD",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("5 năm",      "REAL_SUS",      46,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -226,12 +230,15 @@ COL_TIPS = {
         "<b>Biên lợi nhuận hoạt động</b> = lợi nhuận từ hoạt động kinh doanh / doanh thu.<br>"
         "Đo hiệu quả vận hành sau khi trừ giá vốn và chi phí bán hàng, quản lý — nhưng trước lãi vay "
         "và thuế, nên ít bị méo bởi cấu trúc vốn.<br>"
-        "<i>Ngưỡng đạt: trên 15%.</i>",
+        "<i>Ngưỡng đạt: trên 15%, hoặc nằm trong nhóm 30% dẫn đầu ngành của chính nó — "
+        "cửa thứ hai này để một doanh nghiệp giỏi trong ngành biên mỏng không bị loại oan.</i>",
     "Gross Margin%":
         "<b>Biên lợi nhuận gộp</b> = (doanh thu − giá vốn hàng bán) / doanh thu.<br>"
         "Phản ánh khả năng bán cao hơn chi phí sản xuất — tức sức mạnh định giá.<br>"
-        "<i>Ngưỡng đạt: trên 40%. Lưu ý biên gộp lệch rất mạnh theo ngành: phần mềm thường 60–80%, "
-        "bán lẻ hiếm khi vượt 30%.</i>",
+        "<i>Ngưỡng đạt: trên 40%, <b>hoặc</b> nằm trong nhóm 30% dẫn đầu ngành của chính nó. "
+        "Biên gộp lệch rất mạnh theo ngành — phần mềm thường 60–80%, bán lẻ hiếm khi vượt 30% — "
+        "nên cửa thứ hai cho phép một mã bán lẻ mạnh vẫn qua được. Chỉ áp dụng khi ngành có ít "
+        "nhất 8 mã trong lần quét.</i>",
     "NI Growth%":
         "<b>Tăng trưởng lợi nhuận ròng</b> — bốn quý gần nhất so với bốn quý cùng kỳ năm trước.<br>"
         "Dùng số TTM thay vì số một quý để giảm nhiễu theo mùa vụ.<br>"
@@ -300,6 +307,18 @@ COL_TIPS = {
         "Ví dụ nợ ròng 52 tỷ với FCF 67 tỷ mỗi năm thì chỉ số là 0,8 — trả hết trong chưa tới một năm.<br>"
         "<i>Để trống khi doanh nghiệp đã có tiền ròng dương (không còn nợ để trả), hoặc khi FCF âm "
         "(không trả được bằng dòng tiền). Là vế thứ ba của tiêu chí Bảng cân đối: dưới 3 năm là đạt.</i>",
+    "ΔBiên gộp":
+        "<b>Thay đổi biên lợi nhuận gộp</b> = biên gộp TTM − biên gộp năm tài chính gần nhất, "
+        "tính bằng điểm phần trăm.<br>"
+        "Mọi chỉ số chất lượng khác đều là ảnh chụp một thời điểm. Cột này cho biết mức biên "
+        "đó đang giữ, đang cải thiện hay đang bào mòn.<br>"
+        "<i>Biên gộp rất ổn định theo năm — trung vị gần như bằng 0 — nên tụt quá 1 điểm đã là "
+        "tín hiệu đáng chú ý. Là dữ liệu cho tiêu chí «Chưa xói mòn».</i>",
+    "ΔROIC%":
+        "<b>Thay đổi ROIC</b> so với năm tài chính gần nhất, tính bằng phần trăm tương đối.<br>"
+        "−20% nghĩa là ROIC còn 80% mức năm ngoái.<br>"
+        "<i>Hai doanh nghiệp cùng ROIC 16% nhưng một bên đi lên từ 8%, một bên rơi từ 40% — "
+        "nếu không nhìn cột này thì chúng được chấm giống hệt nhau. Ngưỡng trượt: dưới −15%.</i>",
     "Moat Score":
         "<b>Độ bền vững qua 5 năm</b> — xếp hạng từ ROE và biên lợi nhuận gộp trung bình 5 năm.<br>"
         "WIDE ★★★ khi ROE ≥ 20% và biên gộp ≥ 50%; NARROW ★★ khi ROE ≥ 15% và biên gộp ≥ 35%.<br>"
@@ -2452,7 +2471,8 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
             elif key in ("Gross Margin%", "Op Margin%", "ROIC%", "FCF_Margin%", "D/E",
                          "Net Cash ($B)", "Current Ratio", "FCF/NI", "EPS_NI_Gap", "ROE_ROIC_Gap",
-                         "NI_Trend_Gap", "LN quý ($B)", "Nợ ròng/FCF"):
+                         "NI_Trend_Gap", "LN quý ($B)", "Nợ ròng/FCF",
+                         "ΔBiên gộp", "ΔROIC%"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._qc_table.horizontalHeader().update()
 
@@ -2464,7 +2484,8 @@ class MainWindow(QMainWindow):
 
         # Columns that are %-type and get green/red coloring
         PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
-                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
+                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap",
+                         "ΔBiên gộp", "ΔROIC%"}
         is_vn = self._market.currentText().lower() == "vietnam"
 
         for ri, (_, row) in enumerate(df.iterrows()):
@@ -2587,7 +2608,8 @@ class MainWindow(QMainWindow):
 
     def _recolor_qc_table(self):
         PCT_GREEN_RED = {"Gross Margin%", "Op Margin%", "ROIC%", "1Y%", "FCF_Margin%",
-                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap"}
+                         "NI Qtr%", "Rev Qtr%", "NI_Trend_Gap",
+                         "ΔBiên gộp", "ΔROIC%"}
         for ri in range(self._qc_table.rowCount()):
             for ci, (_, key, _, _) in enumerate(REAL_COLS):
                 item = self._qc_table.item(ri, ci)
@@ -3072,6 +3094,8 @@ class MainWindow(QMainWindow):
             f"THEO DÕI: {(_sig=='🟡 THEO DÕI').sum()}",
             GREEN
         )
+        # Ảnh chụp theo ngày — tích luỹ dữ liệu để sau này kiểm chứng ngưỡng
+        save_snapshot(df, self._market.currentText(), self._top_spin.value())
         # Lưu cache để lần sau không cần scan lại
         self._save_cache(df, self._market.currentText(), self._top_spin.value())
         # Cập nhật Portfolio với giá/điểm mới nhất
@@ -3409,6 +3433,10 @@ class MainWindow(QMainWindow):
                 bad.append(f"nợ ròng cần {v:.1f} năm dòng tiền mới trả hết"
                            if isinstance(v, (int, float)) and v == v
                            else "nợ ròng lớn mà dòng tiền không đủ trả")
+            if r.get("REAL_EROD") is False:
+                v = r.get("Xói mòn")
+                bad.append(f"chất lượng đang bào mòn ({v})" if v and v != "giữ vững"
+                           else "chất lượng đang bào mòn")
             if r.get("REAL_TREND") is False:
                 v = r.get("NI Qtr%")
                 bad.append(f"quý gần nhất lợi nhuận {v:+.0f}% — đã xấu đi"

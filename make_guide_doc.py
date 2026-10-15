@@ -705,15 +705,15 @@ callout(doc, "Vì sao định giá không được chấm điểm",
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════════════════
-h1(doc, "4.  MƯỜI BA TIÊU CHÍ CHẤM ĐIỂM")
+h1(doc, "4.  MƯỜI BỐN TIÊU CHÍ CHẤM ĐIỂM")
 
 h2(doc, "4.1  Nhóm A — Tài chính tốt")
 add_table(doc,
           ["Tiêu chí", "Ngưỡng đạt", "Hỏi điều gì"],
           [
               ["ROIC", "> 15%", "Đồng vốn bỏ ra có sinh lời cao hơn chi phí huy động không?"],
-              ["Op Margin", "> 15%", "Vận hành có hiệu quả, chi phí có được kiểm soát không?"],
-              ["Gross Mgn", "> 40%", "Có bán được cao hơn hẳn chi phí sản xuất không?"],
+              ["Op Margin", "> 15% hoặc\ntop 30% ngành", "Vận hành có hiệu quả, chi phí có được kiểm soát không?"],
+              ["Gross Mgn", "> 40% hoặc\ntop 30% ngành", "Có bán được cao hơn hẳn chi phí sản xuất không?"],
               ["NI Growth", "> 20%", "Lợi nhuận có đang tăng không?"],
               ["Rev Growth", "> 15%", "Doanh thu có đang tăng không?"],
               ["D/E", "< 1,0", "Có phụ thuộc quá nhiều vào vay nợ không?"],
@@ -728,11 +728,13 @@ add_table(doc,
           [
               ["FCF/NI", "≥ 0,80×", "Lợi nhuận ghi sổ nhưng chưa thu được tiền"],
               ["FCF Mgn", "> 8%", "Biên đẹp nhờ hoãn đầu tư hoặc vốn hóa chi phí"],
-              ["Không buyback", "EPS−NI ≤ 10 điểm %", "EPS tăng nhờ mua cổ phiếu quỹ, không phải kinh doanh"],
+              ["Không buyback", "EPS−NI ≤ 5 điểm %", "EPS tăng nhờ mua cổ phiếu quỹ, không phải kinh doanh"],
               ["ROE thật", "ROE−ROIC ≤ 15 điểm %", "ROE cao nhờ đòn bẩy hoặc vốn chủ teo lại"],
               ["Bảng cân đối", "Tiền ròng > 0, hoặc Curr.R > 1,5,\nhoặc Nợ/FCF < 3 năm",
                "Bảng cân đối trông sạch nhưng thực tế không gánh nổi nợ"],
               ["Còn đúng", "Quý > 10% hoặc ≥ TTM − 15 điểm %", "Số TTM đẹp chỉ vì các quý cũ còn đè lên"],
+              ["Chưa xói mòn", "ΔBiên gộp ≥ −1 điểm %\nvà ΔROIC ≥ −15%",
+               "Chỉ số đẹp kỳ này là đỉnh đang trôi xuống, không phải mặt bằng mới"],
               ["Bền vững 5N", "WIDE hoặc NARROW", "Một kỳ may mắn được trình bày như năng lực dài hạn"],
           ],
           widths=[3.0, 4.4, 9.2], size=9.5)
@@ -812,7 +814,7 @@ add_table(doc,
               ["🔵 KHÁ", "A ≥ 60%\nB ≥ 60%",
                "Cả hai mặt đều khá, còn vài điểm chưa đạt",
                "Mở breakdown xem tiêu chí nào trượt và trượt vì sao."],
-              ["🔴 CỜ ĐỎ", "A ≥ 80%\nB < 60%",
+              ["🔴 CỜ ĐỎ", "A ≥ 80%\ntrượt ≥ 3 tiêu chí B",
                "Số liệu rất đẹp nhưng không chứng minh được",
                "Đọc cột «Vì sao chưa chứng minh được». Không loại ngay — "
                "có thể có lý do chính đáng như đang đầu tư lớn — nhưng phải hiểu lý do đó."],
@@ -930,6 +932,15 @@ bullet(doc, "**Nhầm dấu — với dấu ✗.** Dấu gạch ngang nghĩa là
             "dữ liệu, và nó **không** bị tính vào mẫu số. Một mã 4/4 không hề kém một mã 6/6.")
 
 # ═══════════════════════════════════════════════════════════════════════════
+h2(doc, "7.5  Ảnh chụp theo ngày")
+para(doc,
+     "Mỗi lần quét, app tự ghi toàn bộ kết quả kèm ngày vào thư mục **snapshots** dưới dạng tệp nén. "
+     "Bạn không cần làm gì, và cũng chưa dùng tới ngay.\n"
+     "Lý do: mọi chỉ số trong app đều là ảnh chụp một thời điểm, nên hiện chưa thể trả lời câu "
+     "quan trọng nhất — mã 6/6 có thật sự cho kết quả tốt hơn mã 4/6 không. Muốn trả lời thì phải "
+     "có dữ liệu theo thời điểm, mà thứ đó chỉ tích luỹ được chứ không mua được. Quét đều trong "
+     "vài tháng thì sẽ đủ để kiểm chứng từng ngưỡng bằng dữ liệu thay vì bằng lập luận.", size=9.5)
+
 h1(doc, "8.  GIỚI HẠN CẦN BIẾT")
 
 para(doc,
@@ -941,12 +952,13 @@ para(doc,
      "App lấy top N mã theo vốn hóa rồi mới chấm điểm. Mọi kết luận chỉ có giá trị bên trong nhóm đó — "
      "nó không tìm được cơ hội ở nhóm vốn hóa vừa và nhỏ.", size=9.5)
 
-h3(doc, "Ngưỡng biên lợi nhuận dùng chung cho mọi ngành", AMBER)
+h3(doc, "Ngưỡng biên lợi nhuận vẫn thiên về ngành biên dày", AMBER)
 para(doc,
      "Biên gộp 40% là mức bình thường với phần mềm nhưng gần như không thể đạt với bán lẻ hay công nghiệp "
-     "nặng. Hai tiêu chí Gross Mgn và Op Margin vì thế đo **cổ phiếu thuộc ngành nào** nhiều hơn là đo chất "
-     "lượng doanh nghiệp. Hệ quả: hệ thống thiên lệch về phía công nghệ và y tế. Khi xem một mã bán lẻ, "
-     "hãy tự điều chỉnh kỳ vọng ở hai tiêu chí này.", size=9.5)
+     "nặng. Hai tiêu chí này nay có **cửa thứ hai**: nằm trong nhóm 30% dẫn đầu ngành của chính nó cũng "
+     "được tính đạt, nên một doanh nghiệp bán lẻ mạnh không còn bị loại chỉ vì sinh ra ở ngành biên mỏng. "
+     "Cửa này chỉ mở khi ngành có ít nhất 8 mã trong lần quét.\n"
+     "Thiên lệch vẫn chưa hết: ROIC và các tiêu chí còn lại vẫn dùng ngưỡng tuyệt đối.", size=9.5)
 
 h3(doc, "Ngưỡng là đúng hoặc sai, không có mức độ", AMBER)
 para(doc,
@@ -1033,6 +1045,8 @@ add_table(doc,
               ["ROE−ROIC", "ROE% − ROIC%   (điểm phần trăm)"],
               ["Net Cash", "Tiền + Đầu tư ngắn hạn − Tổng nợ vay"],
               ["Nợ/FCF", "Nợ ròng / Dòng tiền tự do một năm   (số năm)"],
+              ["ΔBiên gộp", "Biên gộp TTM − biên gộp năm tài chính gần nhất"],
+              ["ΔROIC%", "(ROIC TTM / ROIC năm trước − 1) × 100"],
               ["Current Ratio", "Tài sản ngắn hạn / Nợ ngắn hạn"],
               ["NI Qtr% / Rev Qtr%", "Quý vừa công bố so với cùng quý năm trước"],
               ["Đà LN", "NI Qtr% − NI Growth%   (điểm phần trăm)"],
@@ -1053,6 +1067,7 @@ add_table(doc,
               ["NI Growth", "> 20%", "ROE thật", "≤ 15 điểm %"],
               ["Rev Growth", "> 15%", "Bảng cân đối", "Tiền ròng>0, CR>1,5, hoặc Nợ/FCF<3"],
               ["D/E", "< 1,0", "Còn đúng", "Quý > 10% hoặc ≥ TTM − 15 đ%"],
+              ["", "", "Chưa xói mòn", "ΔGM ≥ −1 đ%, ΔROIC ≥ −15%"],
               ["", "", "Bền vững 5N", "WIDE hoặc NARROW"],
           ],
           widths=[3.8, 2.6, 4.2, 6.0], size=9)
@@ -1063,7 +1078,7 @@ add_table(doc,
           [
               ["🟢 TỐT & THỰC", "≥ 80%", "≥ 80%"],
               ["🔵 KHÁ", "≥ 60%", "≥ 60%"],
-              ["🔴 CỜ ĐỎ", "≥ 80%", "< 60%"],
+              ["🔴 CỜ ĐỎ", "≥ 80%", "trượt từ 3 tiêu chí trở lên"],
               ["🟠 THẬT NHƯNG YẾU", "< 50%", "≥ 80%"],
               ["🟡 THEO DÕI", "≥ 50%", "—"],
               ["⚫ LOẠI", "còn lại", "—"],

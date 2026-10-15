@@ -65,3 +65,4 @@ ehthumbs.db
 $RECYCLE.BIN/
 *.lnk
 ai_cache/
+snapshots/

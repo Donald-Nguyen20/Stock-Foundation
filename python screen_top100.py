@@ -56,9 +56,10 @@ REAL_CRITERIA = {
     "FCFM": dict(label="FCF Mgn",    field="FCF_Margin%",  thr=8,  op="gt",
                  bac_bo="Biên lợi nhuận cao nhờ vốn hóa chi phí hoặc hoãn đầu tư",
                  desc="Biên dòng tiền tự do > 8% — tiền thực trên mỗi đồng doanh thu"),
-    "BUYB": dict(label="Không buyback", field="EPS_NI_Gap", thr=-10, op="gt",
+    "BUYB": dict(label="Không buyback", field="EPS_NI_Gap", thr=5, op="lt",
                  bac_bo="EPS tăng nhờ mua lại cổ phiếu chứ không phải lợi nhuận tăng",
-                 desc="Tăng trưởng EPS không vượt tăng trưởng lợi nhuận quá 10 điểm %"),
+                 desc="Tăng trưởng EPS không vượt tăng trưởng lợi nhuận quá 5 điểm % "
+                      "— trên mức đó thì phần chênh chủ yếu do số cổ phiếu giảm"),
     "LEV":  dict(label="ROE thật",   field="ROE_ROIC_Gap", thr=15, op="lt",
                  bac_bo="ROE cao nhờ đòn bẩy hoặc vốn chủ teo lại vì mua cổ phiếu quỹ",
                  desc="ROE không vượt ROIC quá 15 điểm % — sinh lời đến từ kinh doanh, không từ nợ"),
@@ -70,6 +71,10 @@ REAL_CRITERIA = {
                  bac_bo="Số TTM còn đẹp chỉ vì ba quý cũ đè lên, quý gần nhất đã xấu đi",
                  desc="Quý gần nhất vẫn tăng trưởng lợi nhuận trên 10%, hoặc không tụt quá 15 điểm % "
                       "so với mức TTM — số liệu tốt vẫn còn đúng ở kỳ mới nhất"),
+    "EROD": dict(label="Chưa xói mòn", field="Xói mòn",   thr=None, op="erod",
+                 bac_bo="Chỉ số đẹp của kỳ này là đỉnh đang trôi xuống, không phải mặt bằng mới",
+                 desc="Biên gộp không tụt quá 1 điểm % và ROIC không tụt quá 15% so với năm "
+                      "tài chính gần nhất — chất lượng đang giữ hoặc cải thiện, không bào mòn"),
     "SUS":  dict(label="Bền vững 5N", field="Moat Score",   thr=None, op="in",
                  bac_bo="Một kỳ may mắn được trình bày như năng lực dài hạn",
                  desc="ROE và biên gộp trung bình 5 năm ở mức cao — số đẹp lặp lại nhiều năm"),
@@ -107,6 +112,10 @@ FETCH_COLS = [
     "price_52_week_high",
     "SMA250",
     "change",
+    # ── Năm tài chính gần nhất: so với TTM ra xu hướng một năm ──
+    "gross_margin_fy",
+    "operating_margin_fy",
+    "return_on_invested_capital_fy",
 ]
 
 RENAME = {
@@ -136,6 +145,9 @@ RENAME = {
     "enterprise_value_ebitda_ttm": "EV/EBITDA",
     "free_cash_flow_per_share_ttm": "FCF/sh",
     "current_ratio": "Current Ratio",
+    "gross_margin_fy": "GM_fy",
+    "operating_margin_fy": "OpM_fy",
+    "return_on_invested_capital_fy": "ROIC_fy",
     "price_52_week_high": "High52",
     "SMA250": "MA250",
     "change": "Chg%",
@@ -463,6 +475,45 @@ def CL(i): return get_column_letter(i)
 
 
 # ═══════════════════════════════════════════════════════════════
+# ẢNH CHỤP THEO NGÀY
+#
+# Mọi chỉ số trong app đều là ảnh chụp một thời điểm, nên không thể trả lời
+# được "mã 6/6 có thật sự tốt hơn mã 4/6 không". Không có dữ liệu theo thời
+# điểm thì vĩnh viễn không kiểm chứng được ngưỡng nào. Lưu lại từ bây giờ là
+# việc rẻ nhất có thể làm để sau này trả lời được câu đó.
+# ═══════════════════════════════════════════════════════════════
+def snapshot_dir() -> "Path":
+    from pathlib import Path
+    d = Path(__file__).resolve().parent / "snapshots"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def save_snapshot(df, market: str, top: int) -> "str | None":
+    """Ghi kết quả quét ra tệp nén kèm ngày. Lỗi ở đây không được làm hỏng
+    luồng chính — quét vẫn phải dùng được dù không ghi được tệp."""
+    try:
+        import re as _re
+        tag = _re.sub(r"[^A-Za-z0-9]", "", str(market))[:16] or "unknown"
+        f = snapshot_dir() / f"{datetime.now():%Y%m%d}_{tag}_top{int(top)}.csv.gz"
+        out = df.copy()
+        out.insert(0, "snapshot_date", f"{datetime.now():%Y-%m-%d}")
+        out.insert(1, "snapshot_market", market)
+        out.to_csv(f, index=False, compression="gzip", encoding="utf-8-sig")
+        return str(f)
+    except Exception:
+        return None
+
+
+def list_snapshots() -> list:
+    """Các ảnh chụp đã lưu, cũ trước mới sau."""
+    try:
+        return sorted(snapshot_dir().glob("*.csv.gz"))
+    except OSError:
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════
 # SCORING — Nhóm A (Tài chính tốt) + Nhóm B (Chứng minh là thực)
 # ═══════════════════════════════════════════════════════════════
 _FIN_SECTORS = ("Financial Services", "Finance")
@@ -570,6 +621,58 @@ def _derive_fields(df, moat_cache=None):
         df["Moat Score"] = None
         df["52W_High%"]  = None
 
+    # ── Xu hướng một năm: TTM so với năm tài chính gần nhất ────────────
+    # Mọi chỉ số chất lượng còn lại đều là ảnh chụp một thời điểm. Hai doanh
+    # nghiệp cùng ROIC 16% nhưng một bên đi lên từ 8%, một bên rơi từ 40% —
+    # không có mục này thì chúng được chấm giống hệt nhau.
+    def _delta_pt(cur, prev):
+        """Chênh lệch tính bằng điểm phần trăm."""
+        def f(r):
+            a = _num(r.get(cur)); b = _num(r.get(prev))
+            if a is None or b is None:
+                return None
+            return round(a - b, 1)
+        return f
+
+    df["ΔBiên gộp"] = df.apply(_delta_pt("Gross Margin%", "GM_fy"), axis=1)
+    df["ΔBiên HĐ"]  = df.apply(_delta_pt("Op Margin%", "OpM_fy"), axis=1)
+
+    def _roic_drop(r):
+        """ROIC tụt bao nhiêu phần trăm tương đối so với năm trước."""
+        a = _num(r.get("ROIC%")); b = _num(r.get("ROIC_fy"))
+        if a is None or b is None or b <= 0:
+            return None
+        return round((a / b - 1) * 100, 1)
+    df["ΔROIC%"] = df.apply(_roic_drop, axis=1)
+
+    def _erod(r):
+        """Tóm tắt xói mòn để hiển thị."""
+        g = _num(r.get("ΔBiên gộp")); rc = _num(r.get("ΔROIC%"))
+        if g is None and rc is None:
+            return None
+        bad = []
+        if g is not None and g < -1:
+            bad.append(f"biên gộp {g:+.1f}đ")
+        if rc is not None and rc < -15:
+            bad.append(f"ROIC {rc:+.0f}%")
+        return "; ".join(bad) if bad else "giữ vững"
+    df["Xói mòn"] = df.apply(_erod, axis=1)
+
+    # ── Ngưỡng biên theo ngành ─────────────────────────────────────────────
+    # Biên gộp 40% là bình thường với phần mềm và gần như bất khả với bán lẻ.
+    # Ngưỡng tuyệt đối vì thế đo ngành nghề nhiều hơn đo chất lượng. Ở đây
+    # tính thêm phân vị 70 của chính ngành đó, dùng làm cửa thứ hai: mã dẫn
+    # đầu ngành vẫn qua được dù không đạt mức tuyệt đối.
+    # Chỉ áp dụng khi ngành có đủ mã để phân vị có nghĩa.
+    MIN_PEERS = 8
+    for col, out in (("Gross Margin%", "GM_nganh"), ("Op Margin%", "OpM_nganh")):
+        if col in df.columns and "Sector" in df.columns:
+            g = df.groupby("Sector")[col]
+            q70 = g.transform(lambda x: x.quantile(0.70) if x.notna().sum() >= MIN_PEERS else None)
+            df[out] = q70.round(1)
+        else:
+            df[out] = None
+
     # ── Ba chỉ báo cảnh báo giá ────────────────────────────────────────
     # Thuần hiển thị: không vào FIN/REAL, không đổi tín hiệu, không dùng để lọc.
     # Với người mua khi giá giảm, đây là ranh giới giữa "nhịp điều chỉnh" và
@@ -614,6 +717,10 @@ def _derive_fields(df, moat_cache=None):
 
 
 # ── Nhóm A ──────────────────────────────────────────────────────
+# Hai tiêu chí biên có thêm cửa thứ hai: dẫn đầu ngành
+_PEER_GATE = {"GM": "GM_nganh", "OPM": "OpM_nganh"}
+
+
 def _chk_fin(row, key):
     cfg    = FIN_CRITERIA[key]
     is_fin = row.get("Sector", "") in _FIN_SECTORS
@@ -625,7 +732,13 @@ def _chk_fin(row, key):
     v = _num(row.get(cfg["field"]))
     if v is None:
         return None
-    return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
+    if cfg["op"] == "gt":
+        if v > cfg["thr"]:
+            return True
+        # Chưa đạt mức tuyệt đối thì xét có thuộc nhóm dẫn đầu ngành không
+        peer = _num(row.get(_PEER_GATE.get(key, "")))
+        return bool(peer is not None and v >= peer)
+    return v < cfg["thr"]
 
 
 # ── Nhóm B ──────────────────────────────────────────────────────
@@ -641,8 +754,10 @@ def _chk_real(row, key):
         return None if v is None else v > 8
 
     if key == "BUYB":                     # EPS tăng không phải nhờ mua cổ phiếu quỹ
+        # 10 điểm cũ nằm ngoài phân vị 95 nên gần như không mã nào trượt;
+        # phân bố thật có p90 ≈ +5,6 nên 5 điểm mới thực sự phân loại được.
         v = _num(row.get("EPS_NI_Gap"))
-        return None if v is None else v <= 10
+        return None if v is None else v <= 5
 
     if key == "LEV":                      # ROE cao đến từ kinh doanh, không từ đòn bẩy
         if is_fin:
@@ -678,6 +793,19 @@ def _chk_real(row, key):
             return True
         return None if gap is None else gap >= -15
 
+    if key == "EROD":                     # chất lượng đang giữ hay đang bào mòn
+        g  = _num(row.get("ΔBiên gộp"))
+        rc = _num(row.get("ΔROIC%"))
+        if g is None and rc is None:
+            return None
+        # Ngưỡng đặt quanh phân vị 10 của phân bố thật: biên gộp gần như không
+        # đổi theo năm (p50 ≈ 0, p10 ≈ −1,1đ) nên tụt 1 điểm đã là tín hiệu.
+        if g is not None and g < -1:
+            return False
+        if rc is not None and rc < -15:
+            return False
+        return True
+
     if key == "SUS":                      # số đẹp lặp lại nhiều năm, không phải một kỳ
         m = row.get("Moat Score")
         if m is None or (isinstance(m, float) and pd.isna(m)):
@@ -693,15 +821,16 @@ def _tally(vals):
     return got, app
 
 
-def _signal(fin_pct, real_pct, fin_app, real_app):
+def _signal(fin_pct, real_pct, fin_app, real_app, real_fail=0):
     """Tín hiệu gộp. Điểm mấu chốt: số liệu đẹp mà không chứng minh được
     thì bị gắn cờ đỏ, chứ không được xếp ngang với mã trung bình đều."""
     if fin_app < 3 or real_app < 3:
         return "⚪ THIẾU DỮ LIỆU"
     if fin_pct >= 0.80 and real_pct >= 0.80: return "🟢 TỐT & THỰC"
-    # Ngưỡng 0.60 tương đương "trượt từ 3 tiêu chí kiểm chứng trở lên", ổn định
-    # với mọi mẫu số. Ngưỡng 0.50 cũ để lọt các mã rơi đúng 50% (3/6, 2/4).
-    if fin_pct >= 0.80 and real_pct <  0.60: return "🔴 CỜ ĐỎ"
+    # CỜ ĐỎ đếm SỐ tiêu chí trượt, không theo tỷ lệ. Dùng tỷ lệ thì mỗi lần
+    # thêm một tiêu chí vào nhóm B là ngưỡng lại trôi và tín hiệu âm thầm
+    # ngừng kích hoạt — đã xảy ra hai lần.
+    if fin_pct >= 0.80 and real_fail >= 3:   return "🔴 CỜ ĐỎ"
     if fin_pct >= 0.60 and real_pct >= 0.60: return "🔵 KHÁ"
     if real_pct >= 0.80 and fin_pct <  0.50: return "🟠 THẬT NHƯNG YẾU"
     if fin_pct >= 0.50:                      return "🟡 THEO DÕI"
@@ -732,8 +861,10 @@ def score_stocks(df, moat_cache: dict = None):
     df["REAL_Pct"] = df.apply(
         lambda r: round(r["REAL_Score"] / r["REAL_App"], 3) if r["REAL_App"] else 0.0, axis=1)
 
+    df["REAL_Fail"] = real.apply(lambda x: x[1] - x[0])
     df["Signal"] = df.apply(
-        lambda r: _signal(r["FIN_Pct"], r["REAL_Pct"], r["FIN_App"], r["REAL_App"]), axis=1)
+        lambda r: _signal(r["FIN_Pct"], r["REAL_Pct"], r["FIN_App"], r["REAL_App"],
+                          r["REAL_Fail"]), axis=1)
     return df
 
 
@@ -1335,6 +1466,7 @@ def _qc_sheet(wb, df):
         "LEV":  "ROE vượt xa ROIC — sinh lời đến từ đòn bẩy",
         "BAL":  "nợ ròng lớn mà dòng tiền không đủ trả trong 3 năm",
         "TREND": "quý gần nhất đã xấu đi — số TTM đẹp chủ yếu nhờ các quý cũ",
+        "EROD": "biên hoặc ROIC đang bào mòn so với năm trước",
         "SUS":  "chưa có bề dày 5 năm để gọi là bền vững",
     }
 
@@ -1350,7 +1482,8 @@ def _qc_sheet(wb, df):
     for ri, (_, row) in enumerate(flag.iterrows()):
         r  = ri + 4
         bg = C_ALT if ri % 2 else C_WHITE
-        why = "; ".join(_WHY[k] for k in REAL_KEYS if row.get(f"REAL_{k}") is False) or "—"
+        why = "; ".join(_WHY.get(k, k) for k in REAL_KEYS
+                        if row.get(f"REAL_{k}") is False) or "—"
         vals = [row.get("Ticker", ""), row.get("Tên Công Ty", ""), row.get("Sector", ""),
                 _score_fmt(row.get("FIN_Score"), row.get("FIN_App"))[0],
                 _score_fmt(row.get("REAL_Score"), row.get("REAL_App"))[0],
