@@ -34,6 +34,7 @@ PRICES = {
 }
 
 SECTIONS = [
+    ("tomtat",   "TÓM TẮT"),
     ("nganh",    "NGÀNH KINH DOANH"),
     ("loithe",   "LỢI THẾ CẠNH TRANH"),
     ("tiemnang", "TIỀM NĂNG PHÁT TRIỂN"),
@@ -72,8 +73,20 @@ QUY TẮC BẮT BUỘC:
    không có chi phí nhân bản" là cụ thể; "công ty có lợi thế cạnh tranh mạnh" là
    sáo rỗng và vô dụng.
 
-ĐỊNH DẠNG: trả lời bằng Markdown, dùng đúng năm tiêu đề cấp hai sau đây, đúng thứ tự,
+VĂN PHONG: như một báo cáo phân tích của công ty chứng khoán.
+- Viết ở ngôi thứ ba về doanh nghiệp. Không xưng "tôi", "chúng tôi", không gọi
+  người đọc là "bạn".
+- Không dùng emoji, không đặt câu hỏi tu từ, không mở đầu bằng "Tóm lại".
+- Câu ngắn, mỗi đoạn tối đa bốn câu. Tổng độ dài khoảng 800–1100 từ.
+- In đậm tiết chế: tối đa một cụm mỗi đoạn, không in đậm mở đầu mọi gạch đầu dòng.
+- Số thập phân dùng dấu phẩy (77,7%), ngày theo dạng DD/MM/YYYY.
+
+ĐỊNH DẠNG: trả lời bằng Markdown, dùng đúng sáu tiêu đề cấp hai sau đây, đúng thứ tự,
 không thêm tiêu đề nào khác:
+
+## TÓM TẮT
+Dòng đầu là một câu tiêu đề nêu luận điểm chính, dưới 15 từ, không gạch đầu dòng,
+không in đậm. Sau đó 3–4 gạch đầu dòng, mỗi dòng một câu nêu một ý then chốt.
 
 ## NGÀNH KINH DOANH
 Doanh nghiệp kiếm tiền bằng cách nào, cấu trúc ngành ra sao, đối thủ chính là ai.
@@ -86,12 +99,18 @@ nhuận trong phần dữ liệu không. Hào đang rộng ra hay đang bị bà
 Động lực tăng trưởng cụ thể trong 2–3 năm tới và rủi ro cụ thể. Không nói chung chung.
 
 ## TIN TỨC QUAN TRỌNG
-Gạch đầu dòng, mỗi dòng bắt đầu bằng ngày và nguồn, rồi tới nội dung và vì sao nó
-ảnh hưởng. Tối đa 5 tin.
+Tối đa 5 tin, mới nhất trước. Mỗi tin đúng một dòng, ba phần ngăn bằng dấu |:
+- DD/MM/YYYY | [Tên nguồn](url) | Nội dung tin. Tác động: vì sao nó quan trọng.
 
 ## ĐỐI CHIẾU VỚI SỐ LIỆU
-Chỗ nào câu chuyện khớp với điểm bộ lọc chấm, và chỗ nào lệch. Nêu rõ từng tiêu chí
-bị trượt có lý do đã biết hay không — đây là phần quan trọng nhất."""
+Đây là phần quan trọng nhất. Gồm ba nhóm, mỗi nhóm mở đầu bằng một dòng nhãn in đậm:
+**Điểm khớp**
+- Chỗ câu chuyện định tính khớp với điểm bộ lọc chấm.
+**Điểm lệch**
+- Chỗ câu chuyện lệch với số liệu, hoặc rủi ro mà bộ lọc không đo được.
+**Tiêu chí cần lưu ý**
+- Tên tiêu chí | TRƯỢT hoặc THIẾU DỮ LIỆU | Lý do đã biết, hoặc nói rõ là chưa rõ lý do.
+Liệt kê mọi tiêu chí bị trượt hoặc thiếu dữ liệu, mỗi tiêu chí một dòng."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -228,6 +247,10 @@ def friendly_error(e: Exception) -> str:
     """Đổi lỗi của SDK thành câu người dùng hiểu được."""
     msg = str(e)
     low = msg.lower()
+    if "does not support this model" in low or "or newer is required" in low:
+        return ("Claude Code đi kèm claude-agent-sdk đã cũ, không chạy được model này. "
+                "Cập nhật bằng: pip install -U claude-agent-sdk — bản .exe thì build "
+                "lại sau khi cập nhật.")
     if "not logged in" in low or "invalid api key" in low or "authentication" in low:
         return ("Chưa đăng nhập tài khoản Claude. Mở AI Settings và bấm nút liên kết, "
                 "hoặc chạy `claude` trong terminal rồi đăng nhập.")
@@ -284,7 +307,8 @@ def analyze(context: str, ticker: str, company: str = "",
         setting_sources=[],
     )
 
-    state = {"text": [], "cost": 0.0, "searches": 0, "subtype": "", "usage": None}
+    state = {"text": [], "cost": 0.0, "searches": 0, "subtype": "", "usage": None,
+             "error": ""}
 
     async def run():
         say("Đang tìm tin tức và phân tích…")
@@ -302,6 +326,8 @@ def analyze(context: str, ticker: str, company: str = "",
                 state["subtype"] = msg.subtype or ""
                 state["cost"] = getattr(msg, "total_cost_usd", 0.0) or 0.0
                 state["usage"] = getattr(msg, "usage", None)
+                if msg.is_error:
+                    state["error"] = (msg.result or "").strip()
 
     # query() là coroutine nên cần vòng lặp riêng — hàm này luôn chạy trong
     # luồng nền của giao diện, không có sẵn event loop.
@@ -309,6 +335,11 @@ def analyze(context: str, ticker: str, company: str = "",
     try:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(run())
+    except Exception as e:
+        # SDK chỉ báo "error result: success"; nguyên văn lỗi nằm ở ResultMessage
+        if state["error"]:
+            raise RuntimeError(state["error"]) from e
+        raise
     finally:
         try:
             loop.close()
@@ -316,6 +347,8 @@ def analyze(context: str, ticker: str, company: str = "",
             asyncio.set_event_loop(None)
 
     full = "".join(state["text"]).strip()
+    if state["error"]:
+        raise RuntimeError(state["error"])
     if state["subtype"] and state["subtype"] != "success":
         raise RuntimeError(f"Phiên kết thúc với trạng thái: {state['subtype']}")
     if not full:
@@ -335,7 +368,7 @@ def analyze(context: str, ticker: str, company: str = "",
 
 
 def split_sections(md: str) -> dict:
-    """Tách Markdown thành từng mục theo năm tiêu đề đã quy định."""
+    """Tách Markdown thành từng mục theo sáu tiêu đề đã quy định."""
     out = {}
     titles = {t: k for k, t in SECTIONS}
     cur = None

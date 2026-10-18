@@ -5,9 +5,13 @@ Phần phân tích chạy qua **claude_agent_sdk**, vốn đóng gói sẵn Clau
 dùng chính tài khoản Claude đã đăng nhập — tiêu dung lượng của gói thuê bao
 chứ không tính vào tín dụng API.
 
-Vì vậy việc "liên kết" ở đây thực chất là đảm bảo Claude Code đã đăng nhập.
-Module này kiểm tra bằng cách chạy thử một truy vấn rất nhỏ: đó là cách duy
-nhất biết chắc, thay vì suy đoán từ tệp cấu hình.
+Vì vậy "liên kết" ở đây là đăng nhập chính Claude Code mà SDK sẽ chạy, bằng
+`claude auth login`. Trạng thái đọc từ `claude auth status`, còn việc dùng
+được hay không thì kiểm bằng một truy vấn thật với đúng model phân tích: chỉ
+cách đó mới bắt được token hết hạn hay bản Claude Code quá cũ so với model.
+
+Claude Code lưu đăng nhập chung cho cả máy, nên đăng xuất ở đây cũng đăng
+xuất Claude Code ở mọi nơi khác trên máy này.
 
 Lưu ý điều khoản: cách dùng này dành cho cá nhân với tài khoản của chính mình.
 Nếu phát hành app cho người khác dùng thì Anthropic yêu cầu chuyển sang xác
@@ -17,103 +21,53 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-
-RELEASES_URL = "https://github.com/anthropics/anthropic-cli/releases"
 
 # Ẩn cửa sổ console khi gọi CLI từ app GUI trên Windows
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Định vị CLI
+# Định vị Claude Code
 # ─────────────────────────────────────────────────────────────────────────────
-def _candidate_paths():
-    exe = "ant.exe" if sys.platform == "win32" else "ant"
-    home = Path.home()
-    out = [
-        home / "go" / "bin" / exe,
-        home / ".local" / "bin" / exe,
-        home / "bin" / exe,
-    ]
-    if sys.platform == "win32":
-        la = os.environ.get("LOCALAPPDATA")
-        if la:
-            out += [Path(la) / "Programs" / "ant" / exe,
-                    Path(la) / "Microsoft" / "WinGet" / "Links" / exe]
-        out.append(Path(home) / "scoop" / "shims" / exe)
-        out.append(Path("C:/ProgramData/chocolatey/bin") / exe)
-    else:
-        out += [Path("/usr/local/bin") / exe, Path("/opt/homebrew/bin") / exe]
-    return out
+def find_claude() -> str | None:
+    """Claude Code mà Agent SDK sẽ chạy, hoặc None nếu không có.
 
-
-def find_ant() -> str | None:
-    """Đường dẫn tới CLI `ant`, hoặc None nếu chưa cài.
-
-    Ưu tiên bản app tự cài để kết quả không đổi khi PATH thay đổi.
+    Cùng thứ tự với SDK: bản đi kèm gói trước, không có thì bản trên PATH
+    (bản .exe đóng gói bằng PyInstaller không mang theo bản đi kèm).
     """
-    own = managed_bin_dir() / ("ant.exe" if sys.platform == "win32" else "ant")
+    exe = "claude.exe" if sys.platform == "win32" else "claude"
     try:
-        if own.is_file():
-            return str(own)
-    except OSError:
+        import claude_agent_sdk
+        bundled = Path(claude_agent_sdk.__file__).parent / "_bundled" / exe
+        if bundled.is_file():
+            return str(bundled)
+    except Exception:
         pass
-    found = shutil.which("ant")
-    if found:
-        return found
-    for p in _candidate_paths():
-        try:
-            if p.is_file():
-                return str(p)
-        except OSError:
-            continue
-    return None
+    return shutil.which("claude")
 
 
-def config_dir() -> Path:
-    """Thư mục cấu hình mà CLI dùng để lưu profile và token."""
-    custom = os.environ.get("ANTHROPIC_CONFIG_DIR")
-    if custom:
-        return Path(custom)
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home())) / "Anthropic"
-    return Path.home() / ".config" / "anthropic"
-
-
-def stored_profiles() -> list[str]:
-    """Tên các profile đã có token, đọc thẳng từ thư mục credentials."""
-    d = config_dir() / "credentials"
-    try:
-        return sorted(f.stem for f in d.glob("*.json"))
-    except OSError:
-        return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Gọi CLI
-# ─────────────────────────────────────────────────────────────────────────────
 def _run(args: list[str], timeout: int = 30) -> tuple[int, str]:
-    """Chạy `ant ...`, trả về (mã thoát, stdout+stderr đã gộp)."""
-    ant = find_ant()
-    if not ant:
-        return 127, "Chưa cài CLI `ant`."
+    """Chạy `claude ...`, trả về (mã thoát, stdout+stderr đã gộp)."""
+    cli = find_claude()
+    if not cli:
+        return 127, ("Không tìm thấy Claude Code. Cài lại bằng: "
+                     "pip install --force-reinstall claude-agent-sdk")
     try:
         p = subprocess.run(
-            [ant, *args],
+            [cli, *args],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=timeout, creationflags=_NO_WINDOW,
+            stdin=subprocess.DEVNULL, timeout=timeout, creationflags=_NO_WINDOW,
         )
         return p.returncode, ((p.stdout or "") + (p.stderr or "")).strip()
     except subprocess.TimeoutExpired:
         return 124, f"Quá thời gian chờ ({timeout} giây)."
     except OSError as e:
-        return 1, f"Không chạy được CLI: {e}"
+        return 1, f"Không chạy được Claude Code: {e}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,15 +75,16 @@ def _run(args: list[str], timeout: int = 30) -> tuple[int, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class AuthState:
-    sdk_ok: bool = False            # thư viện anthropic đã cài chưa
+    sdk_ok: bool = False            # claude-agent-sdk đã cài chưa
     sdk_version: str = ""
-    cli_path: str | None = None     # đường dẫn CLI ant
-    profiles: list[str] = field(default_factory=list)
-    status_text: str = ""           # nguyên văn `ant auth status`
-    verified: bool = False          # đã gọi API thật thành công chưa
+    cli_path: str | None = None     # Claude Code mà SDK sẽ chạy
+    signed_in: bool = False         # `claude auth status` báo đã đăng nhập
+    email: str = ""
+    plan: str = ""                  # pro, max, …
+    verified: bool = False          # chạy thử với model phân tích thành công
     account: str = ""               # mô tả ngắn để hiển thị
     error: str = ""
-    api_key_shadow: bool = False    # ANTHROPIC_API_KEY đang che profile
+    api_key_shadow: bool = False    # ANTHROPIC_API_KEY đang che tài khoản OAuth
 
     @property
     def cli_ok(self) -> bool:
@@ -137,7 +92,7 @@ class AuthState:
 
     @property
     def logged_in(self) -> bool:
-        return self.verified
+        return self.signed_in
 
 
 def _sdk_info() -> tuple[bool, str]:
@@ -148,38 +103,56 @@ def _sdk_info() -> tuple[bool, str]:
         return False, ""
 
 
-def verify_credentials() -> tuple[bool, str]:
-    """Chạy thử một truy vấn cực nhỏ để biết chắc liên kết dùng được.
+def auth_status() -> dict:
+    """Kết quả `claude auth status` dạng dict; rỗng nếu không đọc được."""
+    _, out = _run(["auth", "status", "--json"], timeout=30)
+    start = out.find("{")
+    if start < 0:
+        return {}
+    try:
+        data, _ = json.JSONDecoder().raw_decode(out[start:])
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def verify_credentials(model: str | None = None) -> tuple[bool, str]:
+    """Chạy thử một truy vấn cực nhỏ với đúng model phân tích.
 
     Không suy đoán từ tệp cấu hình: chỉ một lần chạy thật mới phân biệt được
-    "đã đăng nhập" với "có tệp nhưng token đã hết hạn".
+    "đã đăng nhập" với "token hết hạn" hay "Claude Code quá cũ cho model này".
     """
     try:
         import asyncio
 
-        from claude_agent_sdk import (ClaudeAgentOptions, ResultMessage, query)
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+
+        import ai_analysis
     except Exception as e:
         return False, f"Chưa cài claude-agent-sdk: {e}"
 
+    model = model or ai_analysis.MODEL_DEFAULT
     out = {"ok": False, "detail": ""}
 
     async def probe():
         async for m in query(
             prompt="ok",
             options=ClaudeAgentOptions(
-                allowed_tools=[], max_turns=1, setting_sources=[],
+                allowed_tools=[], max_turns=1, setting_sources=[], model=model,
                 permission_mode="bypassPermissions"),
         ):
             if isinstance(m, ResultMessage):
-                out["ok"] = (m.subtype == "success")
-                out["detail"] = m.subtype or ""
+                out["ok"] = m.subtype == "success" and not m.is_error
+                out["detail"] = (m.result or "") if m.is_error else (m.subtype or "")
 
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(probe())
     except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+        # SDK chỉ báo "error result: success"; nguyên văn lỗi nằm ở ResultMessage
+        err = RuntimeError(out["detail"]) if out["detail"] else e
+        return False, ai_analysis.friendly_error(err)
     finally:
         try:
             loop.close()
@@ -187,25 +160,28 @@ def verify_credentials() -> tuple[bool, str]:
             asyncio.set_event_loop(None)
 
     if out["ok"]:
-        return True, "Chạy thử thành công — dùng dung lượng gói thuê bao."
-    return False, f"Phiên thử kết thúc với trạng thái: {out['detail'] or 'không rõ'}"
+        return True, f"Chạy thử {model} thành công — dùng dung lượng gói thuê bao."
+    return False, ai_analysis.friendly_error(
+        RuntimeError(out["detail"] or "Phiên thử kết thúc mà không rõ lý do."))
 
 
 def read_state(verify: bool = True) -> AuthState:
     st = AuthState()
     st.sdk_ok, st.sdk_version = _sdk_info()
-    st.cli_path = find_ant()
-    st.profiles = stored_profiles()
+    st.cli_path = find_claude()
 
-    # Bẫy số một theo tài liệu: API key đặt sẵn sẽ che mọi profile OAuth,
+    # Bẫy số một theo tài liệu: API key đặt sẵn sẽ che tài khoản OAuth,
     # và chuỗi rỗng vẫn chiếm chỗ ưu tiên đó.
     st.api_key_shadow = "ANTHROPIC_API_KEY" in os.environ
 
     if st.cli_ok:
-        _, out = _run(["auth", "status"], timeout=20)
-        st.status_text = out
+        info = auth_status()
+        st.signed_in = bool(info.get("loggedIn"))
+        st.email = info.get("email") or ""
+        st.plan = info.get("subscriptionType") or ""
 
-    if verify and st.sdk_ok:
+    # Chưa đăng nhập thì chạy thử chỉ tốn thời gian mà chắc chắn hỏng
+    if verify and st.sdk_ok and st.signed_in:
         ok, msg = verify_credentials()
         st.verified = ok
         if ok:
@@ -218,140 +194,26 @@ def read_state(verify: bool = True) -> AuthState:
 # ─────────────────────────────────────────────────────────────────────────────
 # Hành động
 # ─────────────────────────────────────────────────────────────────────────────
-def login(profile: str | None = None, timeout: int = 300) -> tuple[bool, str]:
-    """Mở trình duyệt để uỷ quyền. Chặn cho tới khi xong hoặc hết giờ."""
-    if not find_ant():
-        return False, "Chưa cài CLI `ant`."
-    args = ["auth", "login"]
-    if profile:
-        args += ["--profile", profile]
-    code, out = _run(args, timeout=timeout)
+def login(timeout: int = 300) -> tuple[bool, str]:
+    """Mở trình duyệt để đăng nhập bằng gói thuê bao. Chặn tới khi xong hoặc hết giờ."""
+    code, out = _run(["auth", "login", "--claudeai"], timeout=timeout)
     if code != 0:
         return False, out or f"Đăng nhập thất bại (mã {code})."
     ok, msg = verify_credentials()
-    return ok, (out + ("\n" + msg if msg else "")).strip()
+    return ok, msg
 
 
-def logout(all_profiles: bool = False) -> tuple[bool, str]:
-    if not find_ant():
-        return False, "Chưa cài CLI `ant`."
-    args = ["auth", "logout"] + (["--all"] if all_profiles else [])
-    code, out = _run(args, timeout=60)
+def logout() -> tuple[bool, str]:
+    """Đăng xuất Claude Code — áp dụng cho mọi nơi dùng Claude Code trên máy."""
+    code, out = _run(["auth", "logout"], timeout=60)
     return code == 0, out or ("Đã đăng xuất." if code == 0 else "Đăng xuất thất bại.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tự cài đặt
 # ─────────────────────────────────────────────────────────────────────────────
-GITHUB_API = "https://api.github.com/repos/anthropics/anthropic-cli/releases/latest"
-_DOWNLOAD_PREFIX = "https://github.com/anthropics/anthropic-cli/releases/download/"
-
-
-def managed_bin_dir() -> Path:
-    """Nơi app tự cài CLI, tách khỏi mọi bản cài sẵn của hệ thống."""
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "StockFoundation" / "bin"
-
-
-def _asset_suffix() -> str:
-    """Hậu tố tên file phát hành khớp với máy đang chạy."""
-    m = platform.machine().lower()
-    arch = ("arm64" if m in ("arm64", "aarch64")
-            else "386" if m in ("i386", "i686", "x86")
-            else "amd64")
-    if sys.platform == "win32":
-        return f"windows_{arch}.zip"
-    if sys.platform == "darwin":
-        return f"macos_{arch}.zip"
-    return f"linux_{arch}.tar.gz"
-
-
-def install_cli(progress=None) -> tuple[bool, str]:
-    """Tải CLI `ant` từ trang phát hành chính thức và cài vào thư mục của app.
-
-    Trả về (thành công, thông điệp). `progress` nhận một chuỗi mô tả bước đang chạy.
-    """
-    import io
-    import json
-    import tarfile
-    import urllib.request
-    import zipfile
-
-    def say(msg):
-        if progress:
-            progress(msg)
-
-    try:
-        say("Đang tìm bản phát hành mới nhất…")
-        req = urllib.request.Request(
-            GITHUB_API, headers={"User-Agent": "stock-foundation",
-                                 "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            rel = json.load(r)
-
-        want = _asset_suffix()
-        asset = next((a for a in rel.get("assets", [])
-                      if a.get("name", "").endswith(want)), None)
-        if asset is None:
-            return False, f"Bản phát hành {rel.get('tag_name','?')} không có gói cho {want}."
-
-        url = asset["browser_download_url"]
-        # Chỉ nhận file từ đúng trang phát hành của Anthropic
-        if not url.startswith(_DOWNLOAD_PREFIX):
-            return False, "Đường dẫn tải về không thuộc kho chính thức — đã dừng."
-
-        size_mb = asset.get("size", 0) / 1e6
-        say(f"Đang tải {rel.get('tag_name','')} ({size_mb:.0f} MB)…")
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-foundation"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            blob = r.read()
-
-        say("Đang giải nén…")
-        exe_name = "ant.exe" if sys.platform == "win32" else "ant"
-        dest_dir = managed_bin_dir()
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / exe_name
-
-        data = None
-        if url.endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                name = next((n for n in z.namelist()
-                             if Path(n).name.lower() == exe_name.lower()), None)
-                if name is None:
-                    return False, f"Gói tải về không chứa {exe_name}."
-                data = z.read(name)
-        else:
-            with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as t:
-                member = next((m for m in t.getmembers()
-                               if Path(m.name).name == exe_name), None)
-                if member is None:
-                    return False, f"Gói tải về không chứa {exe_name}."
-                f = t.extractfile(member)
-                data = f.read() if f else None
-        if not data:
-            return False, "Không đọc được tệp thực thi trong gói tải về."
-
-        dest.write_bytes(data)
-        if sys.platform != "win32":
-            dest.chmod(0o755)
-
-        code, out = _run(["--version"], timeout=30)
-        if code != 0:
-            return False, f"Cài xong nhưng chưa chạy được: {out}"
-        say("Đã cài xong.")
-        return True, f"Đã cài {out.strip().splitlines()[0] if out else 'ant'} vào {dest}"
-
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
-
-
 def ensure_sdk(progress=None) -> tuple[bool, str]:
-    """Cài thư viện anthropic nếu thiếu."""
+    """Cài claude-agent-sdk nếu thiếu."""
     ok, ver = _sdk_info()
     if ok:
         return True, ver
@@ -376,11 +238,6 @@ def connect(progress=None) -> tuple[bool, str]:
     ok, msg = ensure_sdk(progress)
     if not ok:
         return False, f"Không cài được claude-agent-sdk: {msg}"
-
-    if not find_ant():
-        ok, msg = install_cli(progress)
-        if not ok:
-            return False, msg
 
     if progress:
         progress("Đang mở trình duyệt để đăng nhập…")

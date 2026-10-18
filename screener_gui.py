@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QFrame, QSplitter,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QComboBox, QSpinBox, QCheckBox, QFileDialog,
-    QDialog, QTextBrowser, QTabWidget, QProgressBar,
+    QDialog, QTextBrowser, QTabWidget, QProgressBar, QInputDialog,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSortFilterProxyModel
 from PySide6.QtGui import QFont, QColor, QKeySequence, QShortcut, QPixmap, QPainter
@@ -31,6 +31,10 @@ import claude_auth
 import ai_analysis
 import universe_charts
 import analysis_charts
+import analysis_report
+import fund_holders
+import fund_chart
+from html import escape as _html_escape
 
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
@@ -415,6 +419,60 @@ def _apply_header_tips(table, cols):
 
 from fundamental_chart import ChartWorker
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEnginePage
+
+
+class _FundWorker(QThread):
+    """Tải và rút gọn dữ liệu 13F ở luồng nền.
+
+    Dữ liệu dùng chung cho mọi mã nên chỉ cần một luồng mỗi phiên, không
+    phụ thuộc mã đang chọn.
+    """
+    progress    = Signal(str)
+    quarter     = Signal(str)
+    finished_ok = Signal()
+    failed      = Signal(str, bool)     # thông báo, có phải SEC từ chối truy cập
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        try:
+            fund_holders.update(progress=self.progress.emit,
+                                stop=lambda: self._stop,
+                                on_quarter=self.quarter.emit)
+        except fund_holders.Cancelled:
+            return
+        except fund_holders.SecAccessError as e:
+            self.failed.emit(str(e), True)
+            return
+        except Exception as e:
+            self.failed.emit(f"{type(e).__name__}: {e}", False)
+            return
+        self.finished_ok.emit()
+
+
+class _MapPage(QWebEnginePage):
+    """Bắt cú bấm chấm trên bản đồ.
+
+    Trang chuyển tới https://pick.local/<mã>; ở đây chặn lại và báo mã đó
+    lên thay vì để trình duyệt thật sự rời trang.
+    """
+    picked = Signal(str)
+
+    def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        if url.host() == universe_charts.PICK_HOST:
+            ticker = url.path().lstrip("/").strip().upper()
+            if ticker:
+                # Hoãn sang vòng lặp sau: nạp lại trang ngay trong lúc
+                # Chromium đang hỏi điều hướng sẽ làm sập tiến trình
+                QTimer.singleShot(0, lambda: self.picked.emit(ticker))
+            return False
+        return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -478,6 +536,8 @@ class ColoredHeader(QHeaderView):
 
 class ChartPanel(QWidget):
     """Khung biểu đồ — QWebEngineView dựng HTML Plotly."""
+    ticker_picked = Signal(str)     # bấm một chấm trên bản đồ
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # Khớp với theme mặc định của app (sáng); lệch nhau thì biểu đồ đen
@@ -486,6 +546,8 @@ class ChartPanel(QWidget):
         self._html_q   = ""
         self._html_a   = ""
         self._html_map = ""
+        self._map_key  = None
+        self._map_view = universe_charts.DEFAULT_VIEW
         self._df       = None
         self._mode     = "quarterly"
         self._worker   = None
@@ -494,6 +556,15 @@ class ChartPanel(QWidget):
         self._spin_msg = ""
         self._spin_tmr = QTimer(self)
         self._spin_tmr.timeout.connect(self._tick)
+        # Chế độ "Quỹ": số quỹ sở hữu theo quý từ SEC 13F
+        self._fund_worker = None
+        self._fund_done   = False   # đã cập nhật xong trong phiên này
+        self._fund_err    = ""
+        self._fund_tick   = 0
+        self._market_us   = True
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.shutdown)
         self.setStyleSheet(f"background:{BG};")
 
         layout = QVBoxLayout(self)
@@ -505,6 +576,9 @@ class ChartPanel(QWidget):
         layout.addWidget(self._sep_line)
 
         self._web = QWebEngineView()
+        page = _MapPage(self._web)
+        page.picked.connect(self.ticker_picked)
+        self._web.setPage(page)
         self._web.setHtml(self._placeholder())
         layout.addWidget(self._web, stretch=1)
 
@@ -529,15 +603,27 @@ class ChartPanel(QWidget):
         self._chart_status = QLabel("Click a row to load chart")
         self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
         h.addWidget(self._chart_status); h.addSpacing(10)
+        self._map_combo = QComboBox()
+        for key, label in universe_charts.VIEWS.items():
+            self._map_combo.addItem(label, key)
+        self._map_combo.setFixedHeight(22)
+        self._map_combo.setCursor(Qt.PointingHandCursor)
+        self._map_combo.setStyleSheet(self._combo_style())
+        self._map_combo.setVisible(False)
+        self._map_combo.currentIndexChanged.connect(self._on_map_view)
+        h.addWidget(self._map_combo)
         self._btn_q = QPushButton("Theo quý")
         self._btn_a = QPushButton("Theo năm")
         self._btn_m = QPushButton("Bản đồ")
-        for btn in (self._btn_q, self._btn_a, self._btn_m):
+        self._btn_f = QPushButton("Quỹ")
+        for btn in (self._btn_q, self._btn_a, self._btn_m, self._btn_f):
             btn.setFixedSize(78, 22); btn.setCursor(Qt.PointingHandCursor)
         self._btn_q.clicked.connect(lambda: self._switch_mode("quarterly"))
         self._btn_a.clicked.connect(lambda: self._switch_mode("annual"))
         self._btn_m.clicked.connect(lambda: self._switch_mode("map"))
+        self._btn_f.clicked.connect(lambda: self._switch_mode("funds"))
         h.addWidget(self._btn_q); h.addWidget(self._btn_a); h.addWidget(self._btn_m)
+        h.addWidget(self._btn_f)
         self._refresh_btns()
         return w
 
@@ -545,17 +631,40 @@ class ChartPanel(QWidget):
         f = QFrame(); f.setFrameShape(QFrame.HLine); f.setFixedHeight(1)
         f.setStyleSheet(f"background:{BORDER}; border:none;"); return f
 
-    def load_ticker(self, ticker: str):
+    def _combo_style(self):
+        return (f"QComboBox {{ background:transparent; color:{TEXT1};"
+                f" border:1px solid {BORDER}; border-radius:3px; padding:0 8px;"
+                f" font-size:9px; font-weight:600; letter-spacing:1px;"
+                f" font-family:'Segoe UI',sans-serif; min-width:130px; }}"
+                f"QComboBox:hover {{ border-color:{BORDER2}; }}"
+                f"QComboBox::drop-down {{ border:none; width:16px; }}"
+                f"QComboBox QAbstractItemView {{ background:{SURFACE}; color:{TEXT1};"
+                f" selection-background-color:{BORDER2}; border:1px solid {BORDER}; }}")
+
+    def load_ticker(self, ticker: str, show_chart: bool = True):
+        """Nạp biểu đồ của một mã.
+
+        show_chart=False khi chọn mã ngay trên bản đồ: ở lại bản đồ, khoanh
+        mã mới, còn biểu đồ của mã vẫn tải ngầm cho nút "Theo quý".
+        """
         ticker = ticker.upper()
+        # Đang xem số quỹ thì đổi mã vẫn ở lại đó để so nhanh giữa các mã
+        stay = ((not show_chart and self._mode == "map")
+                or (self._mode == "funds" and self._is_us(ticker)))
         if ticker == self._ticker and (self._html_q or self._html_a):
-            if self._mode == "map":      # đang xem bản đồ thì quay về mã đã nạp
+            if self._mode in ("map", "funds") and not stay:   # quay về mã đã nạp
                 self._switch_mode("quarterly")
             return
         self._ticker = ticker
         self._html_q = ""; self._html_a = ""
-        self._mode   = "quarterly"
-        self._chart_lbl.setText(ticker)
-        self._web.setHtml(self._placeholder())
+        if stay and self._mode == "funds":
+            self._render_funds()
+        elif stay:
+            self._render_map()
+        else:
+            self._mode = "quarterly"
+            self._chart_lbl.setText(ticker)
+            self._web.setHtml(self._placeholder())
         self._refresh_btns()
         if self._worker and self._worker.isRunning():
             self._worker.terminate(); self._worker.wait()
@@ -571,6 +680,13 @@ class ChartPanel(QWidget):
         self._spin_tmr.stop()
         self._html_q = html_q
         self._html_a = html_a
+        if self._mode == "funds":                   # dòng trạng thái đang báo việc tải 13F
+            self._refresh_btns()
+            return
+        if self._mode == "map":                     # đang xem bản đồ thì giữ nguyên
+            self._set_status(f"✓  {self._ticker} sẵn sàng ở “Theo quý”", GREEN)
+            self._refresh_btns()
+            return
         self._mode   = "quarterly"
         self._web.setHtml(html_q)
         parts = summary.split("·")
@@ -579,6 +695,11 @@ class ChartPanel(QWidget):
 
     def _on_failed(self, msg):
         self._spin_tmr.stop()
+        if self._mode == "funds":
+            return
+        if self._mode == "map":
+            self._set_status(f"✕  {msg}", RED)
+            return
         bg = "#0A1628" if self._dark else "#F0F4F9"
         self._web.setHtml(
             f'<html><body style="background:{bg};margin:0;display:flex;'
@@ -588,25 +709,33 @@ class ChartPanel(QWidget):
         self._set_status(f"✕  {msg}", RED)
 
     def _switch_mode(self, mode):
+        if mode == "funds":
+            if self._is_us(self._ticker):
+                self._mode = "funds"
+                self._render_funds()
+                self._refresh_btns()
+                self._ensure_funds()        # bấm lại khi lỗi để thử lại
+            return
         if mode == self._mode:
             return
+        leaving_funds = self._mode == "funds"
         if mode == "map":
-            if not self._html_map:
+            if self._df is None:
                 return
             self._mode = "map"
-            self._chart_lbl.setText("TOÀN BỘ MÃ")
-            self._set_status("so sánh giữa các mã", TEXT3)
-            self._web.setHtml(self._html_map)
-            self._refresh_btns()
-            return
-        html = self._html_a if mode == "annual" else self._html_q
-        if not html:
-            return
-        self._mode = mode
-        if self._ticker:
-            self._chart_lbl.setText(self._ticker)
-        self._web.setHtml(html)
+            self._render_map()
+        else:
+            html = self._html_a if mode == "annual" else self._html_q
+            if not html:
+                return
+            self._mode = mode
+            if self._ticker:
+                self._chart_lbl.setText(self._ticker)
+            self._web.setHtml(html)
         self._refresh_btns()
+        if leaving_funds and not self._spin_tmr.isActive():   # đang tải thì _tick lo
+            self._set_status(f"✓  {self._ticker}" if self._html_q else "",
+                             GREEN if self._html_q else TEXT3)
 
     def set_universe(self, df):
         """Nhận kết quả quét để dựng bản đồ so sánh.
@@ -614,17 +743,38 @@ class ChartPanel(QWidget):
         Dùng đúng dữ liệu đã có trong bảng, không gọi mạng thêm.
         """
         self._df = df
-        try:
-            self._html_map = universe_charts.build_html(df, dark=self._dark)
-        except Exception:
-            self._html_map = ""
+        self._map_key = None
         # Chưa chọn mã nào thì mở thẳng bản đồ — hữu ích hơn ô trống
-        if self._html_map and not self._ticker:
+        if not self._ticker:
             self._mode = "map"
-            self._chart_lbl.setText("TOÀN BỘ MÃ")
-            self._set_status("so sánh giữa các mã", TEXT3)
-            self._web.setHtml(self._html_map)
+        self._render_map()
         self._refresh_btns()
+
+    def _on_map_view(self, _idx):
+        self._map_view = self._map_combo.currentData() or universe_charts.DEFAULT_VIEW
+        self._render_map()
+
+    def _render_map(self):
+        """Dựng lại bản đồ theo loại đang chọn, mã đang chọn và theme.
+
+        Chỉ hiện lên khung khi đang ở chế độ bản đồ; dựng trùng thì bỏ qua.
+        """
+        if self._df is None:
+            return
+        key = (id(self._df), self._map_view, self._ticker, self._dark)
+        if key != self._map_key:
+            try:
+                self._html_map = universe_charts.build_html(
+                    self._df, dark=self._dark, view=self._map_view, focus=self._ticker)
+            except Exception as e:
+                self._html_map = ""
+                self._set_status(f"✕  bản đồ lỗi: {e}", RED)
+            self._map_key = key
+        if self._mode != "map" or not self._html_map:
+            return
+        self._chart_lbl.setText(f"BẢN ĐỒ · {self._ticker}" if self._ticker else "TOÀN BỘ MÃ")
+        self._set_status("so sánh giữa các mã", TEXT3)
+        self._web.setHtml(self._html_map)
 
     def _set_status(self, text, color=TEXT3):
         self._chart_status.setText(text)
@@ -632,7 +782,133 @@ class ChartPanel(QWidget):
 
     def _tick(self):
         self._spin_idx = (self._spin_idx + 1) % len(SPINNER)
+        if self._mode == "funds":           # nhường dòng trạng thái cho việc tải 13F
+            return
         self._set_status(f"{SPINNER[self._spin_idx]}  {self._spin_msg}", AMBER)
+
+    # ── Chế độ Quỹ ────────────────────────────────────────────────────────────
+
+    def set_market(self, market: str):
+        """Thị trường đang chọn — dùng khi mã không có trong kết quả quét."""
+        self._market_us = market.lower() in {"america", "nasdaq", "nyse"}
+        self._refresh_btns()
+
+    def _is_us(self, ticker: str) -> bool:
+        if not ticker:
+            return False
+        df = self._df
+        if df is not None and "ticker" in df.columns and "Ticker" in df.columns:
+            hit = df.loc[df["Ticker"] == ticker, "ticker"]
+            if not hit.empty:
+                return str(hit.iat[0]).split(":")[0].upper() in fund_holders.US_EXCHANGES
+        return self._market_us
+
+    def _fund_running(self) -> bool:
+        return self._fund_worker is not None and self._fund_worker.isRunning()
+
+    def _render_funds(self):
+        if self._mode != "funds" or not self._ticker:
+            return
+        t = self._ticker
+        self._chart_lbl.setText(f"QUỸ · {t}")
+        read_err = ""
+        try:
+            hist = fund_holders.history(t)
+        except Exception as e:              # báo thay vì sập; lần vẽ sau đọc lại
+            hist = None
+            read_err = f"Không đọc được dữ liệu đã lưu: {e}"
+        err = self._fund_err or read_err
+        running = self._fund_running()
+        if hist is not None and hist["holders"].notna().any():
+            note = "đang tải thêm các quý cũ…" if running else ""
+            self._web.setHtml(fund_chart.build_html(hist, t, self._dark, note))
+            if not running and not err:
+                if self._fund_done or fund_holders.user_agent():
+                    self._set_status(f"✓  {len(hist)} quý · SEC 13F", GREEN)
+                else:   # xem bản đã lưu, không cập nhật được
+                    self._set_status(f"{len(hist)} quý đã lưu · chưa có liên hệ SEC "
+                                     "để cập nhật", TEXT3)
+            return
+        if err:
+            title, tone = "Chưa tải được dữ liệu quỹ", "error"
+            body = (f"{_html_escape(err)}<br><br>"
+                    "Bấm lại nút <b>Quỹ</b> để thử lại.")
+        elif running or not fund_holders.cached_quarters():
+            title, tone = "Đang tải dữ liệu 13F lần đầu…", "warn"
+            body = ("Mỗi quý khoảng 100 MB, đủ 12 quý mất chừng 10 phút. "
+                    "Biểu đồ hiện dần khi từng quý xong; các lần sau chỉ tải quý mới.")
+        else:
+            title, tone = f"Không thấy {t} trong dữ liệu 13F", "dim"
+            body = ("Mã có thể mới niêm yết, là chứng chỉ lưu ký hoặc quỹ ETF ít "
+                    "quỹ báo cáo, hoặc chưa có trong bảng ánh xạ CUSIP của SEC.")
+        self._web.setHtml(fund_chart.message_html(title, body, self._dark, tone))
+
+    def _ensure_funds(self):
+        """Cập nhật dữ liệu 13F một lần mỗi phiên; không có mạng vẫn xem bản đã lưu."""
+        if self._fund_running() or self._fund_done:
+            return
+        if not fund_holders.user_agent():
+            if fund_holders.cached_quarters():
+                # Đã có dữ liệu thì xem bản đó, không hỏi lại mỗi lần mở app
+                return
+            if not self._ask_sec_contact():
+                self._fund_err = "Cần tên và email liên hệ thì SEC mới cho tải dữ liệu."
+                self._set_status("✕  chưa có thông tin liên hệ cho SEC", RED)
+                self._render_funds()
+                return
+        self._fund_err = ""
+        w = _FundWorker(self)
+        w.progress.connect(self._on_fund_progress)
+        w.quarter.connect(lambda _k: self._render_funds())
+        w.finished_ok.connect(self._on_fund_done)
+        w.failed.connect(self._on_fund_failed)
+        self._fund_worker = w
+        w.start()
+        self._render_funds()
+
+    def _ask_sec_contact(self) -> bool:
+        text, ok = QInputDialog.getText(
+            self, "Dữ liệu quỹ từ SEC",
+            "SEC (Mỹ) chỉ cho tải dữ liệu Form 13F khi mỗi yêu cầu ghi tên và email\n"
+            "liên hệ của người tải. Nhập theo dạng:   Tên của bạn  email@domain.com\n\n"
+            "Thông tin này chỉ gửi tới sec.gov và lưu trong thư mục fund_cache trên máy.\n"
+            "Lần đầu tải 12 quý (khoảng 1,2 GB, chừng 10 phút); sau đó chỉ tải quý mới.")
+        if not ok or not text.strip():
+            return False
+        try:
+            fund_holders.save_user_agent(text)
+        except (ValueError, OSError) as e:
+            self._fund_err = f"Thông tin liên hệ chưa hợp lệ: {e}"
+            return False
+        return True
+
+    def _on_fund_progress(self, msg: str):
+        self._fund_tick += 1
+        if self._mode == "funds":
+            self._set_status(f"{SPINNER[self._fund_tick % len(SPINNER)]}  {msg}", AMBER)
+
+    def _on_fund_done(self):
+        self._fund_done = True
+        self._render_funds()
+
+    def _on_fund_failed(self, msg: str, access_denied: bool):
+        if access_denied and not fund_holders.ua_from_env():
+            fund_holders.forget_user_agent()    # để lần bấm sau hỏi lại
+        self._fund_err = msg
+        if self._mode == "funds":
+            self._set_status(f"✕  {msg}", RED)
+            self._render_funds()
+
+    def shutdown(self):
+        """Dừng luồng tải 13F trước khi thoát để Qt không huỷ luồng đang chạy.
+
+        Gọi lúc cửa sổ đã đóng nên chờ không làm treo giao diện. Luồng xét cờ
+        dừng sau mỗi 1 MB tải và mỗi khúc đọc; bước chặn lâu nhất là một lần
+        đọc mạng (fund_holders.TIMEOUT), nên 45 giây là đủ.
+        """
+        if self._fund_running():
+            self._fund_worker.stop()
+            self._fund_worker.wait(45_000)
 
     def _refresh_btns(self):
         has_q = bool(self._html_q)
@@ -647,23 +923,25 @@ class ChartPanel(QWidget):
         dis = (f"QPushButton {{ background:transparent; color:{TEXT3};"
                f" border:1px solid {BORDER}; border-radius:3px; font-size:9px;"
                f" font-family:'Segoe UI',sans-serif; }}")
-        has_m = bool(self._html_map)
+        has_m = self._df is not None
+        has_f = self._is_us(self._ticker)
+        self._map_combo.setVisible(self._mode == "map" and has_m)
         self._btn_q.setEnabled(has_q)
         self._btn_a.setEnabled(has_a)
         self._btn_m.setEnabled(has_m)
+        self._btn_f.setEnabled(has_f)
+        self._btn_f.setToolTip(
+            "Số quỹ sở hữu theo quý (SEC Form 13F)" if has_f
+            else "Chỉ có cho cổ phiếu niêm yết ở Mỹ — chọn một mã trước")
         self._btn_q.setStyleSheet(act if (self._mode == "quarterly" and has_q) else off if has_q else dis)
         self._btn_a.setStyleSheet(act if (self._mode == "annual"    and has_a) else off if has_a else dis)
         self._btn_m.setStyleSheet(act if (self._mode == "map"       and has_m) else off if has_m else dis)
+        self._btn_f.setStyleSheet(act if (self._mode == "funds"     and has_f) else off if has_f else dis)
 
     def set_theme(self, dark: bool):
         self._dark = dark
-        if self._df is not None:
-            try:
-                self._html_map = universe_charts.build_html(self._df, dark=dark)
-                if self._mode == "map":
-                    self._web.setHtml(self._html_map)
-            except Exception:
-                pass
+        self._render_map()
+        self._map_combo.setStyleSheet(self._combo_style())
         self.setStyleSheet(f"background:{BG};")
         self._bar_w.setStyleSheet(f"background:{SURFACE};")
         self._sep_line.setStyleSheet(f"background:{BORDER}; border:none;")
@@ -1622,8 +1900,8 @@ class HelpDialog(QDialog):
 </body></html>"""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AI Settings — một nút duy nhất để liên kết CLI `ant`.
-# Luồng OAuth thật nằm trong claude_auth.py.
+# AI Settings — một nút duy nhất để đăng nhập Claude Code mà Agent SDK dùng.
+# Luồng đăng nhập thật nằm trong claude_auth.py.
 # ─────────────────────────────────────────────────────────────────────────────
 class _AuthWorker(QThread):
     """Chạy thao tác xác thực ngoài luồng giao diện.
@@ -1736,13 +2014,16 @@ class AISettingsDialog(QDialog):
         self._btn.setEnabled(True)
 
         if st is not None and st.logged_in:
-            self._dot.setStyleSheet(f"color:{GREEN}; font-size:13px;")
-            prof = (" · " + ", ".join(st.profiles)) if st.profiles else ""
-            self._lbl_state.setText(f"Đã liên kết{prof}")
+            # Đăng nhập rồi nhưng chạy thử hỏng (vd. Claude Code quá cũ) thì báo vàng
+            self._dot.setStyleSheet(f"color:{GREEN if st.verified else AMBER}; font-size:13px;")
+            who = " · ".join(x for x in (st.email, st.plan.capitalize()) if x)
+            self._lbl_state.setText(f"Đã liên kết · {who}" if who else "Đã liên kết")
             self._btn.setText("NGẮT LIÊN KẾT")
             self._btn.setStyleSheet(self._style(BORDER2, RED, TEXT1))
             note = ("App dùng tài khoản Claude đã đăng nhập, tiêu dung lượng gói thuê bao "
-                    "chứ không tính vào tín dụng API.")
+                    "chứ không tính vào tín dụng API. Ngắt liên kết sẽ đăng xuất Claude "
+                    "Code trên cả máy này." if st.verified
+                    else f"Đã đăng nhập nhưng chạy thử lỗi: {st.error}")
         else:
             self._dot.setStyleSheet(f"color:{TEXT3}; font-size:13px;")
             self._lbl_state.setText("Chưa liên kết")
@@ -1828,6 +2109,8 @@ class AnalysisPanel(QWidget):
         self._worker = None
         self._busy   = False
         self._dark   = False
+        self._res    = None     # báo cáo đang hiện, để vẽ lại khi đổi giao diện
+        self._cached = False
 
         self.setStyleSheet(f"background:{BG};")
         v = QVBoxLayout(self)
@@ -1844,21 +2127,18 @@ class AnalysisPanel(QWidget):
         # Dòng trên: mã, tên, nút
         r1 = QHBoxLayout(); r1.setSpacing(10)
         self._lbl_tk = QLabel("—")
-        self._lbl_tk.setStyleSheet(
-            f"color:{TEXT1}; font-size:19px; font-weight:700;"
-            f" font-family:Consolas,monospace; letter-spacing:2px;")
         self._lbl_co = QLabel("")
-        self._lbl_co.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
         r1.addWidget(self._lbl_tk); r1.addWidget(self._lbl_co); r1.addStretch()
 
-        self._btn_run = QPushButton("✦  PHÂN TÍCH")
-        self._btn_run.setFixedSize(132, 30)
+        self._btn_run = QPushButton("LẬP BÁO CÁO")
+        self._btn_run.setFixedSize(116, 30)
         self._btn_run.setCursor(Qt.PointingHandCursor)
         self._btn_run.clicked.connect(lambda: self._run(force=False))
         r1.addWidget(self._btn_run)
 
-        self._btn_again = QPushButton("LÀM MỚI")
-        self._btn_again.setFixedSize(88, 30)
+        self._btn_again = QPushButton("CẬP NHẬT")
+        self._btn_again.setFixedSize(92, 30)
+        self._btn_again.setToolTip("Lập lại báo cáo với số liệu và tin tức mới nhất")
         self._btn_again.setCursor(Qt.PointingHandCursor)
         self._btn_again.clicked.connect(lambda: self._run(force=True))
         r1.addWidget(self._btn_again)
@@ -1870,12 +2150,9 @@ class AnalysisPanel(QWidget):
         self._lbl_sig.setStyleSheet(
             f"font-size:10px; font-weight:700; padding:2px 9px; border-radius:3px;")
         self._lbl_score = QLabel("")
-        self._lbl_score.setStyleSheet(
-            f"color:{TEXT2}; font-size:11px; font-family:Consolas,monospace;")
         r2.addWidget(self._lbl_sig); r2.addWidget(self._lbl_score)
         r2.addStretch()
         self._lbl_meta = QLabel("")
-        self._lbl_meta.setStyleSheet(f"color:{TEXT3}; font-size:10px;")
         r2.addWidget(self._lbl_meta)
         bv.addLayout(r2)
         v.addWidget(bar)
@@ -1911,205 +2188,42 @@ class AnalysisPanel(QWidget):
         if self._row is not None:
             self._render_evidence(self._row)
         self._bar.setStyleSheet(f"background:{SURFACE}; border-bottom:1px solid {BORDER};")
+        self._lbl_tk.setStyleSheet(
+            f"color:{TEXT1}; font-size:18px; font-weight:700; border:none;"
+            f" font-family:'Segoe UI',sans-serif; letter-spacing:1px;")
+        self._lbl_co.setStyleSheet(f"color:{TEXT2}; font-size:12px; border:none;")
+        self._lbl_score.setStyleSheet(f"color:{TEXT2}; font-size:11px; border:none;")
+        self._lbl_meta.setStyleSheet(f"color:{TEXT3}; font-size:10px; border:none;")
+        # Báo cáo đặt trên nền "giấy" cùng màu khung đồ thị bên cạnh
         self._view.setStyleSheet(
-            f"QTextBrowser {{ background:{BG}; color:{TEXT1}; border:none;"
-            f" padding:22px 28px; font-family:'Segoe UI',sans-serif; font-size:13px; }}")
+            f"QTextBrowser {{ background:{SURFACE}; color:{TEXT1}; border:none;"
+            f" padding:24px 34px; font-family:'Segoe UI',sans-serif; font-size:13px; }}")
         _b = (f"QPushButton {{ background:{BLUE}; color:#FFFFFF; border:none;"
-              f" border-radius:4px; font-size:10px; font-weight:700; letter-spacing:1px; }}"
+              f" border-radius:3px; font-size:10px; font-weight:700; letter-spacing:1px; }}"
               f"QPushButton:hover {{ background:{BLUE_HV}; }}"
               f"QPushButton:disabled {{ background:{BORDER2}; color:{TEXT3}; }}")
-        _f = (f"QPushButton {{ background:{BORDER2}; color:{TEXT1}; border:none;"
-              f" border-radius:4px; font-size:10px; font-weight:700; letter-spacing:1px; }}"
-              f"QPushButton:hover {{ background:{BLUE}; color:#FFFFFF; }}"
-              f"QPushButton:disabled {{ color:{TEXT3}; }}")
+        _f = (f"QPushButton {{ background:transparent; color:{TEXT1};"
+              f" border:1px solid {BORDER2}; border-radius:3px;"
+              f" font-size:10px; font-weight:700; letter-spacing:1px; }}"
+              f"QPushButton:hover {{ border-color:{BLUE}; color:{BLUE}; }}"
+              f"QPushButton:disabled {{ color:{TEXT3}; border-color:{BORDER}; }}")
         self._btn_run.setStyleSheet(_b)
         self._btn_again.setStyleSheet(_f)
+        if not self._busy and hasattr(self, "_view"):
+            if self._res:
+                self._show(self._res, self._cached)
+            elif self._row is not None:
+                self._render_empty()
 
-    def _html(self, body, note="", tiles=""):
-        warn = (f'<table width="100%" cellspacing="0" cellpadding="0" '
-                f'style="margin:0 0 12px 0;"><tr>'
-                f'<td style="background:#FFF2CC;color:#7D6608;padding:9px 14px;'
-                f'font-size:11px;font-style:italic;">{note}</td></tr></table>') if note else ""
-        return f"""<body style="color:{TEXT1};font-family:'Segoe UI',sans-serif;">
-          {warn}{tiles}{body}</body>"""
-
-    def _tiles(self, row) -> str:
-        """Dải số liệu then chốt — những con số mà phần chữ sẽ nhắc tới."""
-        if not row:
-            return ""
-
-        def f(key, suffix="", dec=1, good=None):
-            v = row.get(key)
-            try:
-                v = float(v)
-                if v != v:
-                    raise ValueError
-            except (TypeError, ValueError):
-                return "—", TEXT3
-            col = TEXT1
-            if good is not None:
-                col = GREEN if good(v) else RED
-            return f"{v:,.{dec}f}{suffix}", col
-
-        items = [
-            ("ROIC",        f("ROIC%", "%", 1, lambda v: v > 15)),
-            ("BIÊN GỘP",    f("Gross Margin%", "%", 1, lambda v: v > 40)),
-            ("LỢI NHUẬN ↑", f("NI Growth%", "%", 0, lambda v: v > 20)),
-            ("DOANH THU ↑", f("Rev Growth%", "%", 0, lambda v: v > 15)),
-            ("FCF / LN",    f("FCF/NI", "×", 2, lambda v: v >= 0.8)),
-            ("ROE − ROIC",  f("ROE_ROIC_Gap", "đ", 1, lambda v: v <= 15)),
-            ("NỢ / FCF",    f("Nợ ròng/FCF", " năm", 1, lambda v: v < 3)),
-            ("DỐC BIÊN",    f("Dốc biên", "đ/năm", 1, lambda v: v >= -1)),
-        ]
-        cells = "".join(
-            f'<td width="12%" style="background:{SURFACE};padding:9px 4px;'
-            f'text-align:center;">'
-            f'<div style="color:{col};font-size:15px;font-weight:700;'
-            f'font-family:Consolas,monospace;">{val}</div>'
-            f'<div style="color:{TEXT3};font-size:8px;font-weight:700;'
-            f'letter-spacing:1px;">{lab}</div></td>'
-            for lab, (val, col) in items)
-        return (f'<table width="100%" cellspacing="3" cellpadding="0" '
-                f'style="margin:0 0 14px 0;"><tr>{cells}</tr></table>')
+    def _pal(self) -> dict:
+        """Bảng màu của giao diện hiện hành — các hằng màu đổi theo theme."""
+        g = globals()
+        return {k: g[k] for k in ("BG", "SURFACE", "BORDER", "BORDER2", "BLUE",
+                                  "TEXT1", "TEXT2", "TEXT3", "GREEN", "RED", "AMBER")}
 
     def _render_empty(self):
-        rows = "".join(
-            f'<tr>'
-            f'<td width="30" valign="top" style="padding:7px 0;color:{c};font-size:14px;'
-            f'font-weight:700;font-family:Consolas,monospace;">{i}</td>'
-            f'<td style="padding:7px 0;"><span style="color:{TEXT1};font-size:12px;'
-            f'font-weight:700;letter-spacing:1px;">{t}</span><br>'
-            f'<span style="color:{TEXT3};font-size:11px;">{d}</span></td></tr>'
-            for i, t, d, c in [
-                ("01", "NGÀNH KINH DOANH", "Doanh nghiệp kiếm tiền bằng cách nào, đối thủ là ai", BLUE),
-                ("02", "LỢI THẾ CẠNH TRANH", "Hào kinh tế có thật không, có giải thích được ROIC không", GREEN),
-                ("03", "TIỀM NĂNG PHÁT TRIỂN", "Động lực và rủi ro cụ thể trong 2–3 năm tới", BLUE),
-                ("04", "TIN TỨC QUAN TRỌNG", "Tìm trên web, mỗi tin kèm nguồn và ngày", AMBER),
-                ("05", "ĐỐI CHIẾU VỚI SỐ LIỆU", "Chỗ nào khớp và chỗ nào lệch với điểm bộ lọc", RED),
-            ])
-        self._view.setHtml(self._html(
-            f'<p style="color:{TEXT1};font-size:13px;font-weight:700;margin:4px 0 2px 0;">'
-            f'Chọn một mã rồi bấm ✦ PHÂN TÍCH</p>'
-            f'<p style="color:{TEXT3};font-size:11px;line-height:170%;margin:0 0 16px 0;">'
-            f'Claude đọc chính các chỉ số mà bộ lọc đã tính cho mã đó, giải thích vì sao chúng '
-            f'như vậy, rồi tìm trên web những tin tức gần đây có thể ảnh hưởng.</p>'
-            f'<table width="100%" cellspacing="0" cellpadding="0" '
-            f'style="background:{SURFACE};">'
-            f'<tr><td style="padding:10px 18px;">'
-            f'<table width="100%" cellspacing="0" cellpadding="0">{rows}</table>'
-            f'</td></tr></table>'
-            f'<p style="color:{TEXT3};font-size:10px;margin:14px 0 0 0;line-height:165%;">'
-            f'Kết quả lưu theo ngày — mở lại trong cùng ngày không chạy lại. '
-            f'Mỗi lần chạy hiện chi phí thực tế.</p>'))
-
-    def _md_to_html(self, md: str) -> str:
-        """Dựng HTML từ Markdown Claude trả về.
-
-        Mỗi mục thành một thẻ riêng có số thứ tự và vạch màu, thay vì một
-        khối chữ liền — đọc báo cáo dài thì mắt cần chỗ nghỉ giữa các phần.
-        """
-        meta = {
-            "nganh":    (BLUE,  "01", "Doanh nghiệp kiếm tiền bằng cách nào"),
-            "loithe":   (GREEN, "02", "Hào kinh tế có thật không"),
-            "tiemnang": (BLUE,  "03", "Động lực và rủi ro phía trước"),
-            "tintuc":   (AMBER, "04", "Có nguồn và ngày, lấy từ web"),
-            "doichieu": (RED,   "05", "Chỗ khớp và chỗ lệch với điểm bộ lọc"),
-        }
-        titles = {t.upper(): (k, t) for k, t in ai_analysis.SECTIONS}
-        parts, cur, buf = [], None, []
-
-        def flush():
-            if cur is None and not buf:
-                return
-            key, title = cur if cur else (None, None)
-            body = self._body_html(buf, key)
-            if key is None:
-                parts.append(body)
-                return
-            color, num, hint = meta.get(key, (BLUE, "", ""))
-            parts.append(
-                f'<table width="100%" cellspacing="0" cellpadding="0" '
-                f'style="margin:0 0 16px 0;">'
-                f'<tr><td style="background:{SURFACE};border-left:3px solid {color};'
-                f'padding:14px 20px 4px 18px;">'
-                f'<span style="color:{color};font-size:17px;font-weight:700;'
-                f'font-family:Consolas,monospace;">{num}</span>'
-                f'<span style="color:{TEXT1};font-size:12px;font-weight:700;'
-                f'letter-spacing:2px;">&nbsp;&nbsp;{title}</span><br>'
-                f'<span style="color:{TEXT3};font-size:10px;">{hint}</span>'
-                f'</td></tr>'
-                f'<tr><td style="background:{SURFACE};padding:2px 20px 15px 18px;'
-                f'border-left:3px solid {color};">{body}</td></tr></table>')
-
-        for line in (md or "").splitlines():
-            m = re.match(r"^\s*#{1,3}\s*(.+?)\s*$", line)
-            if m and m.group(1).strip().upper() in titles:
-                flush()
-                cur, buf = titles[m.group(1).strip().upper()], []
-            else:
-                buf.append(line)
-        flush()
-        return "".join(parts)
-
-    def _body_html(self, lines, key=None) -> str:
-        """Thân một mục. Tin tức và đối chiếu được tô riêng vì đọc khác nhau."""
-        out, lst = "", False
-
-        def close():
-            nonlocal out, lst
-            if lst:
-                out += "</table>"
-                lst = False
-
-        for ln in lines:
-            t = ln.strip()
-            if not t:
-                continue
-            bullet = t.startswith(("- ", "* ", "• "))
-            txt = t[2:] if bullet else t
-
-            if bullet:
-                if not lst:
-                    out += ('<table width="100%" cellspacing="0" cellpadding="0" '
-                            'style="margin:5px 0;">')
-                    lst = True
-                # Tin tức: tách ngày ra thành nhãn riêng cho dễ quét mắt
-                dot = RED if key == "doichieu" else AMBER if key == "tintuc" else BLUE
-                mark = "▸"
-                if key == "tintuc":
-                    md_ = re.match(r"^\**\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", txt)
-                    if md_:
-                        mark = md_.group(1)
-                out += (f'<tr>'
-                        f'<td width="62" valign="top" style="padding:4px 8px 4px 0;'
-                        f'color:{dot};font-size:9px;font-weight:700;'
-                        f'font-family:Consolas,monospace;">{mark}</td>'
-                        f'<td style="padding:4px 0;color:{TEXT1};font-size:12px;'
-                        f'line-height:168%;">{self._inline(txt)}</td></tr>')
-            else:
-                close()
-                col = TEXT1
-                low = txt.lower()
-                if key == "doichieu":
-                    if low.startswith(("**khớp", "khớp", "**những chỗ khớp",
-                                       "những chỗ câu chuyện khớp")):
-                        col = GREEN
-                    elif low.startswith(("**lệch", "lệch", "**những chỗ lệch",
-                                         "những chỗ lệch")):
-                        col = RED
-                out += (f'<p style="margin:8px 0;color:{col};font-size:12px;'
-                        f'line-height:172%;">{self._inline(txt)}</p>')
-        close()
-        return out
-
-    @staticmethod
-    def _inline(t: str) -> str:
-        t = (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-        t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
-        t = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", t)
-        t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)",
-                   r"<a href='\2' style='color:#4A9EFF;'>\1</a>", t)
-        return t
+        self._res = None
+        self._view.setHtml(analysis_report.empty(self._pal(), self._row))
 
     # ── Dữ liệu ────────────────────────────────────────────────────────────
     def _fill_context(self, row):
@@ -2165,19 +2279,28 @@ class AnalysisPanel(QWidget):
             pass
 
     def _show(self, res: dict, from_cache=False):
-        when = (res.get("created", "") or "")[:16].replace("T", " ")
-        bits = [f"{'bản lưu' if from_cache else 'vừa chạy'} {when}"]
-        if res.get("model"):
-            bits.append(res["model"])
-        if res.get("cost_usd"):
-            bits.append(f"${res['cost_usd']:.3f}")
+        from datetime import datetime
+        self._res, self._cached = res, from_cache
+        when = (res.get("created", "") or "")[:16]
+        try:
+            when = datetime.fromisoformat(when).strftime("%H:%M  %d/%m/%Y")
+        except ValueError:
+            when = when.replace("T", " ")
+        bits = [f"Lập lúc {when}"]
         if res.get("searches"):
-            bits.append(f"{res['searches']} lần tìm web")
-        self._lbl_meta.setText("  ·  ".join(bits))
-        note = ("Kết quả bị cắt vì đạt giới hạn độ dài — bấm LÀM MỚI để chạy lại."
+            bits.append(f"{res['searches']} lượt tìm kiếm")
+        self._lbl_meta.setText("   ·   ".join(bits))
+        # Thông tin kỹ thuật để trong chú thích, không chiếm chỗ trên báo cáo
+        tech = [("Bản lưu trong ngày" if from_cache else "Vừa lập")]
+        if res.get("model"):
+            tech.append(f"Mô hình: {res['model']}")
+        if res.get("cost_usd"):
+            tech.append(f"Chi phí ước tính: ${res['cost_usd']:.3f}")
+        self._lbl_meta.setToolTip("\n".join(tech))
+        note = ("Báo cáo bị cắt vì đạt giới hạn độ dài — bấm CẬP NHẬT để lập lại."
                 if res.get("truncated") else "")
-        self._view.setHtml(self._html(self._md_to_html(res.get("markdown", "")),
-                                      note, self._tiles(self._row)))
+        self._view.setHtml(analysis_report.build(
+            res.get("markdown", ""), self._pal(), self._row, res, note))
 
     # ── Chạy ───────────────────────────────────────────────────────────────
     def _run(self, force=False):
@@ -2201,15 +2324,10 @@ class AnalysisPanel(QWidget):
         self._btn_run.setEnabled(False)
         self._btn_again.setEnabled(False)
         self._buf = []
-        self._lbl_meta.setText("đang chạy…")
-        self._view.setHtml(self._html(
-            f'<table width="100%" cellspacing="0" cellpadding="0" '
-            f'style="background:{SURFACE};"><tr>'
-            f'<td style="padding:22px 20px;border-left:3px solid {BLUE};">'
-            f'<span style="color:{BLUE};font-size:12px;font-weight:700;letter-spacing:2px;">'
-            f'ĐANG PHÂN TÍCH</span><br>'
-            f'<span style="color:{TEXT3};font-size:11px;">Claude đang tìm tin tức và đối chiếu '
-            f'số liệu. Thường mất một tới hai phút.</span></td></tr></table>'))
+        self._res = None
+        self._lbl_meta.setText("Đang lập báo cáo…")
+        self._lbl_meta.setToolTip("")
+        self._view.setHtml(analysis_report.running(self._pal(), self._row))
 
         self._worker = _AnalysisWorker(
             ctx, tk, str(self._row.get("Tên Công Ty", "")),
@@ -2227,7 +2345,8 @@ class AnalysisPanel(QWidget):
         self._buf.append(piece)
         # Dựng lại từ đầu mỗi mẩu thì chậm; chỉ vẽ khi vừa xong một đoạn
         if piece.endswith("\n") or len(self._buf) % 40 == 0:
-            self._view.setHtml(self._html(self._md_to_html("".join(self._buf))))
+            self._view.setHtml(analysis_report.build(
+                "".join(self._buf), self._pal(), self._row, streaming=True))
             sb = self._view.verticalScrollBar()
             sb.setValue(sb.maximum())
 
@@ -2242,14 +2361,12 @@ class AnalysisPanel(QWidget):
         self._busy = False
         self._btn_run.setEnabled(bool(self._row))
         self._btn_again.setEnabled(False)
+        self._res = None
         self._lbl_meta.setText("")
-        self._view.setHtml(self._html(
-            f"<div style='background:#FFC7CE;color:#9C0006;border-radius:5px;"
-            f"padding:14px 16px;font-size:12px;line-height:170%;'>"
-            f"<b>Không chạy được</b><br>"
-            + "<br>".join(f"<p style='margin:7px 0;'>{self._inline(x)}</p>"
-                          for x in msg.split(chr(10)) if x.strip())
-            + "</div>"))
+        self._lbl_meta.setToolTip("")
+        self._view.setHtml(analysis_report.error(self._pal(), msg))
+
+
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
     done     = Signal(str)        # output path
@@ -2324,6 +2441,9 @@ class MainWindow(QMainWindow):
 
         # Biểu đồ: dựng trước vì tab Dashboard sẽ gắn nó vào
         self._chart_panel = ChartPanel()   # được gắn vào trong tab Dashboard
+        self._chart_panel.ticker_picked.connect(self._on_map_pick)
+        self._chart_panel.set_market(self._market.currentText())
+        self._market.currentTextChanged.connect(self._chart_panel.set_market)
 
         # Các tab
         self._tabs_w = self._build_tabs()
@@ -2609,7 +2729,7 @@ class MainWindow(QMainWindow):
         self._portfolio_panel = PortfolioPanel()
         tabs.addTab(self._portfolio_panel, "  💼 Portfolio  ")
         self._ai_panel = AnalysisPanel()
-        tabs.addTab(self._ai_panel, "  ✦ Phân tích  ")
+        tabs.addTab(self._ai_panel, "  📑 Phân tích  ")
 
         return tabs
 
@@ -3993,11 +4113,18 @@ class MainWindow(QMainWindow):
         if not href.startswith("tk:"):
             return
         ticker = href[3:].strip().upper()
-        if not ticker:
-            return
+        if ticker:
+            self._select_ticker(ticker)
+
+    def _on_map_pick(self, ticker: str):
+        """Bấm một chấm trên bản đồ: chọn mã đó nhưng ở lại bản đồ để so tiếp."""
+        self._select_ticker(ticker, show_chart=False)
+
+    def _select_ticker(self, ticker: str, show_chart: bool = True):
+        """Nạp biểu đồ và chi tiết cho một mã."""
         self._dash_ticker = ticker
         self._ticker_inp.setText(ticker)
-        self._chart_panel.load_ticker(ticker)
+        self._chart_panel.load_ticker(ticker, show_chart=show_chart)
         if self._df is not None:
             m = self._df[self._df["Ticker"] == ticker]
             if not m.empty:
