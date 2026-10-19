@@ -34,12 +34,16 @@ import analysis_charts
 import analysis_report
 import fund_holders
 import fund_chart
+import signal_tracking
+import valuation
+import price_chart
 from html import escape as _html_escape
 
 fetch_data             = _m.fetch_data
 clean_df               = _m.clean_df
 score_stocks           = _m.score_stocks
 save_snapshot          = _m.save_snapshot
+snapshot_dir           = _m.snapshot_dir
 fetch_moat_yfinance    = _m.fetch_moat_yfinance
 fetch_market_direction = _m.fetch_market_direction
 _MKT_INDEX          = _m._MKT_INDEX
@@ -53,6 +57,10 @@ N_REAL              = _m.N_REAL
 MOAT_SCORE_STYLE    = _m.MOAT_SCORE_STYLE
 FETCH_COLS          = _m.FETCH_COLS
 RENAME              = _m.RENAME
+
+# Nhãn tiêu chí để mô tả «đạt thêm / mất» giữa hai lần quét
+_CHANGE_LABELS = {**{f"FIN_{k}": FIN_CRITERIA[k]["label"] for k in FIN_KEYS},
+                  **{f"REAL_{k}": REAL_CRITERIA[k]["label"] for k in REAL_KEYS}}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Design tokens
@@ -123,6 +131,8 @@ TABLE_COLS = [
     ("D/E",        "D/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
     ("ROE%",       "ROE%",          58,  Qt.AlignRight  | Qt.AlignVCenter),
     ("P/E",        "P/E",           52,  Qt.AlignRight  | Qt.AlignVCenter),
+    ("Ngụ ý%",     "Tăng trưởng ngụ ý%", 62, Qt.AlignRight | Qt.AlignVCenter),
+    ("Lợi suất",   "Lợi suất%",     62,  Qt.AlignRight  | Qt.AlignVCenter),
     ("1Y%",        "1Y%",           55,  Qt.AlignRight  | Qt.AlignVCenter),
     # 6 tiêu chí nhóm A
     ("ROIC",       "FIN_ROIC",      40,  Qt.AlignCenter | Qt.AlignVCenter),
@@ -134,6 +144,8 @@ TABLE_COLS = [
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
@@ -173,6 +185,8 @@ REAL_COLS = [
     ("Tài chính",  "FIN_Disp",      64,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thực",       "REAL_Disp",     58,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
@@ -269,8 +283,9 @@ COL_TIPS = {
         "cổ phiếu quỹ làm vốn chủ teo lại. Hệ thống dùng ROIC và so hai con số với nhau ở cột ROE−ROIC.</i>",
     "P/E":
         "<b>Price to Earnings</b> = giá / lợi nhuận trên mỗi cổ phiếu.<br>"
-        "<i>Chỉ hiển thị tham khảo. Hệ thống không chấm điểm định giá — nó trả lời «doanh nghiệp này "
-        "có tốt và có thật không», không phải «giá này có rẻ không».</i>",
+        "<i>Chỉ hiển thị tham khảo, không chấm điểm. Điểm chất lượng trả lời «doanh nghiệp này có tốt "
+        "và có thật không»; câu «giá này có rẻ không» nằm ở cột Định giá (thị trường Mỹ) — tách hẳn "
+        "khỏi điểm.</i>",
     "1Y%": "Hiệu suất giá 12 tháng gần nhất. Chỉ hiển thị, không chấm điểm.",
     "Net Margin%": "<b>Biên lợi nhuận ròng</b> = lợi nhuận ròng / doanh thu. Chỉ hiển thị.",
     "EV/EBITDA": "Giá trị doanh nghiệp trên lợi nhuận trước lãi, thuế và khấu hao. Chỉ hiển thị.",
@@ -384,6 +399,39 @@ COL_TIPS = {
         "🔴 CỜ ĐỎ: tài chính ≥ 80% nhưng kiểm chứng &lt; 60% — số đẹp chưa chứng minh được<br>"
         "🟠 THẬT NHƯNG YẾU: kiểm chứng ≥ 80% nhưng tài chính &lt; 50%<br>"
         "🟡 THEO DÕI · ⚫ LOẠI · ⚪ THIẾU DỮ LIỆU (dưới 3 tiêu chí áp dụng được)",
+    "Định giá":
+        "<b>Định giá ngược (reverse DCF)</b> — chỉ áp dụng cho thị trường Mỹ.<br>"
+        "Câu hỏi: giá hiện tại đã tính sẵn dòng tiền tăng bao nhiêu mỗi năm? Lấy vốn hóa, chiết khấu "
+        f"{valuation.DISCOUNT:.0%}/năm, {valuation.YEARS} năm rồi tăng "
+        f"{valuation.TERMINAL * 100:.1f}".replace(".", ",") + "% mãi mãi, giải ra mức tăng trưởng "
+        "ngụ ý. Đem so với mức doanh nghiệp đã chứng minh — doanh thu nhiều năm (khi quét kèm "
+        "yfinance), nếu không thì doanh thu 12 tháng; mốc được kẹp trong khoảng "
+        f"{valuation.REF_LO:g}% đến {valuation.REF_HI:g}%/năm.<br>"
+        f"<b>Rẻ</b>: ngụ ý thấp hơn mốc từ {-valuation.CHEAP_GAP:g} điểm · "
+        f"<b>Hợp lý</b>: lệch dưới {valuation.RICH_GAP:g} điểm · "
+        f"<b>Đắt</b>: cao hơn {valuation.RICH_GAP:g}–{valuation.VERY_RICH_GAP:g} điểm, hoặc ngụ ý từ "
+        f"{valuation.ABS_RICH:g}%/năm · "
+        f"<b>Rất đắt</b>: cao hơn từ {valuation.VERY_RICH_GAP:g} điểm, hoặc ngụ ý từ "
+        f"{valuation.ABS_VERY_RICH:g}%/năm.<br>"
+        "Dấu <b>?</b> = độ tin cậy thấp: phải dùng lợi nhuận thay cho dòng tiền thật, hoặc tăng "
+        "trưởng gần đây quá nóng để làm mốc.<br>"
+        "<i>Nhãn riêng, không cộng vào điểm và không đổi tín hiệu — chất lượng và giá là hai câu hỏi "
+        "khác nhau. Rê chuột vào từng ô để xem cách tính của mã đó.</i>",
+    "Tăng trưởng ngụ ý%":
+        "<b>Tăng trưởng ngụ ý</b> — mức tăng dòng tiền mỗi năm, suốt "
+        f"{valuation.YEARS} năm, mà giá hiện tại đã tính sẵn. Càng cao thì giá càng đòi hỏi nhiều ở "
+        "tương lai.<br><i>Chỉ thị trường Mỹ. Không chấm điểm.</i>",
+    "Lợi suất%":
+        "<b>Lợi suất dòng tiền</b> = dòng tiền dùng để định giá / vốn hóa. Dòng tiền là FCF; nhóm tài "
+        "chính, và mã có FCF dưới "
+        f"{valuation.LOW_CASH_CONVERSION:g}".replace(".", ",") + " lần lợi nhuận, dùng lợi nhuận "
+        "ròng. Lợi suất 5% tương đương P/FCF 20.<br><i>Chỉ thị trường Mỹ. Không chấm điểm.</i>",
+    "Thay đổi":
+        "<b>Thay đổi so với lần quét trước</b> của cùng thị trường (lần gần nhất trước hôm nay).<br>"
+        "▲ lên hạng tín hiệu · ▼ xuống hạng · MỚI: lần trước không có trong danh sách · "
+        "• N tiêu chí: tín hiệu giữ nguyên nhưng có tiêu chí đổi kết quả · • giá X: chỉ nhãn định "
+        "giá đổi.<br>Rê chuột vào từng ô để xem chi tiết. Mỗi lần quét được lưu một ảnh chụp trong "
+        "thư mục snapshots.",
 }
 
 
@@ -454,6 +502,31 @@ class _FundWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}", False)
             return
         self.finished_ok.emit()
+
+
+class _PriceWorker(QThread):
+    """Tải lịch sử giá một mã từ Yahoo Finance ở luồng nền."""
+    done   = Signal(str, object)    # mã, price_chart.PriceHistory
+    failed = Signal(str, str)       # mã, thông báo
+
+    def __init__(self, ticker, exchange, market, expect, parent=None):
+        super().__init__(parent)
+        self._args = (ticker, exchange, market, expect)
+
+    def run(self):
+        ticker, exchange, market, expect = self._args
+        try:
+            hist = price_chart.fetch(ticker, exchange, market, expect=expect,
+                                     stop=self.isInterruptionRequested)
+        except price_chart.Cancelled:
+            return
+        except ValueError as e:         # không ký hiệu nào có giá
+            self.failed.emit(ticker, str(e))
+            return
+        except Exception as e:
+            self.failed.emit(ticker, f"{type(e).__name__}: {e}")
+            return
+        self.done.emit(ticker, hist)
 
 
 class _MapPage(QWebEnginePage):
@@ -534,9 +607,34 @@ class ColoredHeader(QHeaderView):
         painter.restore()
 
 
+class _ElidedLabel(QLabel):
+    """Nhãn một dòng tự cắt «…» khi thiếu chỗ thay vì ép khung chứa giãn ra.
+    Rê chuột để đọc đủ."""
+
+    def minimumSizeHint(self):
+        s = super().minimumSizeHint()
+        s.setWidth(min(s.width(), 40))
+        return s
+
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        r = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, r.width())
+        self.style().drawItemText(painter, r, Qt.AlignRight | Qt.AlignVCenter, self.palette(),
+                                  self.isEnabled(), text, self.foregroundRole())
+
+
 class ChartPanel(QWidget):
     """Khung biểu đồ — QWebEngineView dựng HTML Plotly."""
     ticker_picked = Signal(str)     # bấm một chấm trên bản đồ
+    _PX_TTL   = 30 * 60     # giây: giá cũ hơn thì tải lại khi xem
+    _PX_KEEP  = 60          # số mã giữ giá trong bộ nhớ
+    _PX_DELAY = 300         # ms: chờ người dùng thôi lướt bảng rồi mới tải
+    _RANGE_SHORT = {"6m": "6T", "1y": "1N", "3y": "3N", "5y": "5N"}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -562,6 +660,18 @@ class ChartPanel(QWidget):
         self._fund_err    = ""
         self._fund_tick   = 0
         self._market_us   = True
+        self._market      = ""
+        # Chế độ "Giá": nến từ Yahoo Finance, giữ theo mã trong phiên
+        # Khoá (thị trường, mã): cùng một mã ở hai thị trường là hai ký hiệu Yahoo
+        self._px_cache   = {}       # khoá → PriceHistory
+        self._px_time    = {}       # khoá → lúc tải xong (time.monotonic)
+        self._px_err     = {}       # khoá → lỗi của lần tải gần nhất
+        self._px_workers = {}       # khoá → _PriceWorker đang chạy
+        self._px_range   = price_chart.DEFAULT_RANGE
+        self._px_timer   = QTimer(self)
+        self._px_timer.setSingleShot(True)
+        self._px_timer.setInterval(self._PX_DELAY)
+        self._px_timer.timeout.connect(lambda: self._ensure_price(self._ticker))
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.shutdown)
@@ -599,10 +709,11 @@ class ChartPanel(QWidget):
         self._chart_lbl.setStyleSheet(
             f"color:{TEXT1}; font-size:13px; font-weight:700;"
             f" font-family:'Consolas',monospace; letter-spacing:2px;")
-        h.addWidget(self._chart_lbl); h.addStretch()
-        self._chart_status = QLabel("Click a row to load chart")
+        h.addWidget(self._chart_lbl)
+        # Chiếm phần trống giữa tên mã và các nút, chữ dồn phải sát nút
+        self._chart_status = _ElidedLabel("Click a row to load chart")
         self._chart_status.setStyleSheet(f"color:{TEXT3}; font-size:9px; letter-spacing:1px;")
-        h.addWidget(self._chart_status); h.addSpacing(10)
+        h.addWidget(self._chart_status, 1); h.addSpacing(10)
         self._map_combo = QComboBox()
         for key, label in universe_charts.VIEWS.items():
             self._map_combo.addItem(label, key)
@@ -612,18 +723,31 @@ class ChartPanel(QWidget):
         self._map_combo.setVisible(False)
         self._map_combo.currentIndexChanged.connect(self._on_map_view)
         h.addWidget(self._map_combo)
+        # Khung thời gian của đồ thị giá — chỉ hiện ở chế độ Giá
+        self._rng_btns = {}
+        for key, short in self._RANGE_SHORT.items():
+            label, _days, freq = price_chart.RANGES[key]
+            b = QPushButton(short)
+            b.setFixedSize(28, 22); b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(f"{label} · nến {'ngày' if freq == 'D' else 'tuần'}")
+            b.setVisible(False)
+            b.clicked.connect(lambda _=False, k=key: self._set_range(k))
+            h.addWidget(b)
+            self._rng_btns[key] = b
         self._btn_q = QPushButton("Theo quý")
         self._btn_a = QPushButton("Theo năm")
+        self._btn_p = QPushButton("Giá")
         self._btn_m = QPushButton("Bản đồ")
         self._btn_f = QPushButton("Quỹ")
-        for btn in (self._btn_q, self._btn_a, self._btn_m, self._btn_f):
-            btn.setFixedSize(78, 22); btn.setCursor(Qt.PointingHandCursor)
+        for btn in (self._btn_q, self._btn_a, self._btn_p, self._btn_m, self._btn_f):
+            btn.setFixedSize(70, 22); btn.setCursor(Qt.PointingHandCursor)
         self._btn_q.clicked.connect(lambda: self._switch_mode("quarterly"))
         self._btn_a.clicked.connect(lambda: self._switch_mode("annual"))
+        self._btn_p.clicked.connect(lambda: self._switch_mode("price"))
         self._btn_m.clicked.connect(lambda: self._switch_mode("map"))
         self._btn_f.clicked.connect(lambda: self._switch_mode("funds"))
-        h.addWidget(self._btn_q); h.addWidget(self._btn_a); h.addWidget(self._btn_m)
-        h.addWidget(self._btn_f)
+        h.addWidget(self._btn_q); h.addWidget(self._btn_a); h.addWidget(self._btn_p)
+        h.addWidget(self._btn_m); h.addWidget(self._btn_f)
         self._refresh_btns()
         return w
 
@@ -648,9 +772,10 @@ class ChartPanel(QWidget):
         mã mới, còn biểu đồ của mã vẫn tải ngầm cho nút "Theo quý".
         """
         ticker = ticker.upper()
-        # Đang xem số quỹ thì đổi mã vẫn ở lại đó để so nhanh giữa các mã
+        # Đang xem số quỹ hay giá thì đổi mã vẫn ở lại đó để so nhanh giữa các mã
         stay = ((not show_chart and self._mode == "map")
-                or (self._mode == "funds" and self._is_us(ticker)))
+                or (self._mode == "funds" and self._is_us(ticker))
+                or self._mode == "price")
         if ticker == self._ticker and (self._html_q or self._html_a):
             if self._mode in ("map", "funds") and not stay:   # quay về mã đã nạp
                 self._switch_mode("quarterly")
@@ -659,6 +784,9 @@ class ChartPanel(QWidget):
         self._html_q = ""; self._html_a = ""
         if stay and self._mode == "funds":
             self._render_funds()
+        elif stay and self._mode == "price":
+            self._render_price()
+            self._px_timer.start()          # lướt nhanh qua bảng thì chỉ tải mã dừng lại
         elif stay:
             self._render_map()
         else:
@@ -680,7 +808,7 @@ class ChartPanel(QWidget):
         self._spin_tmr.stop()
         self._html_q = html_q
         self._html_a = html_a
-        if self._mode == "funds":                   # dòng trạng thái đang báo việc tải 13F
+        if self._mode in ("funds", "price"):        # dòng trạng thái đang báo việc khác
             self._refresh_btns()
             return
         if self._mode == "map":                     # đang xem bản đồ thì giữ nguyên
@@ -695,7 +823,7 @@ class ChartPanel(QWidget):
 
     def _on_failed(self, msg):
         self._spin_tmr.stop()
-        if self._mode == "funds":
+        if self._mode in ("funds", "price"):
             return
         if self._mode == "map":
             self._set_status(f"✕  {msg}", RED)
@@ -716,9 +844,16 @@ class ChartPanel(QWidget):
                 self._refresh_btns()
                 self._ensure_funds()        # bấm lại khi lỗi để thử lại
             return
+        if mode == "price":
+            if self._ticker:
+                self._mode = "price"
+                self._ensure_price(self._ticker)    # bấm lại khi lỗi để thử lại
+                self._render_price()
+                self._refresh_btns()
+            return
         if mode == self._mode:
             return
-        leaving_funds = self._mode == "funds"
+        leaving_side = self._mode in ("funds", "price")
         if mode == "map":
             if self._df is None:
                 return
@@ -733,7 +868,7 @@ class ChartPanel(QWidget):
                 self._chart_lbl.setText(self._ticker)
             self._web.setHtml(html)
         self._refresh_btns()
-        if leaving_funds and not self._spin_tmr.isActive():   # đang tải thì _tick lo
+        if leaving_side and not self._spin_tmr.isActive():    # đang tải thì _tick lo
             self._set_status(f"✓  {self._ticker}" if self._html_q else "",
                              GREEN if self._html_q else TEXT3)
 
@@ -748,6 +883,7 @@ class ChartPanel(QWidget):
         if not self._ticker:
             self._mode = "map"
         self._render_map()
+        self._render_price()
         self._refresh_btns()
 
     def _on_map_view(self, _idx):
@@ -782,7 +918,7 @@ class ChartPanel(QWidget):
 
     def _tick(self):
         self._spin_idx = (self._spin_idx + 1) % len(SPINNER)
-        if self._mode == "funds":           # nhường dòng trạng thái cho việc tải 13F
+        if self._mode in ("funds", "price"):    # nhường dòng trạng thái cho việc đang xem
             return
         self._set_status(f"{SPINNER[self._spin_idx]}  {self._spin_msg}", AMBER)
 
@@ -791,7 +927,12 @@ class ChartPanel(QWidget):
     def set_market(self, market: str):
         """Thị trường đang chọn — dùng khi mã không có trong kết quả quét."""
         self._market_us = market.lower() in {"america", "nasdaq", "nyse"}
+        changed = market != self._market
+        self._market = market
         self._refresh_btns()
+        if changed and self._mode == "price":
+            self._render_price()
+            self._px_timer.start()
 
     def _is_us(self, ticker: str) -> bool:
         if not ticker:
@@ -899,16 +1040,135 @@ class ChartPanel(QWidget):
             self._set_status(f"✕  {msg}", RED)
             self._render_funds()
 
-    def shutdown(self):
-        """Dừng luồng tải 13F trước khi thoát để Qt không huỷ luồng đang chạy.
+    # ── Chế độ Giá ────────────────────────────────────────────────────────────
 
-        Gọi lúc cửa sổ đã đóng nên chờ không làm treo giao diện. Luồng xét cờ
-        dừng sau mỗi 1 MB tải và mỗi khúc đọc; bước chặn lâu nhất là một lần
-        đọc mạng (fund_holders.TIMEOUT), nên 45 giây là đủ.
+    def _scan_row(self, ticker: str):
+        """Dòng của mã trong kết quả quét (dict), None khi không có."""
+        df = self._df
+        if df is None or not ticker or "Ticker" not in df.columns:
+            return None
+        hit = df.loc[df["Ticker"] == ticker]
+        return None if hit.empty else hit.iloc[0].to_dict()
+
+    def _price_context(self, ticker: str):
+        """(sàn, giá lúc quét, vùng định giá, lý do không có vùng) từ kết quả quét."""
+        row = self._scan_row(ticker)
+        if row is None:
+            return "", None, None, "mã không có trong kết quả quét hiện tại"
+        code = _txt(row.get("ticker"))
+        exch = code.split(":")[0] if ":" in code else ""
+        bands = valuation.price_bands(row)
+        note = "" if bands is not None else (_txt(row.get("Định giá_lý do"))
+                                             or "mã chưa có nhãn định giá")
+        return exch, _fnum(row.get("Price ($)")), bands, note
+
+    def _px_key(self, ticker: str):
+        return (self._market, ticker)
+
+    def _ensure_price(self, ticker: str):
+        """Tải giá khi chưa có, đã cũ, hoặc lần trước lỗi."""
+        key = self._px_key(ticker)
+        if self._mode != "price" or not ticker or key in self._px_workers:
+            return
+        loaded = self._px_time.get(key)
+        if key in self._px_cache and loaded is not None \
+                and time.monotonic() - loaded < self._PX_TTL:
+            return
+        had_err = self._px_err.pop(key, None) is not None
+        exch, expect, _bands, _note = self._price_context(ticker)
+        w = _PriceWorker(ticker, exch, self._market, expect, self)
+        w.done.connect(lambda _t, hist, k=key: self._on_price_done(k, hist))
+        w.failed.connect(lambda _t, msg, k=key: self._on_price_failed(k, msg))
+        w.finished.connect(lambda k=key, w=w: self._on_price_finished(k, w))
+        self._px_workers[key] = w
+        w.start()
+        if had_err:
+            self._render_price()                # thôi báo lỗi cũ, hiện «đang tải»
+
+    def _on_price_done(self, key, hist):
+        self._px_cache.pop(key, None)           # đưa xuống cuối: mới tải nhất
+        self._px_cache[key] = hist
+        self._px_time[key] = time.monotonic()
+        self._px_err.pop(key, None)
+        while len(self._px_cache) > self._PX_KEEP:
+            old = next(iter(self._px_cache))
+            self._px_cache.pop(old); self._px_time.pop(old, None)
+        if key == self._px_key(self._ticker):
+            self._render_price()
+
+    def _on_price_failed(self, key, msg: str):
+        self._px_err[key] = msg
+        if key == self._px_key(self._ticker):
+            self._render_price()
+
+    def _on_price_finished(self, key, worker):
+        if self._px_workers.get(key) is worker:
+            del self._px_workers[key]
+        worker.deleteLater()
+
+    def _set_range(self, key: str):
+        if key not in price_chart.RANGES or key == self._px_range:
+            return
+        self._px_range = key
+        self._refresh_btns()
+        self._render_price()
+
+    def _render_price(self):
+        if self._mode != "price" or not self._ticker:
+            return
+        t = self._ticker
+        self._chart_lbl.setText(f"GIÁ · {t}")
+        hist = self._px_cache.get(self._px_key(t))
+        if hist is not None:
+            _exch, _expect, bands, note = self._price_context(t)
+            try:
+                html = price_chart.build_html(hist, self._px_range, bands, note, self._dark)
+            except Exception as e:              # dữ liệu lạ thì báo, không sập app
+                self._set_status(f"✕  không vẽ được đồ thị giá: {e}", RED)
+                self._web.setHtml(price_chart.message_html(
+                    f"Không vẽ được đồ thị giá {t}", _html_escape(f"{type(e).__name__}: {e}"),
+                    self._dark, "error"))
+                return
+            self._web.setHtml(html)
+            label = price_chart.RANGES[self._px_range][0]
+            self._set_status(f"✓  {hist.symbol} · {label} · Yahoo Finance", GREEN)
+            return
+        err = self._px_err.get(self._px_key(t))
+        if err:
+            self._set_status(f"✕  {err}", RED)
+            title, tone = f"Chưa tải được giá {t}", "error"
+            body = (f"{_html_escape(err)}<br><br>"
+                    "Bấm lại nút <b>Giá</b> để thử lại.")
+        else:
+            self._set_status(f"Đang tải giá {t} từ Yahoo Finance…", AMBER)
+            title, tone = f"Đang tải giá {t}…", "warn"
+            body = ("Khoảng 5 năm nến ngày từ Yahoo Finance. Mỗi mã chỉ tải một lần, "
+                    "đổi khung thời gian không phải tải lại.")
+        self._web.setHtml(price_chart.message_html(title, body, self._dark, tone))
+
+    def shutdown(self):
+        """Dừng luồng tải 13F và các luồng tải giá trước khi thoát để Qt không
+        huỷ luồng đang chạy. Xin dừng tất cả trước rồi mới chờ, để chúng dừng
+        song song.
+
+        Gọi lúc cửa sổ đã đóng nên chờ không làm treo giao diện. Luồng 13F xét
+        cờ dừng sau mỗi 1 MB tải và mỗi khúc đọc; bước chặn lâu nhất là một lần
+        đọc mạng (fund_holders.TIMEOUT), nên 45 giây là đủ. Luồng giá xét cờ
+        trước mỗi ký hiệu Yahoo; một ký hiệu là vài yêu cầu, mỗi cái ≤ 10 giây.
         """
+        self._px_timer.stop()
+        workers = list(self._px_workers.values())
+        for w in workers:
+            w.requestInterruption()
+        deadline = time.monotonic() + 20
         if self._fund_running():
             self._fund_worker.stop()
             self._fund_worker.wait(45_000)
+        for w in workers:
+            left = max(0, int((deadline - time.monotonic()) * 1000))
+            if not w.wait(left):                # mạng treo: đằng nào cũng đang thoát
+                w.terminate()
+                w.wait(2_000)
 
     def _refresh_btns(self):
         has_q = bool(self._html_q)
@@ -925,16 +1185,25 @@ class ChartPanel(QWidget):
                f" font-family:'Segoe UI',sans-serif; }}")
         has_m = self._df is not None
         has_f = self._is_us(self._ticker)
+        has_p = bool(self._ticker)
         self._map_combo.setVisible(self._mode == "map" and has_m)
+        for key, b in self._rng_btns.items():
+            b.setVisible(self._mode == "price" and has_p)
+            b.setStyleSheet(act if key == self._px_range else off)
         self._btn_q.setEnabled(has_q)
         self._btn_a.setEnabled(has_a)
+        self._btn_p.setEnabled(has_p)
         self._btn_m.setEnabled(has_m)
         self._btn_f.setEnabled(has_f)
+        self._btn_p.setToolTip(
+            "Đồ thị nến, đường trung bình và vùng giá theo định giá" if has_p
+            else "Chọn một mã trước")
         self._btn_f.setToolTip(
             "Số quỹ sở hữu theo quý (SEC Form 13F)" if has_f
             else "Chỉ có cho cổ phiếu niêm yết ở Mỹ — chọn một mã trước")
         self._btn_q.setStyleSheet(act if (self._mode == "quarterly" and has_q) else off if has_q else dis)
         self._btn_a.setStyleSheet(act if (self._mode == "annual"    and has_a) else off if has_a else dis)
+        self._btn_p.setStyleSheet(act if (self._mode == "price"     and has_p) else off if has_p else dis)
         self._btn_m.setStyleSheet(act if (self._mode == "map"       and has_m) else off if has_m else dis)
         self._btn_f.setStyleSheet(act if (self._mode == "funds"     and has_f) else off if has_f else dis)
 
@@ -1010,6 +1279,107 @@ def _score_cell(got, app):
     return cell
 
 
+# Nhãn định giá (chữ, nền) — cùng bộ màu với nhãn tín hiệu
+_VALUATION_COLORS = {
+    "Rẻ":      ("#1A5C2B", "#C6EFCE"),
+    "Hợp lý":  ("#1B3A5C", "#DDEEFF"),
+    "Đắt":     ("#7D6608", "#FFF2CC"),
+    "Rất đắt": ("#9C0006", "#FFC7CE"),
+}
+_CHANGE_STYLE = (("▲", "#1A5C2B", "#C6EFCE"), ("▼", "#9C0006", "#FFC7CE"),
+                 ("MỚI", "#1B3A5C", "#DDEEFF"))
+
+
+def _fnum(v):
+    """Số thực hoặc None — chịu được NaN, chuỗi rỗng và giá trị đọc từ CSV."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f
+
+
+def _txt(v) -> str:
+    """Chuỗi hoặc "" — NaN không được hiện thành chữ 'nan'."""
+    return "" if v is None or (isinstance(v, float) and v != v) else str(v)
+
+
+def _is_reliable(v) -> bool:
+    # Đọc lại từ ảnh chụp CSV thì cờ là chuỗi "True"/"False"
+    return v is True or str(v) == "True"
+
+
+def _valuation_cell(row):
+    """Ô nhãn định giá. Sắp tăng dần thì Rẻ lên đầu và ô trống xuống cuối
+    (sắp giảm dần thì ngược lại)."""
+    verdict = _txt(row.get("Định giá"))
+    rank    = _fnum(row.get("Định giá_rank"))
+    reason  = _txt(row.get("Định giá_lý do"))
+    cell = NumItem(rank if verdict and rank is not None else 99.0)
+    if not verdict:
+        cell.setText("—")
+        cell.setForeground(QColor(TEXT3))
+        if not reason and "Định giá_lý do" not in row:
+            reason = "chưa có số liệu định giá — nhấn SCAN để tính"
+        cell.setToolTip("<b>Chưa định giá được</b>"
+                        + (f"<br>{_html_escape(reason)}" if reason else ""))
+        return cell
+    sure = _is_reliable(row.get("Định giá_tin cậy"))
+    cell.setText(verdict if sure else f"{verdict} ?")
+    fg, bg = _VALUATION_COLORS.get(verdict, (TEXT1, PANEL))
+    cell.setForeground(QColor(fg)); cell.setBackground(QColor(bg))
+    tip = f"<b>Định giá: {_html_escape(verdict)}</b>"
+    if not sure:
+        tip += " <i>— độ tin cậy thấp</i>"
+    if reason:
+        tip += f"<br>{_html_escape(reason)}"
+    pctl = _fnum(row.get("Lợi suất_pctl"))
+    if pctl is not None:
+        basis = _html_escape(_txt(row.get("Cơ sở ĐG")))
+        tip += (f"<br><br>Lợi suất cao hơn {pctl:.0f}% số mã cùng ngành, cùng cơ sở {basis} "
+                f"trong lần quét này (100 = rẻ nhất).")
+    tip += "<br><i>Nhãn riêng — không cộng vào điểm, không đổi tín hiệu.</i>"
+    cell.setToolTip(tip)
+    return cell
+
+
+def _change_cell(row):
+    """Ô thay đổi so với lần quét trước. Sắp giảm dần thì mã lên hạng nhiều nhất lên đầu."""
+    text = _txt(row.get("Thay đổi"))
+    cell = NumItem(_fnum(row.get("Thay đổi_rank")) or 0.0)
+    cell.setText(text or "—")
+    for prefix, fg, bg in _CHANGE_STYLE:
+        if text.startswith(prefix):
+            cell.setForeground(QColor(fg)); cell.setBackground(QColor(bg))
+            break
+    else:
+        if not text:
+            cell.setForeground(QColor(TEXT3))
+    detail = _txt(row.get("Thay đổi_chi tiết"))
+    if detail:
+        lines = [_html_escape(s) for s in detail.split("\n")]
+        cell.setToolTip(f"<b>{lines[0]}</b><br>" + "<br>".join(lines[1:]))
+    return cell
+
+
+def _implied_cell(val):
+    """Ô tăng trưởng ngụ ý — nghiệm chạm biên hiện thành cận (≥ +100%), không phải số."""
+    v = _fnum(val)
+    cell = NumItem(v)
+    if v is not None:
+        cell.setText(valuation.growth_label(v, "."))
+    return cell
+
+
+def _pct_cell(val, fmt):
+    """Ô phần trăm không tô màu — giữ màu chữ mặc định để đổi theme không lệch."""
+    v = _fnum(val)
+    cell = NumItem(v)
+    if v is not None:
+        cell.setText(fmt.format(v))
+    return cell
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Background workers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1063,7 +1433,7 @@ class ScanWorker(QThread):
             market_ok, index_1y = fetch_market_direction(self.market)
             self.market_ctx.emit(market_ok, index_1y)
             self.progress.emit("Chấm điểm Tài chính + Kiểm chứng…")
-            df = score_stocks(df, moat_cache)
+            df = score_stocks(df, moat_cache, self.market)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -1091,7 +1461,7 @@ class TickerWorker(QThread):
             df = clean_df(raw)
             moat_cache = {self.ticker: fetch_moat_yfinance(
                 self.ticker, df["Sector"].iloc[0] if "Sector" in df.columns else "")}
-            df = score_stocks(df, moat_cache)
+            df = score_stocks(df, moat_cache, self.market)
             self.done.emit(df)
         except Exception as e:
             self.failed.emit(str(e))
@@ -1189,6 +1559,14 @@ class CriteriaCard(QWidget):
             row.addLayout(col)
         layout.addWidget(box)
 
+        # Định giá và thay đổi so với lần quét trước — thông tin kèm, không phải tiêu chí
+        self._lbl_extra = QLabel("")
+        self._lbl_extra.setWordWrap(True)
+        self._lbl_extra.setTextFormat(Qt.RichText)
+        self._lbl_extra.setStyleSheet(self._extra_style())
+        self._lbl_extra.hide()
+        layout.addWidget(self._lbl_extra)
+
         self._lbl_empty = QLabel("Chọn một dòng để xem chi tiết")
         self._lbl_empty.setAlignment(Qt.AlignCenter)
         self._lbl_empty.setStyleSheet(
@@ -1208,6 +1586,48 @@ class CriteriaCard(QWidget):
             if field.endswith("%") or "Gap" in field:   return f"{val:+.1f}%"
             return f"{val:,.1f}"
         return str(val)
+
+    @staticmethod
+    def _extra_style():
+        return f"color:{TEXT2}; font-size:11px; font-family:'Segoe UI',sans-serif;"
+
+    def _show_extra(self, row: dict):
+        """Dòng định giá và dòng thay đổi dưới các ô tiêu chí."""
+        lines, tips = [], []
+        verdict = _txt(row.get("Định giá"))
+        if verdict:
+            fg, bg = _VALUATION_COLORS.get(verdict, (TEXT1, PANEL))
+            sure = _is_reliable(row.get("Định giá_tin cậy"))
+            g, ref = _fnum(row.get("Tăng trưởng ngụ ý%")), _fnum(row.get("Mốc tăng trưởng%"))
+            yld = _fnum(row.get("Lợi suất%"))
+            vn  = lambda v, f: format(v, f).replace(".", ",")    # câu văn: dấu phẩy thập phân
+            facts = []
+            if g is not None:
+                facts.append(f"giá ngụ ý tăng {valuation.growth_label(g)}/năm "
+                             f"trong {valuation.YEARS} năm")
+            if ref is not None:
+                facts.append(f"mốc đã chứng minh {vn(ref, '+.1f')}% "
+                             f"({_txt(row.get('Mốc ĐG')) or '—'})")
+            if yld is not None:
+                facts.append(f"lợi suất {_txt(row.get('Cơ sở ĐG'))} {vn(yld, '.1f')}%")
+            lines.append(
+                f'<span style="color:{fg}; background-color:{bg}; font-weight:700;">'
+                f'&nbsp;💲 {_html_escape(verdict)}{"" if sure else " ?"}&nbsp;</span>&nbsp; '
+                + _html_escape(" · ".join(facts)))
+            reason = _txt(row.get("Định giá_lý do"))
+            if reason:
+                tips.append("<b>Định giá</b><br>" + _html_escape(reason))
+        detail = _txt(row.get("Thay đổi_chi tiết"))
+        if detail:
+            parts  = detail.split("\n")
+            change = _txt(row.get("Thay đổi")) or "không đổi"
+            body   = " · ".join(parts[1:])
+            lines.append(f"🔄 <b>{_html_escape(change)}</b> — {_html_escape(parts[0].rstrip(':'))}"
+                         + (f": {_html_escape(body)}" if body else ""))
+            tips.append("<br>".join(_html_escape(p) for p in parts))
+        self._lbl_extra.setText("<br>".join(lines))
+        self._lbl_extra.setToolTip("<br><br>".join(tips))
+        self._lbl_extra.setVisible(bool(lines))
 
     def _score_style(self, lbl, got, app):
         if not app:
@@ -1280,6 +1700,7 @@ class CriteriaCard(QWidget):
                     f"color:{TEXT2}; font-size:12px; font-weight:700;"
                     f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
             lbl.setToolTip(tip)
+        self._show_extra(row)
 
     def clear(self):
         self._lbl_ticker.setText("—")
@@ -1296,6 +1717,8 @@ class CriteriaCard(QWidget):
             lbl.setStyleSheet(
                 f"color:{TEXT1}; font-size:12px; font-weight:700;"
                 f" background:{PANEL}; border-radius:3px; font-family:'Consolas',monospace;")
+        self._lbl_extra.clear()
+        self._lbl_extra.hide()
         self._lbl_empty.show()
 
     def apply_theme(self):
@@ -1306,6 +1729,7 @@ class CriteriaCard(QWidget):
             f" font-family:'Consolas',monospace; letter-spacing:3px;")
         self._lbl_info.setStyleSheet(
             f"color:{TEXT1}; font-size:13px; font-family:'Segoe UI',sans-serif;")
+        self._lbl_extra.setStyleSheet(self._extra_style())
         self._lbl_empty.setStyleSheet(
             f"color:{TEXT3}; font-size:12px; font-style:italic;"
             f" font-family:'Segoe UI',sans-serif;")
@@ -1664,7 +2088,7 @@ class HelpDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Help  ·  F1")
-        self.resize(800, 660)
+        self.resize(880, 720)
         self.setStyleSheet(f"""
             QDialog      {{ background:{BG}; }}
             *            {{ background:transparent; color:{TEXT1}; }}
@@ -1692,8 +2116,9 @@ class HelpDialog(QDialog):
         layout.addWidget(browser, stretch=1)
 
         foot = QWidget()
+        foot.setObjectName("helpFoot")      # để nền/viền không lan xuống nút
         foot.setFixedHeight(44)
-        foot.setStyleSheet(f"background:{SURFACE}; border-top:1px solid {BORDER};")
+        foot.setStyleSheet(f"#helpFoot {{ background:{SURFACE}; border-top:1px solid {BORDER}; }}")
         fh = QHBoxLayout(foot)
         fh.setContentsMargins(18, 0, 18, 0)
         hint = QLabel("F1 / Esc  to close")
@@ -1710,6 +2135,116 @@ class HelpDialog(QDialog):
             self.close()
         else:
             super().keyPressEvent(event)
+
+    @staticmethod
+    def _num(x, nd=0):
+        """Số kiểu Việt Nam: dấu phẩy thập phân."""
+        return f"{x:.{nd}f}".replace(".", ",")
+
+    @classmethod
+    def _pct(cls, x):
+        return f"{cls._num(x, 1)}%"
+
+    @classmethod
+    def _valuation_rows(cls, dim, accent, text):
+        """(nhãn định giá, bảng bội số ↔ tăng trưởng, các bước tính) — lấy thẳng
+        tham số từ valuation.py để trang trợ giúp không lệch với cách tính."""
+        V = valuation
+        conds = {
+            "Rẻ":      f"chênh ≤ {V.CHEAP_GAP:g}",
+            "Hợp lý":  f"{V.CHEAP_GAP:g} &lt; chênh &lt; +{V.RICH_GAP:g}",
+            "Đắt":     f"+{V.RICH_GAP:g} ≤ chênh &lt; +{V.VERY_RICH_GAP:g}<br>"
+                       f"hoặc ngụ ý ≥ {V.ABS_RICH:g}%/năm",
+            "Rất đắt": f"chênh ≥ +{V.VERY_RICH_GAP:g}<br>hoặc ngụ ý ≥ {V.ABS_VERY_RICH:g}%/năm",
+        }
+        means = {
+            "Rẻ":      "Giá đòi hỏi ít hơn những gì doanh nghiệp đã làm được. Nếu tăng trưởng không gãy, "
+                       "giá có biên an toàn.",
+            "Hợp lý":  "Giá phản ánh đúng quỹ đạo hiện tại — lợi nhuận về sau chủ yếu đến từ chính tăng "
+                       "trưởng của doanh nghiệp, không từ việc thị trường định giá lại.",
+            "Đắt":     "Giá đòi doanh nghiệp tăng nhanh hơn mức đã chứng minh. Cần một lý do cụ thể vì sao "
+                       "tương lai sẽ nhanh hơn quá khứ.",
+            "Rất đắt": "Giá đã tính sẵn một kịch bản rất ít doanh nghiệp đạt được. Chỉ cần tăng trưởng "
+                       "chậm lại cũng đủ làm giá giảm mạnh.",
+        }
+        val_rows = ""
+        for v in V.VERDICTS:
+            fg, bg = _VALUATION_COLORS[v][:2]
+            val_rows += f"""
+            <tr style="background-color:{bg};">
+              <td style="color:{fg};font-weight:700;font-size:13px;padding:9px 13px;">{v}</td>
+              <td style="color:{fg};font-weight:700;font-size:12px;padding:9px 13px;font-family:Consolas,monospace;">{conds[v]}</td>
+              <td style="color:{fg};font-size:12px;padding:9px 13px;line-height:1.55;">{means[v]}</td>
+            </tr>"""
+
+        ex_rows = ""
+        for i, mult in enumerate((10, 15, 20, 25, 33.3, 50)):
+            bg = "#F0F4FA" if i % 2 == 0 else "#FFFFFF"
+            g = V.growth_label(V.implied_growth(mult))
+            ex_rows += f"""
+            <tr style="background-color:{bg};">
+              <td style="color:{text};font-family:Consolas,monospace;padding:6px 13px;">{cls._num(mult, 0 if mult == int(mult) else 1)}×</td>
+              <td style="color:{text};font-family:Consolas,monospace;padding:6px 13px;">{cls._pct(100 / mult)}</td>
+              <td style="color:{accent};font-weight:700;font-family:Consolas,monospace;padding:6px 13px;">{g}/năm</td>
+            </tr>"""
+
+        conv = cls._num(V.LOW_CASH_CONVERSION, 1)
+        steps = [
+            ("Chọn dòng tiền gốc",
+             f"<b>FCF</b> 12 tháng gần nhất. Nhóm <b>Tài chính</b> dùng lợi nhuận ròng — tiền cho vay và tiền "
+             f"gửi chạy qua dòng tiền hoạt động nên FCF không phản ánh kinh doanh. <b>REIT</b> dùng FCF khi "
+             f"FCF ≥ lợi nhuận ròng (khấu hao bất động sản kéo lợi nhuận xuống dưới tiền thật thu về), ngược "
+             f"lại dùng lợi nhuận. Mã thường có FCF dưới {conv} lần lợi nhuận cũng lùi về lợi nhuận và bị "
+             f"đánh dấu <b>?</b>. Cả hai đều âm thì không định giá."),
+            ("Giải tăng trưởng ngụ ý",
+             f"Tìm g sao cho <b>Vốn hóa ÷ Dòng tiền</b> = Σ<sub>t=1…{V.YEARS}</sub> (1+g)<sup>t</sup> ÷ "
+             f"(1+r)<sup>t</sup> + giá trị cuối kỳ, với r = {V.DISCOUNT:.0%} và sau năm {V.YEARS} dòng tiền "
+             f"tăng {cls._pct(V.TERMINAL * 100)} mãi mãi (quanh mức GDP danh nghĩa). Giải bằng chia đôi trong "
+             f"khoảng {V.G_LO:.0%} đến +{V.G_HI:.0%}/năm; chạm biên thì hiện "
+             f"«{V.growth_label(V.G_HI * 100)}» hoặc «{V.growth_label(V.G_LO * 100)}» — khi đó chỉ là cận."),
+            ("Lấy mốc đã chứng minh",
+             f"Tăng trưởng doanh thu bình quân nhiều năm (khi quét kèm yfinance Moat), nếu không có thì doanh "
+             f"thu 12 tháng. Mốc được kẹp trong {V.REF_LO:g}% … +{V.REF_HI:g}%/năm: doanh thu tăng 60% một năm "
+             f"không có nghĩa là giữ được 60% suốt {V.YEARS} năm."),
+            ("So sánh → nhãn",
+             "<b>Chênh = ngụ ý − mốc</b>, tính bằng điểm phần trăm, rồi áp ngưỡng ở bảng nhãn bên dưới."),
+            ("Xếp trong ngành",
+             f"Lợi suất dòng tiền được xếp phân vị trong cùng ngành, cùng cơ sở (FCF với FCF, lợi nhuận với "
+             f"lợi nhuận — ngân hàng không xếp chung với REIT), cần ít nhất {V.MIN_PEERS} mã. 100 = rẻ nhất "
+             f"ngành. Chỉ để tham khảo, không đổi nhãn."),
+        ]
+        val_steps = ""
+        for i, (name, how) in enumerate(steps, 1):
+            bg = "#F0F4FA" if i % 2 else "#FFFFFF"
+            val_steps += f"""
+            <tr style="background-color:{bg};">
+              <td style="color:{dim};font-weight:700;padding:8px 12px;">{i}</td>
+              <td style="color:{accent};font-weight:700;font-size:12px;padding:8px 12px;">{name}</td>
+              <td style="color:{text};font-size:12px;padding:8px 12px;line-height:1.55;">{how}</td>
+            </tr>"""
+        return val_rows, ex_rows, val_steps
+
+    @staticmethod
+    def _change_rows(accent, text):
+        rows = ""
+        for i, (lbl, desc) in enumerate([
+            ("▲ từ X", "Tín hiệu lên hạng so với lần trước; X là tín hiệu cũ."),
+            ("▼ từ X", "Tín hiệu xuống hạng. Thường đáng xem hơn mã đứng yên — xem tooltip để biết tiêu "
+                       "chí nào vừa mất."),
+            ("MỚI", "Lần quét trước không có mã này trong danh sách."),
+            ("• N tiêu chí", "Tín hiệu giữ nguyên nhưng có N tiêu chí đổi kết quả (đạt thêm hoặc mất)."),
+            ("• giá X", "Chỉ nhãn định giá đổi, X là nhãn mới."),
+        ]):
+            bg = "#F0F4FA" if i % 2 == 0 else "#FFFFFF"
+            rows += f"""
+            <tr style="background-color:{bg};">
+              <td style="color:{accent};font-weight:700;font-size:12px;padding:8px 12px;font-family:Consolas,monospace;">{lbl}</td>
+              <td style="color:{text};font-size:12px;padding:8px 12px;line-height:1.55;">{desc}</td>
+            </tr>"""
+        return rows + f"""
+            <tr><td colspan="2" style="color:#64748B;font-size:11px;padding:8px 12px;font-style:italic;">
+              Rê chuột vào ô để xem chi tiết: tín hiệu cũ → mới, điểm Tài chính và Thực, tiêu chí đạt thêm/mất,
+              nhãn định giá và giá thay đổi.</td></tr>"""
 
     def _html(self):
         H_DIM = "#64748B"; H_BLUE = "#1E40AF"; H_GREEN = "#16A34A"
@@ -1785,6 +2320,11 @@ class HelpDialog(QDialog):
               <td style="color:{H_GREEN};font-weight:700;font-size:12px;padding:8px 12px;">{proof}</td>
             </tr>"""
 
+        val_rows, ex_rows, val_steps = self._valuation_rows(H_DIM, H_BLUE, H_TEXT)
+        chg_rows = self._change_rows(H_BLUE, H_TEXT)
+        V = valuation
+        horizons = "/".join(str(h) for h in signal_tracking.HORIZONS)
+
         return f"""<html><head><style>
   body  {{ background-color:#F8FAFC; color:#1A202C;
            font-family:'Segoe UI',sans-serif; font-size:13px; margin:0; padding:0; }}
@@ -1812,7 +2352,10 @@ class HelpDialog(QDialog):
   cụ thể mà số liệu nhóm A có thể bị làm đẹp.<br><br>
   Hai điểm <b>không được cộng gộp</b>. Một mã đạt 6/6 tài chính nhưng 1/6 kiểm chứng là trường hợp
   nguy hiểm nhất, và nếu gộp lại thành 7/12 thì nó sẽ trông y hệt một mã trung bình đều — nên hệ thống
-  hiển thị hai điểm cạnh nhau và gắn cờ đỏ cho trường hợp đó.
+  hiển thị hai điểm cạnh nhau và gắn cờ đỏ cho trường hợp đó.<br><br>
+  Với thị trường Mỹ còn câu thứ ba, cũng tách riêng: <b style="color:#16A34A;">Giá hôm nay có đang đòi hỏi
+  quá nhiều không?</b> Câu này trả lời bằng nhãn <b>Định giá</b> (mục ⑦) — không cộng vào điểm, không đổi
+  tín hiệu, vì một doanh nghiệp tốt và thật vẫn có thể đang bị mua quá đắt.
 </div>
 
 <h2>① NHÓM A — TÀI CHÍNH TỐT ({N_FIN} tiêu chí)</h2>
@@ -1870,20 +2413,187 @@ class HelpDialog(QDialog):
       mã nào với mã nào; đưa vào điểm chỉ làm trôi ngưỡng tín hiệu theo thị trường. Nay hiển thị riêng
       trên Dashboard như thông tin bối cảnh.</li>
   <li><b>Động lượng giá và sức mạnh tương đối</b> — là hành vi giá, không phải chất lượng tài chính.</li>
-  <li><b>Định giá (P/E, PEG)</b> — vẫn hiển thị để tham khảo nhưng không chấm điểm, vì hệ thống trả lời
-      câu hỏi «doanh nghiệp này có tốt và có thật không», không phải «giá này có rẻ không».</li>
+  <li><b>Định giá</b> — P/E, PEG chỉ để tham khảo; nhãn <b>Định giá</b> (mục ⑦) là một cột riêng, không
+      bao giờ cộng vào điểm A/B hay đổi tín hiệu. Điểm trả lời «doanh nghiệp này có tốt và có thật không»;
+      nhãn định giá trả lời «giá này đòi hỏi bao nhiêu» — trộn hai câu lại thì một mã kém nhưng rẻ sẽ
+      trông giống một mã tốt.</li>
   <li><b>Hệ số nhân Conviction</b> — trước đây nhân điểm với chất lượng moat, mà moat lại suy ra từ ROE
       và biên gộp vốn đã được chấm rồi. Đó là đếm ba lần cùng một thứ.</li>
 </ul>
 
-<h2>⑦ CÁCH DÙNG</h2>
+<h2>⑦ ĐỊNH GIÁ NGƯỢC — REVERSE DCF (chỉ thị trường Mỹ)</h2>
+<div class="box" style="background:#ECFDF3;border-left-color:#16A34A;">
+  <b>Đặt câu hỏi ngược lại.</b> Hỏi «cổ phiếu này đáng giá bao nhiêu» thì kết quả phụ thuộc hoàn toàn vào
+  giả định tăng trưởng mình tự đặt — chỉnh vài điểm phần trăm là ra mọi con số mình muốn. Câu hỏi ngược
+  khách quan hơn nhiều: <b>với giá hôm nay, thị trường đang ngụ ý dòng tiền phải tăng bao nhiêu mỗi năm
+  trong {V.YEARS} năm tới?</b> Rồi đặt con số đó cạnh mức doanh nghiệp đã thực sự làm được.
+  Kết quả là một <i>mức tăng trưởng</i>, không phải một <i>giá mục tiêu</i>.
+</div>
+
+<p style="color:#64748B;font-size:12px;margin:0 0 6px 0;"><b>Các bước tính</b></p>
+<table>
+  <tr><th style="width:30px;">#</th><th style="width:150px;">Bước</th><th>Cách làm</th></tr>
+  {val_steps}
+</table>
+
+<p style="color:#64748B;font-size:12px;margin:14px 0 6px 0;"><b>Đọc nhanh: bội số dòng tiền ↔ tăng trưởng ngụ ý</b>
+  (chiết khấu {V.DISCOUNT:.0%}, {V.YEARS} năm, sau đó {self._pct(V.TERMINAL * 100)} mãi mãi)</p>
+<table style="width:60%;">
+  <tr><th>Vốn hóa / dòng tiền</th><th>Lợi suất dòng tiền</th><th>Giá đang ngụ ý tăng</th></tr>
+  {ex_rows}
+</table>
+<p class="tip">Ví dụ: P/FCF 20 (lợi suất 5%) nghĩa là thị trường đang trả trước cho dòng tiền tăng chừng
+  {V.growth_label(V.implied_growth(20))}/năm suốt {V.YEARS} năm. Doanh nghiệp tăng doanh thu 15%/năm thì
+  giá đó là rẻ; tăng 3%/năm thì giá đó là đắt.</p>
+
+<p style="color:#64748B;font-size:12px;margin:14px 0 6px 0;"><b>Nhãn định giá</b> — chênh = tăng trưởng
+  ngụ ý − mốc đã chứng minh, tính bằng điểm phần trăm</p>
+<table>
+  <tr><th style="width:90px;">Nhãn</th><th style="width:250px;">Điều kiện</th><th>Ý nghĩa</th></tr>
+  {val_rows}
+</table>
+<ul>
+  <li><b>Dấu ?</b> sau nhãn = độ tin cậy thấp: phải lùi về lợi nhuận ròng vì dòng tiền thật đang thấp
+      (FCF dưới {self._num(V.LOW_CASH_CONVERSION, 1)} lần lợi nhuận, hoặc REIT đang mua thêm tài sản), hoặc
+      tăng trưởng gần đây vượt {V.HOT_GROWTH:g}%/năm — nếu đó là đỉnh chu kỳ thì dòng tiền hiện tại không bền
+      và kết luận «rẻ» không đáng tin.</li>
+  <li><b>Ngưỡng tuyệt đối</b> {V.ABS_RICH:g}% và {V.ABS_VERY_RICH:g}%: tăng {V.ABS_RICH:g}%/năm suốt
+      {V.YEARS} năm nghĩa là dòng tiền gấp {self._num((1 + V.ABS_RICH / 100) ** V.YEARS, 1)} lần — rất ít
+      doanh nghiệp cỡ lớn làm được, bất kể quá khứ nhanh đến đâu. Vì thế mã có mức ngụ ý này ít nhất là
+      Đắt dù mốc quá khứ cũng cao.</li>
+  <li><b>Cột trong bảng:</b> <b>Ngụ ý%</b> — tăng trưởng ngụ ý; <b>Lợi suất</b> — dòng tiền gốc / vốn
+      hóa (5% ≈ P/FCF 20); <b>Định giá</b> — nhãn. Rê chuột vào ô Định giá để đọc cách tính của riêng mã
+      đó, kèm thứ hạng lợi suất trong ngành.</li>
+</ul>
+
+<div class="box" style="background:#EEF4FF;border-left-color:#2563EB;">
+  <b style="color:#1E40AF;">Từ nhãn ra mức giá — nút Giá trong khung biểu đồ.</b> Tăng trưởng ngụ ý chỉ phụ
+  thuộc bội số vốn hóa / dòng tiền, mà bội số tỉ lệ thuận với giá khi số cổ phiếu không đổi. Nên mỗi ranh
+  giới nhãn ứng với đúng một mức giá:
+  <b>giá ranh giới = bội số ứng với mức tăng trưởng ở ranh giới × dòng tiền mỗi cổ phiếu</b>.
+  Ba ranh giới là mốc − {V.CHEAP_GAP * -1:g} điểm (Rẻ | Hợp lý), mốc + {V.RICH_GAP:g} điểm nhưng không quá
+  {V.ABS_RICH:g}% (Hợp lý | Đắt), mốc + {V.VERY_RICH_GAP:g} điểm nhưng không quá {V.ABS_VERY_RICH:g}%
+  (Đắt | Rất đắt) — đúng luật của bảng nhãn ở trên. Đồ thị tô bốn dải màu theo các mức này:
+  <b style="color:#16A34A;">Rẻ</b> · <b style="color:#2563EB;">Hợp lý</b> ·
+  <b style="color:#B7791F;">Đắt</b> · <b style="color:#DC2626;">Rất đắt</b>, và dòng thứ hai trên đồ thị cho
+  biết giá phải giảm/tăng bao nhiêu phần trăm thì đổi nhãn.
+  <ul>
+    <li><b>Chỉ đúng cho hiện tại.</b> Dòng tiền và mốc lấy từ lần quét gần nhất, nên các dải chỉ đọc cho giá
+        hôm nay — không dùng để nói giá năm ngoái rẻ hay đắt (khi đó dòng tiền khác). Vì thế dải chỉ tô đậm
+        ở mép phải đồ thị.</li>
+    <li><b>Dải Hợp lý thường rất rộng</b> — mỗi điểm tăng trưởng suốt {V.YEARS} năm làm giá trị đổi nhiều.
+        Nằm trong Hợp lý chưa phải điểm mua; gần mép Rẻ mới đáng chú ý hơn.</li>
+    <li><b>Chỉ cổ phiếu Mỹ</b>, như nhãn. Mã thị trường khác vẫn xem được nến nhưng không có dải.</li>
+    <li><b>Giá lệch xa giá lúc quét</b> (dưới một nửa hoặc trên gấp đôi — thường do chia tách cổ phiếu) thì
+        không vẽ dải; quét lại để có số đúng. Mã có dấu ? thì dòng đầu ghi «kém tin cậy».</li>
+    <li><b>Không phải tín hiệu mua bán.</b> Dải cho biết giá đang đòi hỏi tăng trưởng bao nhiêu; doanh nghiệp
+        có làm được hay không vẫn là câu hỏi của nhóm A và B.</li>
+  </ul>
+</div>
+
+<div class="box">
+  <b style="color:#1E40AF;">Nguồn gốc phương pháp.</b> Đây là cách tiếp cận <i>Expectations Investing</i>
+  của <b>Alfred Rappaport</b> và <b>Michael J. Mauboussin</b> (Harvard Business School Press, 2001; bản
+  cập nhật 2021, Columbia Business School Publishing). Ý chính: đừng tự ước giá trị rồi so với giá — hãy
+  đọc giá để biết thị trường đang kỳ vọng gì, rồi hỏi kỳ vọng đó có thực tế không. Mauboussin hiện làm
+  nghiên cứu tại Counterpoint Global (Morgan Stanley Investment Management).
+  Aswath Damodaran (NYU Stern) dùng cùng logic đọc ngược kỳ vọng từ giá, ví dụ khi tính mức bù rủi ro
+  ngụ ý của S&amp;P 500.<br><br>
+  Ngưỡng tuyệt đối mượn ý từ <i>The Base Rate Book</i> (Mauboussin, Callahan &amp; Majd, Credit Suisse,
+  2016): số doanh nghiệp lớn giữ được tăng trưởng cao suốt mười năm là rất ít, nên kỳ vọng đó phải được
+  coi là ngoại lệ chứ không phải mặc định.
+</div>
+
+<table cellspacing="0" cellpadding="0" style="margin:12px 0;"><tr>
+<td style="background-color:#C2410C;width:3px;"></td>
+<td style="background-color:#FFF6E5;padding:11px 15px;font-size:12px;line-height:1.6;">
+  <b style="color:#C2410C;">Đơn giản hóa so với bản gốc — cần biết khi đọc nhãn.</b>
+  <ul>
+    <li><b>Chiết khấu cố định {V.DISCOUNT:.0%} cho mọi mã.</b> Bản gốc dùng chi phí vốn riêng từng doanh
+        nghiệp (theo beta và cơ cấu nợ). Mã rủi ro cao vì thế được chiết khấu nhẹ tay hơn thực tế và trông
+        rẻ hơn; mã rất ổn định thì ngược lại.</li>
+    <li><b>Thời kỳ dự phóng cố định {V.YEARS} năm.</b> Bản gốc còn giải ra <i>thời kỳ tạo giá trị ngụ
+        ý</i> — số năm thị trường tin doanh nghiệp còn sinh lời vượt chi phí vốn.</li>
+    <li><b>Gộp mọi thứ vào một biến tăng trưởng dòng tiền.</b> Bản gốc tách thành các động lực giá trị —
+        tăng trưởng doanh thu, biên lợi nhuận hoạt động, vốn đầu tư thêm — để biết kỳ vọng nào đang gánh
+        giá.</li>
+    <li><b>Dùng vốn hóa và dòng tiền 12 tháng gần nhất.</b> Bản gốc dùng giá trị doanh nghiệp (cộng nợ,
+        trừ tiền mặt) với dòng tiền đã chuẩn hóa. Một năm đột biến, tốt hay xấu, kéo lệch kết quả.</li>
+    <li><b>FCF chưa trừ thù lao bằng cổ phiếu (SBC).</b> Với nhiều công ty công nghệ, dòng tiền thật cho
+        cổ đông thấp hơn đáng kể, nên nhãn có xu hướng nghiêng về rẻ.</li>
+    <li><b>Mốc là tăng trưởng của chính doanh nghiệp</b>, không phải phân phối tăng trưởng theo quy mô và
+        ngành như trong The Base Rate Book.</li>
+  </ul>
+  <b>Vì sao chỉ thị trường Mỹ:</b> {V.DISCOUNT:.0%} là lợi suất kỳ vọng dài hạn của cổ phiếu định giá bằng
+  USD. Với VND, lãi suất phi rủi ro và lạm phát khác hẳn, còn nhóm Tài chính của TradingView ở Việt Nam
+  gộp cả bất động sản — áp cùng tham số sẽ ra nhãn sai, nên ở thị trường khác các cột định giá để trống.
+</td></tr></table>
+
+<h2>⑧ THAY ĐỔI GIỮA CÁC LẦN QUÉT</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  Một tín hiệu đứng yên không nói được nhiều: mã vừa rơi từ TỐT &amp; THỰC xuống KHÁ đáng xem hơn hẳn mã
+  nằm ở KHÁ cả năm. Mỗi lần quét xong, chương trình lưu một ảnh chụp vào thư mục <b>snapshots</b> (cạnh
+  file chạy), tên dạng <span style="font-family:Consolas,monospace;">YYYYMMDD_THỊTRƯỜNG_topN.csv.gz</span>,
+  rồi đặt kết quả cạnh lần quét gần nhất <i>trước hôm nay</i> của cùng thị trường.
+</p>
+<table>
+  <tr><th style="width:130px;">Cột Thay đổi</th><th>Ý nghĩa</th></tr>
+  {chg_rows}
+</table>
+<ul>
+  <li><b>Thứ hạng tín hiệu</b> dùng để xét lên/xuống: TỐT &amp; THỰC &gt; KHÁ &gt; THẬT NHƯNG YẾU &gt;
+      THEO DÕI &gt; LOẠI &gt; CỜ ĐỎ.</li>
+  <li><b>Dashboard</b> có mục 🔄 tóm tắt: mã lên hạng, xuống hạng, mới vào TỐT &amp; THỰC, mới thành
+      CỜ ĐỎ, mã rời TỐT &amp; THỰC, và mã vào/ra danh sách.</li>
+  <li><b>Cảnh báo tự động</b> khi hai lần quét khác phạm vi (số mã TOP khác nhau — mã vào/ra danh sách khi
+      đó không được liệt kê), hoặc chỉ một lần có bật yfinance Moat — một phần thay đổi khi ấy đến từ việc
+      có thêm/mất dữ liệu, không phải từ doanh nghiệp.</li>
+</ul>
+
+<h2>⑨ HIỆU QUẢ TÍN HIỆU — nút 📈 Hiệu quả</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  Câu hỏi khó chịu nhất: <b>trong quá khứ, các nhãn này có thực sự đi trước lợi nhuận không?</b>
+  Chỉ dùng ảnh chụp thật của chính máy này — chưa có lịch sử nghĩa là chưa kiểm được, không có số giả lập
+  nào thay thế.
+</p>
+<ol>
+  <li>Lấy ảnh chụp thị trường Mỹ, mỗi tháng một ảnh (ngày sớm nhất trong tháng, bản quét rộng nhất);
+      một mã chỉ tính một lần mỗi tháng dù có trong cả ảnh AMERICA lẫn NASDAQ.</li>
+  <li>Tải giá đóng cửa đã điều chỉnh (gồm cổ tức, chia tách) từ Yahoo Finance.</li>
+  <li>Tính lợi nhuận mỗi mã sau {horizons} tháng kể từ ngày chụp, trừ đi S&amp;P 500 cùng kỳ
+      → <b>phần vượt S&amp;P</b>.</li>
+  <li>Gom theo tín hiệu và theo nhãn định giá: số quan sát, vượt S&amp;P trung bình và trung vị,
+      <b>tỷ lệ thắng</b> (phần trăm quan sát vượt S&amp;P).</li>
+</ol>
+<p class="tip">Cần ít nhất một ảnh chụp cũ hơn 1 tháng mới có mốc đầu tiên — cứ quét đều mỗi tháng là số
+  liệu tự tích lũy. Nhóm dưới {signal_tracking.MIN_N} quan sát in mờ, chỉ để tham khảo. Vài tháng dữ liệu
+  vẫn còn là nhiễu: các mã chụp cùng ngày chịu chung một nhịp thị trường nên không phải các phép thử độc
+  lập. Mã đã hủy niêm yết không còn giá bị loại ra và được liệt kê cuối báo cáo.</p>
+
+<h2>⑩ CÁCH DÙNG</h2>
 <ul>
   <li><b>SCAN</b> — lấy top N cổ phiếu theo vốn hóa từ TradingView và chấm cả hai nhóm.</li>
   <li><b>Tab Tài chính</b> — {N_FIN} tiêu chí nhóm A cùng số liệu gốc.</li>
   <li><b>Tab Kiểm chứng</b> — {N_REAL} tiêu chí nhóm B cùng các tỷ số dùng để kiểm chứng.
       Cả hai tab đều hiện đồng thời hai điểm và tín hiệu gộp.</li>
   <li><b>Dashboard</b> — bảng <b style="color:#B91C1C;">CỜ ĐỎ</b> nêu rõ từng mã chưa chứng minh được
-      ở điểm nào; bảng <b>tỷ lệ đạt</b> cho biết tiêu chí nào đang quá lỏng hoặc quá chặt.</li>
+      ở điểm nào; bảng <b>tỷ lệ đạt</b> cho biết tiêu chí nào đang quá lỏng hoặc quá chặt; mục
+      <b>💲 ĐỊNH GIÁ</b> liệt kê mã TỐT &amp; THỰC đang Rẻ hoặc Hợp lý; mục <b>🔄 Thay đổi</b> tóm tắt
+      khác biệt so với lần quét trước.</li>
+  <li><b>Chip lọc</b> (🟢 TỐT &amp; THỰC · 🔴 CỜ ĐỎ · 💵 FCF ≥ lợi nhuận · 🏰 Bền vững 5 năm ·
+      💲 Giá Rẻ / Hợp lý) — bật nhiều chip cùng lúc để thu hẹp danh sách. Bật 🟢 cùng 💲 để ra mã vừa
+      chất lượng vừa chưa bị giá đòi hỏi quá nhiều.</li>
+  <li><b>📈 Hiệu quả</b> — báo cáo kiểm chứng tín hiệu bằng giá thật (mục ⑨). Có thể đóng trong lúc đang
+      tải giá; mở lại sẽ thấy kết quả.</li>
+  <li><b>Khung biểu đồ</b> phía trên bảng — <b>Theo quý / Theo năm</b>: số liệu tài chính của mã đang
+      chọn; <b>Giá</b>: nến giá (6T · 1N nến ngày, 3N · 5N nến tuần; mặc định 3 năm) với đường MA50, MA200,
+      khối lượng, đỉnh 52 tuần và bốn dải giá Rẻ / Hợp lý / Đắt / Rất đắt theo định giá ngược (mục ⑦) —
+      đang xem Giá thì chọn mã khác vẫn ở lại Giá; <b>Bản đồ</b>: cả danh sách trên bốn góc nhìn (Tài chính × Thực, Sinh lời × Lợi suất, Sinh lời
+      × Tăng trưởng, Giá so với đỉnh) — bấm một chấm để chọn mã; <b>Quỹ</b>: số quỹ sở hữu theo quý từ hồ
+      sơ SEC 13F (chỉ mã Mỹ; lần đầu phải chờ tải dữ liệu).</li>
+  <li><b>Tab 📑 Phân tích</b> — <b>LẬP BÁO CÁO</b> cho mã đang chọn (cần đăng nhập Claude ở nút ✦);
+      <b>CẬP NHẬT</b> lập lại với số liệu và tin tức mới nhất. <b>Tab 💼 Portfolio</b> — danh mục của
+      bạn, lưu trong portfolio.json.</li>
   <li><b>yfinance Moat</b> — bật trước khi quét để có tiêu chí Bền vững 5 năm. Chậm hơn đáng kể
       (khoảng 0,3 giây mỗi mã) và chỉ có dữ liệu cho thị trường Mỹ.</li>
   <li><b>Click vào một dòng</b> — xem chi tiết từng tiêu chí; rê chuột lên ô ✓/✗ để đọc giải thích
@@ -1892,9 +2602,10 @@ class HelpDialog(QDialog):
 
 <div class="box" style="background:#FFF6E5;border-left-color:#C2410C;">
   <b style="color:#C2410C;">Giới hạn cần biết.</b> Các ngưỡng ở đây được chọn theo chuẩn mực phổ biến,
-  chưa được kiểm định trên dữ liệu lịch sử của chính hệ thống này — chương trình không lưu dữ liệu theo
-  thời điểm nên chưa thể kiểm thử lùi. Ngưỡng biên lợi nhuận dùng chung cho mọi ngành nên vẫn thiên lệch
-  về phía công nghệ và y tế. Và hệ thống chỉ trả lời «mua gì», không có quy tắc bán hay cắt lỗ.
+  chưa được kiểm định trên dữ liệu lịch sử. Từ nay mỗi lần quét đều lưu ảnh chụp nên nút 📈 Hiệu quả sẽ
+  kiểm dần được — nhưng phải sau nhiều tháng quét đều số liệu mới đủ để kết luận, và không thể kiểm lùi
+  về trước lần quét đầu tiên. Ngưỡng biên lợi nhuận dùng chung cho mọi ngành nên vẫn thiên lệch về phía
+  công nghệ và y tế. Và hệ thống chỉ trả lời «mua gì», không có quy tắc bán hay cắt lỗ.
   Hãy đọc điểm số như một thứ tự ưu tiên để nghiên cứu, không phải một khuyến nghị đầu tư.
 </div>
 </body></html>"""
@@ -2367,6 +3078,156 @@ class AnalysisPanel(QWidget):
         self._view.setHtml(analysis_report.error(self._pal(), msg))
 
 
+class ValidationWorker(QThread):
+    """Đối chiếu ảnh chụp cũ với giá thật — tải giá từ Yahoo nên chạy nền."""
+    done   = Signal(object)    # signal_tracking.Report
+    failed = Signal(str)
+
+    def __init__(self, folder, parent=None):
+        super().__init__(parent)
+        self.folder = folder
+
+    def run(self):
+        try:
+            # Tải giá theo lô và dừng được giữa các lô khi ứng dụng thoát
+            fetch = lambda tickers, start: signal_tracking.download_prices(
+                tickers, start, stop=self.isInterruptionRequested)
+            self.done.emit(signal_tracking.run_validation(self.folder, downloader=fetch))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class ValidationDialog(QDialog):
+    """Các nhãn tín hiệu trong quá khứ có thật sự đi trước lợi nhuận không?
+
+    Không xoá khi đóng (chỉ ẩn): luồng tải giá có thể còn chạy và Qt không
+    được huỷ một luồng đang chạy."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Hiệu quả tín hiệu")
+        self.resize(920, 640)
+        self._worker  = None
+        self._report  = None
+        self._error   = ""
+        self._loading = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self._browser = QTextBrowser()
+        self._browser.setOpenExternalLinks(False)
+        layout.addWidget(self._browser, stretch=1)
+
+        self._foot = QWidget()
+        self._foot.setObjectName("validFoot")   # để nền/viền không lan xuống nút
+        self._foot.setFixedHeight(44)
+        fh = QHBoxLayout(self._foot)
+        fh.setContentsMargins(18, 0, 18, 0)
+        self._hint = QLabel("")
+        self._btn_refresh = QPushButton("LÀM MỚI")
+        self._btn_refresh.setFixedSize(90, 28)
+        self._btn_refresh.setCursor(Qt.PointingHandCursor)
+        self._btn_refresh.clicked.connect(self.refresh)
+        btn_close = QPushButton("ĐÓNG")
+        btn_close.setFixedSize(80, 28)
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.clicked.connect(self.close)
+        fh.addWidget(self._hint, stretch=1)
+        fh.addWidget(self._btn_refresh)
+        fh.addSpacing(8)
+        fh.addWidget(btn_close)
+        layout.addWidget(self._foot)
+
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.shutdown)
+        self.apply_theme()
+        self.refresh()
+
+    def _running(self) -> bool:
+        return self._worker is not None and self._worker.isRunning()
+
+    def refresh(self):
+        if self._running():
+            return
+        self._report, self._error = None, ""
+        try:
+            folder = snapshot_dir()
+        except OSError as e:
+            self._error = f"không mở được thư mục snapshots ({e})"
+            self._render()
+            return
+        self._hint.setText(f"Ảnh chụp: {folder}")
+        self._hint.setToolTip(str(folder))
+        self._loading = True
+        self._btn_refresh.setEnabled(False)
+        self._render()
+        if self._worker is not None:
+            self._worker.deleteLater()
+        self._worker = ValidationWorker(folder, self)
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_done(self, rep):
+        self._report, self._loading = rep, False
+        self._btn_refresh.setEnabled(True)
+        self._render()
+
+    def _on_failed(self, msg):
+        self._error, self._loading = msg, False
+        self._btn_refresh.setEnabled(True)
+        self._render()
+
+    def _render(self):
+        if self._loading:
+            html = (f'<p style="color:{TEXT2};font-family:Segoe UI;">Đang đọc ảnh chụp và tải giá '
+                    f'từ Yahoo Finance… (vài chục giây với vài trăm mã)</p>')
+        elif self._error:
+            html = (f'<p style="color:{RED};font-family:Segoe UI;">Không chạy được kiểm chứng: '
+                    f'{_html_escape(self._error)}</p>')
+        elif self._report is not None:
+            html = signal_tracking.report_html(self._report, {
+                "text": TEXT1, "dim": TEXT2, "faint": TEXT3, "green": GREEN, "red": RED,
+                "amber": AMBER, "border": BORDER, "head": PANEL})
+        else:
+            html = ""
+        self._browser.setHtml(html)
+
+    def apply_theme(self):
+        self.setStyleSheet(f"""
+            QDialog      {{ background:{BG}; }}
+            QTextBrowser {{
+                background:{SURFACE}; color:{TEXT1};
+                border:none; padding:18px 24px;
+                font-family:'Segoe UI',sans-serif;
+            }}
+            QPushButton  {{
+                background:{BLUE}; color:#FFFFFF;
+                border:none; border-radius:3px;
+                font-size:10px; font-weight:700; letter-spacing:1.5px;
+                font-family:'Segoe UI',sans-serif;
+            }}
+            QPushButton:hover    {{ background:{BLUE_HV}; }}
+            QPushButton:disabled {{ background:{BORDER2}; color:{TEXT2}; }}
+        """)
+        self._foot.setStyleSheet(
+            f"#validFoot {{ background:{SURFACE}; border-top:1px solid {BORDER}; }}")
+        self._hint.setStyleSheet(f"color:{TEXT3}; font-size:9px;")
+        self._render()
+
+    def shutdown(self):
+        """Xin dừng luồng tải giá rồi chờ có giới hạn — Qt không được huỷ một luồng
+        đang chạy. Mạng treo thì cắt hẳn: đằng nào ứng dụng cũng đang thoát."""
+        if not self._running():
+            return
+        self._worker.requestInterruption()
+        if not self._worker.wait(15_000):
+            self._worker.terminate()
+            self._worker.wait(2_000)
+
+
 class ExportWorker(QThread):
     progress = Signal(int, str)   # (0-100, message)
     done     = Signal(str)        # output path
@@ -2403,6 +3264,8 @@ class MainWindow(QMainWindow):
         self._df          = None
         self._worker      = None
         self._ticker_wkr  = None
+        self._changes     = None   # tóm tắt so với lần quét trước (signal_tracking)
+        self._valid_dlg   = None
         self._spin_idx    = 0
         self._spin_msg    = ""
         self._spin_tmr    = QTimer(self)
@@ -2564,6 +3427,15 @@ class MainWindow(QMainWindow):
         self._btn_export.setStyleSheet(self._btn_style("#2E5C2E", "#1A4C1A"))
         self._btn_export.clicked.connect(self._on_export)
 
+        self._btn_valid = QPushButton("📈  Hiệu quả")
+        self._btn_valid.setFixedSize(105, 32)
+        self._btn_valid.setCursor(Qt.PointingHandCursor)
+        self._btn_valid.setToolTip(
+            "<b>Hiệu quả tín hiệu</b><br>Đối chiếu các lần quét cũ (thị trường Mỹ) với giá thật "
+            "sau 1/3/6/12 tháng, so với S&amp;P 500 cùng kỳ. Cần ít nhất một ảnh chụp cũ hơn 1 tháng.")
+        self._btn_valid.setStyleSheet(self._btn_style("#5B3A8C", "#472C70"))
+        self._btn_valid.clicked.connect(self._show_validation)
+
         row1.addWidget(lbl_market); row1.addWidget(self._market)
         row1.addWidget(lbl_top)
         row1.addWidget(self._spin_minus)
@@ -2573,6 +3445,7 @@ class MainWindow(QMainWindow):
         row1.addStretch()
         row1.addWidget(self._btn_scan)
         row1.addWidget(self._btn_export)
+        row1.addWidget(self._btn_valid)
         v.addLayout(row1)
 
         # Row 2: ticker lookup + table filter
@@ -2629,7 +3502,12 @@ class MainWindow(QMainWindow):
         self._chk_moat = QCheckBox("🔴  CỜ ĐỎ")
         self._chk_1y   = QCheckBox("💵  FCF ≥ lợi nhuận")
         self._chk_52w  = QCheckBox("🏰  Bền vững 5 năm")
-        self._chip_checks = (self._chk_sb, self._chk_moat, self._chk_1y, self._chk_52w)
+        self._chk_val  = QCheckBox("💲  Giá Rẻ / Hợp lý")
+        self._chk_val.setToolTip(
+            "<b>Định giá Rẻ hoặc Hợp lý</b> (thị trường Mỹ).<br>Bật cùng 🟢 TỐT &amp; THỰC để ra "
+            "mã vừa chất lượng vừa chưa bị giá đòi hỏi quá nhiều.")
+        self._chip_checks = (self._chk_sb, self._chk_moat, self._chk_1y, self._chk_52w,
+                             self._chk_val)
 
         for chk in self._chip_checks:
             chk.setStyleSheet(self._chip_style())
@@ -2903,6 +3781,14 @@ class MainWindow(QMainWindow):
                         fg, bg = SIGNAL_COLORS[val]
                         cell.setForeground(QColor(fg))
                         cell.setBackground(QColor(bg))
+                elif key == "Định giá":
+                    cell = _valuation_cell(rd)
+                elif key == "Thay đổi":
+                    cell = _change_cell(rd)
+                elif key == "Tăng trưởng ngụ ý%":
+                    cell = _implied_cell(val)
+                elif key == "Lợi suất%":
+                    cell = _pct_cell(val, "{:.1f}%")
                 elif key == "Cảnh báo":
                     txt  = str(val) if val else ""
                     cell = QTableWidgetItem(txt if txt else "—")
@@ -2982,7 +3868,7 @@ class MainWindow(QMainWindow):
                 if cell:
                     cell.setTextAlignment(int(align))
                     _tip = _tip_for(key)
-                    if _tip:
+                    if _tip and not cell.toolTip():
                         cell.setToolTip(_tip)
                     self._qc_table.setItem(ri, ci, cell)
 
@@ -3032,7 +3918,8 @@ class MainWindow(QMainWindow):
         only_moat = self._chk_moat.isChecked()
         only_1y   = self._chk_1y.isChecked()
         only_52w  = self._chk_52w.isChecked()
-        any_chip  = only_sb or only_moat or only_1y or only_52w
+        only_val  = self._chk_val.isChecked()
+        any_chip  = only_sb or only_moat or only_1y or only_52w or only_val
         qd        = getattr(self, "_qc_data", {})
 
         visible = 0
@@ -3059,6 +3946,8 @@ class MainWindow(QMainWindow):
                         show = False
                 if show and only_52w and rd.get("Moat Score") not in (
                         "WIDE  ★★★", "NARROW ★★"):
+                    show = False
+                if show and only_val and rd.get("Định giá") not in ("Rẻ", "Hợp lý"):
                     show = False
             self._qc_table.setRowHidden(ri, not show)
             if show:
@@ -3128,7 +4017,8 @@ class MainWindow(QMainWindow):
             elif key == "Moat Score":
                 item.setBackground(QColor(_mo_bg)); item.setForeground(QColor(_mo_fg))
             elif key in ("NI Growth%", "Rev Growth%", "NI Qtr%", "Rev Qtr%",
-                         "Gross Margin%", "Op Margin%", "ROIC%", "ROE%", "D/E", "P/E", "1Y%"):
+                         "Gross Margin%", "Op Margin%", "ROIC%", "ROE%", "D/E", "P/E", "1Y%",
+                         "Tăng trưởng ngụ ý%", "Lợi suất%", "Định giá"):
                 item.setBackground(QColor(_fu_bg)); item.setForeground(QColor(_fu_fg))
         self._table.horizontalHeader().update()
 
@@ -3186,6 +4076,9 @@ class MainWindow(QMainWindow):
         self._use_yf.setStyleSheet(f"color:{TEXT1}; font-size:10px; font-family:'Segoe UI',sans-serif;")
         self._btn_scan.setStyleSheet(self._btn_style(BLUE, BLUE_HV))
         self._btn_export.setStyleSheet(self._btn_style("#2E5C2E", "#1A4C1A"))
+        self._btn_valid.setStyleSheet(self._btn_style("#5B3A8C", "#472C70"))
+        if self._valid_dlg is not None:
+            self._valid_dlg.apply_theme()
         self._ticker_inp.setStyleSheet(self._input_style(font="Consolas,monospace", size="13px", ls="3px"))
         self._btn_lookup.setStyleSheet(self._btn_style(BLUE, BLUE_HV, size="9px"))
         self._filter_inp.setStyleSheet(self._input_style())
@@ -3410,11 +4303,45 @@ class MainWindow(QMainWindow):
                 "market": market,
                 "top": top,
                 "saved_at": pd.Timestamp.now(),
+                "changes": self._changes,
             }
             with open(self._cache_path(), "wb") as f:
                 pickle.dump(payload, f)
         except Exception:
             pass
+
+    def _cache_fallback(self):
+        """(df, saved_at, market) của lần quét trong bộ nhớ đệm — phải đọc
+        trước khi lần quét mới ghi đè lên nó."""
+        import pickle
+        try:
+            with open(self._cache_path(), "rb") as f:
+                payload = pickle.load(f)
+            return payload.get("df"), payload.get("saved_at"), payload.get("market", "")
+        except Exception:
+            return None
+
+    def _track_changes(self, df, market: str):
+        """(df có cột Thay đổi, tóm tắt, lỗi). Lỗi ở đây không được chặn kết
+        quả quét — khi đó trả lại df nguyên vẹn kèm lời nhắn."""
+        try:
+            prev, prev_day = signal_tracking.load_previous(
+                snapshot_dir(), market, fallback=self._cache_fallback())
+            out = signal_tracking.annotate_changes(df, prev, prev_day, _CHANGE_LABELS)
+            return out, signal_tracking.change_summary(out, prev, prev_day), ""
+        except Exception as e:
+            return df, None, f"không so được với lần quét trước ({str(e)[:120]})"
+
+    def _changes_suffix(self, err: str = "") -> str:
+        """Đuôi dòng trạng thái sau khi quét."""
+        if err:
+            return f"  ·  ⚠ {err}"
+        ch = self._changes
+        if not ch:
+            return "  ·  chưa có lần quét trước để so"
+        d = pd.Timestamp(ch["prev_date"]).strftime("%d/%m")
+        return (f"  ·  so với {d}: ▲{len(ch['up'])} ▼{len(ch['down'])}  "
+                f"mới TỐT & THỰC {len(ch['new_good'])}")
 
     def _set_dataframe(self, df):
         """Một chỗ duy nhất gán kết quả quét.
@@ -3439,6 +4366,13 @@ class MainWindow(QMainWindow):
             market   = payload.get("market", "")
             top      = payload.get("top", len(df))
             saved_at = payload.get("saved_at", None)
+            self._changes = payload.get("changes")
+            if "Định giá" not in df.columns:
+                # Bộ nhớ đệm từ trước khi có định giá — tính bù, không cần quét lại
+                try:
+                    df = valuation.add_valuation(df, market)
+                except Exception:
+                    pass
             age_str  = ""
             if saved_at is not None:
                 delta = pd.Timestamp.now() - saved_at
@@ -3469,6 +4403,11 @@ class MainWindow(QMainWindow):
         self._spin_tmr.stop()
         self._btn_scan.setText("▶  SCAN")
         self._btn_export.setEnabled(True)
+        # Thị trường và số mã của chính lần quét — ô chọn có thể đã bị đổi trong lúc chờ
+        market = getattr(self._worker, "market", None) or self._market.currentText()
+        top    = getattr(self._worker, "top", None) or self._top_spin.value()
+        # Phải so trước _save_cache: bộ nhớ đệm cũ là một nguồn của lần quét trước
+        df, self._changes, track_err = self._track_changes(df, market)
         self._populate_table(df)
         self._populate_qc_table(df)
 
@@ -3481,13 +4420,16 @@ class MainWindow(QMainWindow):
             f"TỐT & THỰC: {(_sig=='🟢 TỐT & THỰC').sum()}  "
             f"KHÁ: {(_sig=='🔵 KHÁ').sum()}  "
             f"CỜ ĐỎ: {(_sig=='🔴 CỜ ĐỎ').sum()}  "
-            f"THEO DÕI: {(_sig=='🟡 THEO DÕI').sum()}",
+            f"THEO DÕI: {(_sig=='🟡 THEO DÕI').sum()}"
+            + self._changes_suffix(track_err),
             GREEN
         )
-        # Ảnh chụp theo ngày — tích luỹ dữ liệu để sau này kiểm chứng ngưỡng
-        save_snapshot(df, self._market.currentText(), self._top_spin.value())
+        # Ảnh chụp theo ngày — tích luỹ dữ liệu để sau này kiểm chứng tín hiệu.
+        # Cột Thay đổi chỉ có nghĩa với lần quét trước nên không ghi vào ảnh chụp.
+        save_snapshot(df.drop(columns=list(signal_tracking.CHANGE_COLS), errors="ignore"),
+                      market, top)
         # Lưu cache để lần sau không cần scan lại
-        self._save_cache(df, self._market.currentText(), self._top_spin.value())
+        self._save_cache(df, market, top)
         # Cập nhật Portfolio với giá/điểm mới nhất
         self._portfolio_panel.refresh_scan(df)
 
@@ -3546,6 +4488,14 @@ class MainWindow(QMainWindow):
                         fg, bg = SIGNAL_COLORS[val]
                         cell.setForeground(QColor(fg))
                         cell.setBackground(QColor(bg))
+                elif key == "Định giá":
+                    cell = _valuation_cell(row)
+                elif key == "Thay đổi":
+                    cell = _change_cell(row)
+                elif key == "Tăng trưởng ngụ ý%":
+                    cell = _implied_cell(val)
+                elif key == "Lợi suất%":
+                    cell = _pct_cell(val, "{:.1f}%")
 
                 elif key == "Cảnh báo":
                     txt  = str(val) if val else ""
@@ -3614,7 +4564,7 @@ class MainWindow(QMainWindow):
                 if cell:
                     cell.setTextAlignment(int(align))
                     _tip = _tip_for(key)
-                    if _tip:
+                    if _tip and not cell.toolTip():
                         cell.setToolTip(_tip)
                     self._table.setItem(ri, ci, cell)
 
@@ -3788,18 +4738,34 @@ class MainWindow(QMainWindow):
 
         HDRS = ["#", "Ticker", "Công ty", "Ngành", "Giá", "T.Chính", "Thực"]
 
+        # Định giá là nhãn riêng; chỉ hiện khi dữ liệu có (thị trường Mỹ)
+        val_col = (df["Định giá"].fillna("").astype(str) if "Định giá" in df.columns
+                   else pd.Series([""] * n, index=df.index))
+        has_val = bool((val_col != "").any())
+
+        def val_badge(r):
+            v = _txt(r.get("Định giá"))
+            if not v:
+                return cell("—", T3)
+            fg, bg = _VALUATION_COLORS.get(v, (T1, None))
+            return cell(v + ("" if _is_reliable(r.get("Định giá_tin cậy")) else " ?"), fg, True, bg)
+
+        def implied(r):
+            s_ = valuation.growth_label(r.get("Tăng trưởng ngụ ý%"), ".")
+            return cell(s_, T1) if s_ else cell("—", T3)
+
         # ── 1. TỐT & THỰC ────────────────────────────────────────────────
         good = df[sig == "🟢 TỐT & THỰC"].sort_values(
             ["REAL_Pct", "FIN_Pct"], ascending=False) if n_good else df.iloc[0:0]
         good_tbl = table(
-            HDRS + ["ROIC%", "FCF/NI", "FCF Mgn%", "1Y%", "Cảnh báo"],
+            HDRS + ["ROIC%", "FCF/NI", "FCF Mgn%", "1Y%"]
+            + (["Định giá"] if has_val else []) + ["Cảnh báo"],
             rows_for(good, lambda r: [
                 num(r.get("ROIC%"), "{:.1f}%"),
                 num(r.get("FCF/NI"), "{:.2f}×", lambda v: v >= 0.8),
                 num(r.get("FCF_Margin%"), "{:.1f}%", lambda v: v > 8),
                 num(r.get("1Y%"), "{:+.1f}%", lambda v: v > 0),
-                warn_cell(r),
-            ]))
+            ] + ([val_badge(r)] if has_val else []) + [warn_cell(r)]))
 
         # ── 2. CỜ ĐỎ — kết quả đặc trưng của hệ thống ────────────────────
         flag = df[sig == "🔴 CỜ ĐỎ"].sort_values(
@@ -3857,7 +4823,7 @@ class MainWindow(QMainWindow):
             warn_df = warn_df.sort_values(["_r", "% từ đỉnh"], ascending=[True, True])
 
         def tk_link(t):
-            t = str(t or "")
+            t = _html_escape(str(t or ""))
             return (f'<a href="tk:{t}" style="color:#4A9EFF;text-decoration:none;'
                     f'font-weight:700;">{t}</a>') if t else ""
 
@@ -3934,6 +4900,91 @@ class MainWindow(QMainWindow):
             sec_rows.sort(key=lambda r: -int(r[2][0]))
         sec_tbl = table(["Ngành", "Số mã", "Tốt&Thực", "Cờ đỏ", "TB T.Chính", "TB Thực"], sec_rows)
 
+        # ── 6. Định giá: mã TỐT & THỰC chưa bị giá đòi hỏi quá nhiều ──────
+        val_sec = ""
+        if has_val:
+            vcolors = dict(zip(valuation.VERDICTS, (G, B, A_, R)))
+            dist = "  ·  ".join(
+                f'<span style="color:{vcolors[v]};font-weight:700;">{v} {int((val_col == v).sum())}</span>'
+                for v in valuation.VERDICTS)
+            n_none = int((val_col == "").sum())
+            if n_none:
+                dist += f'  ·  <span style="color:{T3};">không định giá được {n_none}</span>'
+            gv = df[(sig == "🟢 TỐT & THỰC") & val_col.isin(["Rẻ", "Hợp lý"])]
+            if not gv.empty:
+                gv = gv.sort_values(["Định giá_rank", "Lợi suất%"], ascending=[True, False])
+            val_tbl = table(
+                HDRS + ["Định giá", "Cơ sở", "Lợi suất", "Ngụ ý/năm", "Mốc/năm", "Mốc theo"],
+                rows_for(gv, lambda r: [
+                    val_badge(r),
+                    cell(_html_escape(_txt(r.get("Cơ sở ĐG"))) or "—", T2),
+                    num(r.get("Lợi suất%"), "{:.1f}%"),
+                    implied(r),
+                    num(r.get("Mốc tăng trưởng%"), "{:+.1f}%"),
+                    cell(_html_escape(_txt(r.get("Mốc ĐG"))) or "—", T2),
+                ]))
+            val_sec = (sec(f'💲  ĐỊNH GIÁ — {len(gv)} mã TỐT &amp; THỰC đang Rẻ hoặc Hợp lý',
+                           'giá hiện tại ngụ ý dòng tiền tăng bao nhiêu mỗi năm, so với mức doanh nghiệp '
+                           'đã chứng minh · dấu ? = độ tin cậy thấp · nhãn riêng, không cộng vào điểm', A_)
+                       + f'<div style="font-size:11px;color:{T2};margin:0 2px 8px 2px;">'
+                         f'Toàn bộ {n} mã: {dist}</div>'
+                       + val_tbl)
+
+        # ── 7. Thay đổi so với lần quét trước ────────────────────────────
+        ch = getattr(self, "_changes", None)
+        short = signal_tracking.short_signal
+
+        def tk_list(items, cap=40):
+            """Danh sách mã dạng liên kết, kèm tín hiệu cũ → mới khi có."""
+            out = []
+            for it in items[:cap]:
+                if isinstance(it, (tuple, list)):
+                    t, ps, cs = it
+                    to = _html_escape(short(cs)) if cs else "rời danh sách"
+                    out.append(f'{tk_link(t)} <span style="color:{T3};">'
+                               f'{_html_escape(short(ps))} → {to}</span>')
+                else:
+                    out.append(tk_link(it))
+            more = (f'  <span style="color:{T3};">+{len(items) - cap} mã khác</span>'
+                    if len(items) > cap else "")
+            return " · ".join(out) + more
+
+        if ch is None:
+            chg_sec = (sec('🔄  Thay đổi so với lần quét trước',
+                           'chưa có lần quét trước của thị trường này', B)
+                       + f'<div style="color:{T3};font-size:11px;font-style:italic;padding:4px;">'
+                         'Mỗi lần quét được lưu thành một ảnh chụp trong thư mục snapshots. Từ lần '
+                         'quét vào ngày khác, mục này và cột «Thay đổi» trong bảng sẽ cho biết mã nào '
+                         'lên hạng, xuống hạng, mới đạt hoặc mất TỐT &amp; THỰC.</div>')
+        else:
+            cur_sig = dict(zip(df["Ticker"].astype(str), sig.astype(str)))
+            groups = [
+                ("Mới vào TỐT &amp; THỰC", ch.get("new_good") or [], G),
+                ("Rời TỐT &amp; THỰC", [(t, "🟢 TỐT & THỰC", cur_sig.get(t, ""))
+                                        for t in ch.get("lost_good") or []], R),
+                ("Cờ đỏ mới", ch.get("new_flags") or [], R),
+                ("Lên hạng", ch.get("up") or [], G),
+                ("Xuống hạng", ch.get("down") or [], O),
+            ]
+            if ch.get("entered") is not None:
+                groups += [("Vào danh sách", ch.get("entered") or [], B),
+                           ("Ra khỏi danh sách", ch.get("exited") or [], T2)]
+            chg_rows = [[cell(f"{lbl} · {len(items)}", c, True), cell(tk_list(items))]
+                        for lbl, items, c in groups if items]
+            warns = "".join(
+                f'<div style="color:{A_};font-size:11px;margin:2px 2px 6px 2px;">⚠ {_html_escape(w)}</div>'
+                for w in ch.get("warnings") or [])
+            body = (table(["Nhóm", "Mã  (tín hiệu cũ → mới)"], chg_rows, widths=["17%", "83%"])
+                    if chg_rows else
+                    f'<div style="color:{T3};font-size:11px;font-style:italic;padding:4px;">'
+                    f'Không mã nào đổi tín hiệu.</div>')
+            prev_d = pd.Timestamp(ch["prev_date"]).strftime("%d/%m/%Y")
+            n_up, n_down = len(ch.get("up") or []), len(ch.get("down") or [])
+            chg_sec = (sec(f'🔄  Thay đổi so với lần quét {prev_d}',
+                           f'▲ {n_up} mã lên hạng · ▼ {n_down} mã xuống hạng · rê chuột vào cột '
+                           f'«Thay đổi» trong bảng để xem từng tiêu chí', B)
+                       + warns + body)
+
         stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
         return f"""<body style="background:{BG_};color:{T1};font-family:'Segoe UI',sans-serif;
                                 margin:0;padding:18px 22px;">
@@ -3944,9 +4995,11 @@ class MainWindow(QMainWindow):
   </tr></table>
   {kpis}
   {mk_html}
+  {chg_sec}
 
   {sec(f'🟢  TỐT &amp; THỰC — {n_good} mã', 'số liệu tài chính mạnh VÀ vượt được các phép kiểm chứng', G)}
   {good_tbl}
+  {val_sec}
 
   {sec(f'🔴  CỜ ĐỎ — {n_flag} mã', 'số liệu tài chính ≥80% tiêu chí nhưng kiểm chứng dưới 60% — số đẹp chưa chứng minh được', R)}
   {flag_tbl}
@@ -4007,7 +5060,8 @@ class MainWindow(QMainWindow):
         only_moat = self._chk_moat.isChecked()
         only_1y   = self._chk_1y.isChecked()
         only_52w  = self._chk_52w.isChecked()
-        any_chip  = only_sb or only_moat or only_1y or only_52w
+        only_val  = self._chk_val.isChecked()
+        any_chip  = only_sb or only_moat or only_1y or only_52w or only_val
         td        = getattr(self, "_ticker_data", {})
 
         visible = 0
@@ -4034,6 +5088,8 @@ class MainWindow(QMainWindow):
                         show = False
                 if show and only_52w and rd.get("Moat Score") not in (
                         "WIDE  ★★★", "NARROW ★★"):
+                    show = False
+                if show and only_val and rd.get("Định giá") not in ("Rẻ", "Hợp lý"):
                     show = False
             self._table.setRowHidden(ri, not show)
             if show:
@@ -4191,6 +5247,15 @@ class MainWindow(QMainWindow):
     def _show_help(self):
         dlg = HelpDialog(self)
         dlg.exec()
+
+    def _show_validation(self):
+        """Giữ một hộp thoại duy nhất: đóng giữa chừng thì luồng tải giá vẫn
+        chạy tiếp, mở lại là thấy kết quả."""
+        if self._valid_dlg is None:
+            self._valid_dlg = ValidationDialog(self)
+        self._valid_dlg.show()
+        self._valid_dlg.raise_()
+        self._valid_dlg.activateWindow()
 
     def _show_ai_settings(self):
         # Dựng mới mỗi lần mở để dialog lấy đúng bảng màu của theme hiện tại

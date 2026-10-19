@@ -1,0 +1,30 @@
+[
+  {
+    "ticker": "AVGO",
+    "buy_date": "2026-06-05",
+    "buy_price": 409.26,
+    "qty": 2.0,
+    "note": ""
+  },
+  {
+    "ticker": "AVGO",
+    "buy_date": "2026-06-05",
+    "buy_price": 411.0,
+    "qty": 1.0,
+    "note": ""
+  },
+  {
+    "ticker": "NVDA",
+    "buy_date": "2026-06-05",
+    "buy_price": 150.0,
+    "qty": 5.0,
+    "note": ""
+  },
+  {
+    "ticker": "WDC",
+    "buy_date": "2026-10-02",
+    "buy_price": 410.44,
+    "qty": 2.0,
+    "note": "giảm hơn 50% từ đỉnh, trong phiên giảm hơn 11% chạm dc MA 50, dashboard báo mua."
+  }
+]

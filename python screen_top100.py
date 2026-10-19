@@ -6,10 +6,16 @@ python tv_top100_screener.py
 python tv_top100_screener.py --market nasdaq --top 200
 """
 
-import argparse, sys, time, warnings
+import argparse, logging, sys, time, warnings
 from datetime import datetime
 import numpy as np
 warnings.filterwarnings("ignore")
+
+try:
+    import valuation
+except ImportError as _e:   # bản đóng gói cũ chưa có module — vẫn chấm điểm được
+    logging.getLogger(__name__).warning("Không nạp được module định giá: %s", _e)
+    valuation = None
 
 try:
     from tradingview_screener import Query, Column
@@ -85,7 +91,7 @@ N_REAL    = len(REAL_KEYS)
 
 FETCH_COLS = [
     "name", "description", "close", "volume", "market_cap_basic",
-    "sector",
+    "sector", "industry",
     "gross_margin", "net_margin", "return_on_equity", "debt_to_equity",
     "price_earnings_ttm", "price_sales_current",
     "relative_volume_10d_calc",
@@ -121,7 +127,7 @@ FETCH_COLS = [
 
 RENAME = {
     "name": "Ticker", "description": "Tên Công Ty", "close": "Price ($)", "market_cap_basic": "MCap ($B)",
-    "sector": "Sector",
+    "sector": "Sector", "industry": "Industry",
     "net_income_yoy_growth_ttm": "NI Growth%",
     "total_revenue_yoy_growth_ttm": "Rev Growth%",
     "earnings_per_share_diluted_yoy_growth_ttm": "EPS Growth%",
@@ -291,6 +297,16 @@ def _margin_trend(tk) -> dict:
         if len(om) >= 3:
             out["om_slope"] = slope(om)
             out["om_streak"] = decline_streak(om)
+
+        # Tăng trưởng doanh thu kép nhiều năm — mốc «đã chứng minh» cho phần
+        # định giá. Một năm đơn lẻ dễ là đỉnh hoặc đáy chu kỳ.
+        revs = [(i, float(v)) for i, v in enumerate(rev) if pd.notna(v) and float(v) > 0]
+        if len(revs) >= 3:
+            (i0, r0), (i1, r1) = revs[0], revs[-1]
+            n = i1 - i0
+            if n >= 2:
+                out["rev_cagr"]  = round(((r1 / r0) ** (1 / n) - 1) * 100, 1)
+                out["rev_years"] = n
     except Exception:
         return {}
     return out
@@ -557,7 +573,10 @@ def CL(i): return get_column_letter(i)
 # ═══════════════════════════════════════════════════════════════
 def snapshot_dir() -> "Path":
     from pathlib import Path
-    d = Path(__file__).resolve().parent / "snapshots"
+    # Bản đóng gói: cạnh tệp exe như scan_cache.pkl, không nằm trong _internal
+    base = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent)
+    d = base / "snapshots"
     d.mkdir(exist_ok=True)
     return d
 
@@ -706,7 +725,8 @@ def _derive_fields(df, moat_cache=None):
         return t[7].get(key)
 
     for key, col in (("gm_slope", "Dốc biên"), ("gm_streak", "Năm giảm"),
-                     ("gm_pos", "Vị trí biên"), ("gm_years", "Số năm")):
+                     ("gm_pos", "Vị trí biên"), ("gm_years", "Số năm"),
+                     ("rev_cagr", "DT CAGR%"), ("rev_years", "DT số năm")):
         df[col] = df["Ticker"].apply(lambda t, k=key: _tr(t, k))
 
     # ── Xu hướng một năm: TTM so với năm tài chính gần nhất ────────────
@@ -944,8 +964,11 @@ def _signal(fin_pct, real_pct, fin_app, real_app, real_fail=0):
     return "⚫ LOẠI"
 
 
-def score_stocks(df, moat_cache: dict = None):
-    """Chấm cả hai nhóm và sinh tín hiệu gộp."""
+def score_stocks(df, moat_cache: dict = None, market: str = None):
+    """Chấm cả hai nhóm và sinh tín hiệu gộp.
+
+    `market` chỉ dùng cho phần định giá (hiện chỉ có cho Mỹ). Định giá là
+    nhãn đứng riêng — không cộng vào điểm, không đổi tín hiệu."""
     df = _derive_fields(df, moat_cache)
 
     for k in FIN_KEYS:
@@ -972,6 +995,12 @@ def score_stocks(df, moat_cache: dict = None):
     df["Signal"] = df.apply(
         lambda r: _signal(r["FIN_Pct"], r["REAL_Pct"], r["FIN_App"], r["REAL_App"],
                           r["REAL_Fail"]), axis=1)
+    if valuation is not None:
+        try:
+            df = valuation.add_valuation(df, market)
+        except Exception:
+            # Định giá là nhãn phụ — lỗi ở đây không được làm mất cả lần quét
+            logging.getLogger(__name__).exception("Bỏ qua định giá")
     return df
 
 
@@ -1752,7 +1781,7 @@ def main():
 
     # 3. Chấm điểm: nhóm A (tài chính tốt) + nhóm B (chứng minh là thực)
     print("  📊 Chấm điểm Tài chính + Kiểm chứng...", end="", flush=True)
-    df = score_stocks(df, moat_cache)
+    df = score_stocks(df, moat_cache, a.market)
     print(f" ✅  ({int((df['Signal'] == '🟢 TỐT & THỰC').sum())} TỐT & THỰC, "
           f"{int((df['Signal'] == '🔴 CỜ ĐỎ').sum())} CỜ ĐỎ)")
 
