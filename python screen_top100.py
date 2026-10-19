@@ -36,10 +36,11 @@ except ImportError as e:
 FIN_CRITERIA = {
     "ROIC": dict(label="ROIC",       field="ROIC%",        thr=15, op="gt",
                  desc="ROIC > 15% — sinh lời cao hơn chi phí vốn (nhóm Tài chính: ROE > 12%)"),
-    "OPM":  dict(label="Op Margin",  field="Op Margin%",   thr=15, op="gt",
-                 desc="Biên lợi nhuận hoạt động > 15% — kỷ luật chi phí, đòn bẩy vận hành"),
-    "GM":   dict(label="Gross Mgn",  field="Gross Margin%", thr=40, op="gt",
-                 desc="Biên lợi nhuận gộp > 40% — lợi thế cấu trúc về giá bán"),
+    "MGN":  dict(label="Biên lợi nhuận", field="Op Margin%", thr=15, op="margin",
+                 desc="Biên hoạt động > 15% hoặc biên gộp > 40% (hoặc thuộc nhóm 30% dẫn "
+                      "đầu ngành ở một trong hai). Gộp từ hai tiêu chí riêng sau khi kiểm "
+                      "thử lùi cho thấy mức biên tuyệt đối không dự báo được lợi suất, "
+                      "trong khi chúng chiếm tới một nửa nhóm A"),
     "NIG":  dict(label="NI Growth",  field="NI Growth%",   thr=20, op="gt",
                  desc="Lợi nhuận ròng TTM tăng > 20% so cùng kỳ"),
     "REVG": dict(label="Rev Growth", field="Rev Growth%",  thr=15, op="gt",
@@ -47,7 +48,7 @@ FIN_CRITERIA = {
     "DE":   dict(label="D/E",        field="D/E",          thr=1.0, op="lt",
                  desc="Nợ trên vốn chủ < 1.0 (không áp dụng cho nhóm Tài chính)"),
 }
-FIN_KEYS = list(FIN_CRITERIA.keys())
+FIN_KEYS = list(FIN_CRITERIA.keys())   # ROIC · MGN · NIG · REVG · DE
 N_FIN    = len(FIN_KEYS)
 
 # ═══════════════════════════════════════════════════════════════
@@ -833,10 +834,6 @@ def _derive_fields(df, moat_cache=None):
 
 
 # ── Nhóm A ──────────────────────────────────────────────────────
-# Hai tiêu chí biên có thêm cửa thứ hai: dẫn đầu ngành
-_PEER_GATE = {"GM": "GM_nganh", "OPM": "OpM_nganh"}
-
-
 def _chk_fin(row, key):
     cfg    = FIN_CRITERIA[key]
     is_fin = row.get("Sector", "") in _FIN_SECTORS
@@ -845,16 +842,28 @@ def _chk_fin(row, key):
     if key == "ROIC" and is_fin:
         v = _num(row.get("ROE%"))         # nhóm tài chính: dùng ROE > 12% thay cho ROIC
         return None if v is None else v > 12
+
+    if key == "MGN":
+        # Đạt nếu mạnh ở MỘT trong hai loại biên, theo mức tuyệt đối hoặc
+        # theo vị trí trong ngành.
+        om, gm = _num(row.get("Op Margin%")), _num(row.get("Gross Margin%"))
+        if om is None and gm is None:
+            return None
+        if om is not None and om > 15:
+            return True
+        if gm is not None and gm > 40:
+            return True
+        po, pg = _num(row.get("OpM_nganh")), _num(row.get("GM_nganh"))
+        if om is not None and po is not None and om >= po:
+            return True
+        if gm is not None and pg is not None and gm >= pg:
+            return True
+        return False
+
     v = _num(row.get(cfg["field"]))
     if v is None:
         return None
-    if cfg["op"] == "gt":
-        if v > cfg["thr"]:
-            return True
-        # Chưa đạt mức tuyệt đối thì xét có thuộc nhóm dẫn đầu ngành không
-        peer = _num(row.get(_PEER_GATE.get(key, "")))
-        return bool(peer is not None and v >= peer)
-    return v < cfg["thr"]
+    return v > cfg["thr"] if cfg["op"] == "gt" else v < cfg["thr"]
 
 
 # ── Nhóm B ──────────────────────────────────────────────────────

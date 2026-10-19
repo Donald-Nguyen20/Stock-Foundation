@@ -31,6 +31,7 @@ import claude_auth
 import ai_analysis
 import universe_charts
 import analysis_charts
+import market_regime
 import analysis_report
 import fund_holders
 import fund_chart
@@ -4353,6 +4354,10 @@ class MainWindow(QMainWindow):
         self._df = df
         self._chart_panel.set_universe(df)
         self._ai_panel.set_universe(df)
+        try:
+            self._regime = market_regime.assess(self._market.currentText(), df)
+        except Exception:
+            self._regime = None
 
     def _load_cache(self):
         import pickle
@@ -4645,21 +4650,36 @@ class MainWindow(QMainWindow):
                 + kpi(n_gw, "TỐT NHƯNG GIÁ GIẢM", O)
                 + '</tr></table>')
 
-        # ── Bối cảnh thị trường: hiển thị, KHÔNG cộng vào điểm ────────────
-        mk = getattr(self, "_market_ok", None)
-        ix = getattr(self, "_index_1y", None)
-        if mk is None:
+        # ── Trạng thái thị trường: gấu hay bò ─────────────────────────────
+        # Không cộng vào điểm — nó giống nhau cho mọi mã nên không phân biệt
+        # được mã nào. Nhưng nó quyết định cách ĐỌC tín hiệu giảm sâu.
+        rg = getattr(self, "_regime", None)
+        if not rg:
             mk_html = ""
         else:
-            mc, mt = (G, "THUẬN LỢI — chỉ số trên MA50 &amp; MA200") if mk else \
-                     (R, "BẤT LỢI — chỉ số dưới MA50 hoặc MA200")
-            ix_s = f"  ·  Chỉ số 1 năm: {ix:+.1f}%" if isinstance(ix, (int, float)) else ""
-            mk_html = (f'<div style="background:{CARD};border:1px solid {BRD};border-left:3px solid {mc};'
-                       f'border-radius:5px;padding:9px 14px;margin:14px 0;">'
-                       f'<span style="color:{mc};font-weight:700;font-size:12px;">Thị trường: {mt}</span>'
-                       f'<span style="color:{T2};font-size:11px;">{ix_s}</span><br>'
-                       f'<span style="color:{T3};font-size:10px;">Đây là bối cảnh chung, giống nhau cho mọi mã '
-                       f'— không cộng vào điểm để tránh làm trôi ngưỡng tín hiệu theo thị trường.</span></div>')
+            bits = []
+            if rg.get("dd") is not None:
+                bits.append(f"Chỉ số cách đỉnh một năm {rg['dd']:+.1f}%")
+            if rg.get("vs_ma200") is not None:
+                bits.append(f"so MA200 {rg['vs_ma200']:+.1f}%")
+            if rg.get("breadth") is not None:
+                bits.append(f"{rg['breadth']:.0f}% số mã trên MA250")
+            mk_html = (
+                f'<table width="100%" cellspacing="0" cellpadding="0" '
+                f'style="margin:14px 0;"><tr>'
+                f'<td width="150" valign="top" style="background:{rg["bg"]};'
+                f'padding:11px 14px;text-align:center;">'
+                f'<span style="color:{rg["fg"]};font-size:14px;font-weight:700;'
+                f'letter-spacing:1px;">{rg["label"]}</span></td>'
+                f'<td valign="top" style="background:{CARD};border:1px solid {BRD};'
+                f'padding:10px 16px;">'
+                f'<span style="color:{T1};font-size:11px;font-weight:700;">'
+                f'{"  ·  ".join(bits)}</span><br>'
+                f'<span style="color:{T2};font-size:11px;line-height:160%;">'
+                f'{rg.get("advice","")}</span><br>'
+                f'<span style="color:{T3};font-size:10px;">Căn cứ: '
+                f'{"; ".join(rg.get("reasons", []))}</span>'
+                f'</td></tr></table>')
 
         def sec(title, sub, color):
             return (f'<div style="margin:22px 0 8px 0;">'
