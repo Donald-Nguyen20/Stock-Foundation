@@ -148,6 +148,7 @@ TABLE_COLS = [
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Nền giá",    "Nền giá",       76,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Từ đỉnh",    "% từ đỉnh",     66,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
@@ -190,6 +191,7 @@ REAL_COLS = [
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Nền giá",    "Nền giá",       76,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Từ đỉnh",    "% từ đỉnh",     66,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
@@ -387,6 +389,31 @@ COL_TIPS = {
         "<i>Với người mua khi giá giảm: càng nhiều cờ thì càng nghiêng về «đang rơi» hơn là «đang chiết khấu». "
         "Nhưng app không kết luận thay — hãy đối chiếu với tiêu chí «Còn đúng» ở tab Kiểm chứng để biết "
         "số liệu quý gần nhất có xấu đi thật không.</i>",
+    "Nền giá":
+        "<b>Trạng thái nền giá theo lối đọc của CAN SLIM.</b><br>"
+        "O'Neil mua khi giá bứt khỏi một nền lành mạnh, không mua giữa lúc đang rơi. "
+        "Với lối mua khi giá giảm thì phân biệt này còn quan trọng hơn: một mã đã mất 30% "
+        "nhưng <b>đã tạo nền</b> khác hẳn một mã mất 30% và <b>còn đang rơi</b>.<br><br>"
+        "<b>Nền chặt</b> — giá ở nửa trên nền, biên độ tháng co lại dưới 60% biên độ ba "
+        "tháng, và đang trên MA50. Đây là trạng thái sát điểm mua nhất.<br>"
+        "<b>Nền tốt</b> — ở nửa trên nền và trên MA50, nhưng biên độ chưa siết.<br>"
+        "<b>Đang siết</b> — biên độ đang co lại nhưng giá còn ở giữa nền.<br>"
+        "<b>Đang xây</b> — đã đi ngang nhưng chưa có dấu hiệu hoàn thiện.<br>"
+        "<b>Đang rơi</b> — còn nằm ở một phần ba dưới của nền, chưa dừng.<br>"
+        "<b>Hỏng</b> — nền sâu quá 45%, cần rất lâu mới lành lại.<br><br>"
+        "<i>Chỉ hiển thị, không chấm điểm — đây là cấu trúc giá, không phải chất lượng "
+        "doanh nghiệp. Xem kèm ba cột Độ sâu nền, Vị trí nền và Độ siết.</i>",
+    "Độ sâu nền":
+        "<b>Độ sâu nền ba tháng</b> = (1 − đáy 3 tháng / đỉnh 3 tháng) × 100.<br>"
+        "<i>O'Neil coi nền 15–35% là lành; sâu quá 45% thì cấu trúc đã hỏng.</i>",
+    "Vị trí nền":
+        "<b>Giá đang ở đâu trong nền ba tháng</b>, từ 0 tại đáy tới 100 tại đỉnh.<br>"
+        "<i>Trên 60 là sát điểm mua; dưới 35 nghĩa là còn đang rơi.</i>",
+    "Độ siết":
+        "<b>Biên độ một tháng chia biên độ ba tháng.</b><br>"
+        "Dưới 1 nghĩa là giá đang dao động hẹp dần — dấu hiệu hàng đã được hấp thụ và "
+        "nền sắp hoàn thiện, thứ Minervini gọi là co thắt biên độ.<br>"
+        "<i>Dưới 0,6 được tính là đang siết.</i>",
     "% từ đỉnh":
         "<b>Khoảng cách tới đỉnh 52 tuần</b> = (Giá hiện tại / Đỉnh 52 tuần − 1) × 100.<br>"
         "Số âm càng lớn thì giá càng xa đỉnh.<br>"
@@ -3806,6 +3833,22 @@ class MainWindow(QMainWindow):
                     cell = _implied_cell(val)
                 elif key == "Lợi suất%":
                     cell = _pct_cell(val, "{:.1f}%")
+                elif key == "Nền giá":
+                    cell = QTableWidgetItem(str(val) if val else "—")
+                    _pal = {
+                        "Nền chặt":  ("#1A5C2B", "#C6EFCE"),
+                        "Nền tốt":   ("#1B5E20", "#DCEDC8"),
+                        "Đang siết": ("#1B3A5C", "#DDEEFF"),
+                        "Đang xây":  ("#7D6608", "#FFF2CC"),
+                        "Đang rơi":  ("#7A3E00", "#FFE0C2"),
+                        "Hỏng":      ("#9C0006", "#FFC7CE"),
+                    }
+                    if val in _pal:
+                        fg, bg = _pal[val]
+                        cell.setForeground(QColor(fg)); cell.setBackground(QColor(bg))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+
                 elif key == "% từ đỉnh":
                     cell = NumItem(val, "pct")
                     if isinstance(val, float) and val == val:
@@ -4540,6 +4583,22 @@ class MainWindow(QMainWindow):
                 elif key == "Lợi suất%":
                     cell = _pct_cell(val, "{:.1f}%")
 
+                elif key == "Nền giá":
+                    cell = QTableWidgetItem(str(val) if val else "—")
+                    _pal = {
+                        "Nền chặt":  ("#1A5C2B", "#C6EFCE"),
+                        "Nền tốt":   ("#1B5E20", "#DCEDC8"),
+                        "Đang siết": ("#1B3A5C", "#DDEEFF"),
+                        "Đang xây":  ("#7D6608", "#FFF2CC"),
+                        "Đang rơi":  ("#7A3E00", "#FFE0C2"),
+                        "Hỏng":      ("#9C0006", "#FFC7CE"),
+                    }
+                    if val in _pal:
+                        fg, bg = _pal[val]
+                        cell.setForeground(QColor(fg)); cell.setBackground(QColor(bg))
+                    else:
+                        cell.setForeground(QColor(TEXT3))
+
                 elif key == "% từ đỉnh":
                     cell = NumItem(val, "pct")
                     if isinstance(val, float) and val == val:
@@ -4734,7 +4793,7 @@ class MainWindow(QMainWindow):
         # ── Giai đoạn theo Wyckoff, kèm giả thuyết Elliott ────────────────
         ph = getattr(self, "_phase", None)
         if ph:
-            wy, el = ph["wyckoff"], ph["elliott"]
+            wy = ph["wyckoff"]
             rsw = wy["range"]
             bar = int(round(wy["confidence"] * 10))
             conf_bar = ("█" * bar) + ("░" * (10 - bar))
@@ -4756,27 +4815,24 @@ class MainWindow(QMainWindow):
             mk_html += (
                 f'<table width="100%" cellspacing="0" cellpadding="0" '
                 f'style="margin:0 0 14px 0;"><tr>'
-                f'<td width="150" valign="top" style="background:{wy["bg"]};'
-                f'padding:11px 14px;text-align:center;">'
-                f'<span style="color:{wy["fg"]};font-size:13px;font-weight:700;'
-                f'letter-spacing:1px;">{wy["label"]}</span><br>'
-                f'<span style="color:{wy["fg"]};font-size:9px;'
+                f'<td width="190" valign="top" style="background:{wy["v_bg"]};'
+                f'padding:11px 12px;text-align:center;">'
+                f'<span style="color:{wy["v_fg"]};font-size:12px;font-weight:700;'
+                f'letter-spacing:1px;">{wy["verdict"]}</span><br>'
+                f'<span style="color:{wy["v_fg"]};font-size:9px;'
                 f'font-family:Consolas,monospace;">{conf_bar}</span><br>'
-                f'<span style="color:{wy["fg"]};font-size:9px;">Wyckoff · độ tin '
-                f'{wy["confidence"]:.0%}</span></td>'
+                f'<span style="color:{wy["v_fg"]};font-size:9px;">Wyckoff · '
+                f'{wy["label"]} · tin {wy["confidence"]:.0%}</span></td>'
                 f'<td valign="top" style="background:{CARD};border:1px solid {BRD};'
                 f'padding:10px 16px;">'
-                f'<span style="color:{T1};font-size:11px;font-weight:700;">'
+                f'<span style="color:{T1};font-size:11px;line-height:162%;">'
+                f'{wy.get("v_note","")}</span><br>'
+                f'<span style="color:{T2};font-size:11px;font-weight:700;">'
                 f'{"  ·  ".join(facts)}</span>'
                 + (f'<br><span style="color:{A_};font-size:11px;font-weight:700;">'
                    f'{"  ·  ".join(ev)}</span>' if ev else "")
-                + f'<br><span style="color:{T2};font-size:11px;line-height:160%;">'
-                f'{wy.get("advice","")}</span><br>'
-                f'<span style="color:{T3};font-size:10px;">Căn cứ: '
+                + f'<br><span style="color:{T3};font-size:10px;">Căn cứ: '
                 f'{"; ".join(wy.get("reasons", []))}</span>'
-                f'<br><span style="color:{T3};font-size:10px;line-height:155%;">'
-                f'<b>Elliott:</b> {el.get("note","")} {el.get("alt","")} '
-                f'<i>{el.get("caveat","")}</i></span>'
                 f'</td></tr></table>')
 
         def sec(title, sub, color):

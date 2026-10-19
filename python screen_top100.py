@@ -120,6 +120,9 @@ FETCH_COLS = [
     "price_52_week_high",
     "SMA250",
     "change",
+    # ── Nền giá: biên độ từng kỳ để đo độ sâu và độ siết ──
+    "High.1M", "Low.1M", "High.3M", "Low.3M", "High.6M", "Low.6M",
+    "SMA50",
     # ── Năm tài chính gần nhất: so với TTM ra xu hướng một năm ──
     "gross_margin_fy",
     "operating_margin_fy",
@@ -157,6 +160,10 @@ RENAME = {
     "operating_margin_fy": "OpM_fy",
     "return_on_invested_capital_fy": "ROIC_fy",
     "price_52_week_high": "High52",
+    "High.1M": "H1M", "Low.1M": "L1M",
+    "High.3M": "H3M", "Low.3M": "L3M",
+    "High.6M": "H6M", "Low.6M": "L6M",
+    "SMA50": "MA50",
     "SMA250": "MA250",
     "change": "Chg%",
 }
@@ -789,6 +796,55 @@ def _derive_fields(df, moat_cache=None):
             df[out] = q70.round(1)
         else:
             df[out] = None
+
+    # ── Nền giá theo CAN SLIM ──────────────────────────────────────────
+    # O'Neil mua khi giá bứt khỏi một nền lành mạnh, không mua giữa lúc đang
+    # rơi. Với lối mua khi giá giảm thì phân biệt này còn quan trọng hơn: một
+    # mã đã mất 30% nhưng ĐÃ TẠO NỀN khác hẳn một mã mất 30% và còn đang rơi.
+    def _base(r):
+        px = _num(r.get("Price ($)"))
+        h3, l3 = _num(r.get("H3M")), _num(r.get("L3M"))
+        h1, l1 = _num(r.get("H1M")), _num(r.get("L1M"))
+        ma50 = _num(r.get("MA50"))
+        if px is None or h3 is None or l3 is None or h3 <= 0 or h3 <= l3:
+            return None, None, None, None
+
+        depth = (1 - l3 / h3) * 100                 # độ sâu nền ba tháng
+        pos = (px - l3) / (h3 - l3) * 100           # giá nằm đâu trong nền
+        # Biên độ tháng so với biên độ ba tháng: dưới 1 là đang siết lại,
+        # đúng dấu hiệu nền đang hoàn thiện mà Minervini gọi là VCP.
+        tight = ((h1 - l1) / (h3 - l3)) if (h1 is not None and l1 is not None
+                                            and h3 > l3) else None
+        from_pivot = (px / h3 - 1) * 100            # cách điểm mua bao nhiêu
+        return round(depth, 1), round(pos, 0), (round(tight, 2) if tight else None), round(from_pivot, 1)
+
+    _b = df.apply(_base, axis=1)
+    df["Độ sâu nền"] = [x[0] for x in _b]
+    df["Vị trí nền"] = [x[1] for x in _b]
+    df["Độ siết"]    = [x[2] for x in _b]
+    df["Cách đỉnh nền"] = [x[3] for x in _b]
+
+    def _base_label(r):
+        """Kết luận một từ về trạng thái nền."""
+        d = _num(r.get("Độ sâu nền")); pos = _num(r.get("Vị trí nền"))
+        t = _num(r.get("Độ siết")); px = _num(r.get("Price ($)"))
+        ma50 = _num(r.get("MA50")); ma250 = _num(r.get("MA250"))
+        if d is None or pos is None:
+            return None
+        if d > 45:
+            return "Hỏng"            # sụt quá sâu, nền cần rất lâu mới lành
+        if pos < 35:
+            return "Đang rơi"        # còn nằm đáy nền, chưa có dấu hiệu dừng
+        tightening = t is not None and t <= 0.6
+        up = ma50 is not None and px is not None and px > ma50
+        if pos >= 60 and tightening and up:
+            return "Nền chặt"        # sát đỉnh nền, biên độ siết, trên MA50
+        if pos >= 60 and up:
+            return "Nền tốt"
+        if tightening:
+            return "Đang siết"       # còn giữa nền nhưng biên độ đang co lại
+        return "Đang xây"
+    df["Nền giá"] = df.apply(_base_label, axis=1)
 
     # ── Ba chỉ báo cảnh báo giá ────────────────────────────────────────
     # Thuần hiển thị: không vào FIN/REAL, không đổi tín hiệu, không dùng để lọc.

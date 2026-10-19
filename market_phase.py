@@ -1,20 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Đoán giai đoạn thị trường theo Wyckoff và Elliott.
+"""Đoán giai đoạn thị trường theo Wyckoff.
 
-ĐỘ TIN CẬY CỦA HAI PHƯƠNG PHÁP RẤT KHÁC NHAU — đọc trước khi dùng:
+Trả lời đúng một câu: thị trường đang ở NỀN TÍCH LUỸ, NỀN PHÂN PHỐI, hay
+không phải nền mà đang trong xu hướng.
 
-· Wyckoff cơ giới hoá được tương đối. Nó dựa vào quan hệ giữa giá và khối
-  lượng, và những thứ như vùng đi ngang, cú rũ bỏ dưới đáy vùng, hay khối
-  lượng lớn mà giá không đi được đều đo được bằng quy tắc. Kết quả ở đây là
-  một cách đọc có căn cứ, không phải chân lý.
-
-· Đếm sóng Elliott tự động thì KHÔNG đáng tin. Cùng một đồ thị luôn có nhiều
-  cách đếm hợp lệ, và người hành nghề thật cũng bất đồng với nhau. Phần
-  Elliott ở đây chỉ kiểm ba quy tắc cứng của sóng đẩy rồi nêu một giả thuyết
-  kèm phương án thay thế. Hãy coi nó là gợi ý để tự nhìn lại đồ thị, không
-  phải kết luận.
-
-Cả hai đều mô tả hiện tại, không dự báo tương lai.
+Wyckoff cơ giới hoá được tương đối vì nó dựa vào quan hệ giữa giá và khối
+lượng — vùng đi ngang, cú rũ bỏ dưới đáy, khối lượng lớn mà giá không đi
+được, tất cả đều đo được bằng quy tắc. Nhưng đây vẫn là một cách đọc có
+căn cứ, không phải chân lý, và nó mô tả hiện tại chứ không dự báo tương lai.
 """
 from __future__ import annotations
 
@@ -196,8 +189,35 @@ def wyckoff(h: pd.DataFrame) -> dict:
         phase, conf = "unclear", 0.3
         reasons.append("cấu trúc đỉnh đáy chưa rõ chiều")
 
+    # Kết luận một câu: đây có phải là nền không, và nền loại gì
+    in_base = narrow or phase in ("accumulation", "distribution")
+    if phase == "accumulation":
+        verdict, v_fg, v_bg = "NỀN TÍCH LUỸ", "#1A5C2B", "#C6EFCE"
+        v_note = ("Hàng đang được gom lại sau một đợt giảm. Đây là nền mà mua khi "
+                  "giá giảm cho kết quả tốt nhất — nhưng cũng là nền kéo dài lâu nhất.")
+    elif phase == "distribution":
+        verdict, v_fg, v_bg = "NỀN PHÂN PHỐI", "#9C0006", "#FFC7CE"
+        v_note = ("Hàng đang được bán ra cho đám đông sau một đợt tăng. Mua khi giá "
+                  "giảm trong nền này là đi ngược dòng tiền lớn.")
+    elif narrow and phase == "markup":
+        verdict, v_fg, v_bg = "NỀN TÁI TÍCH LUỸ", "#1B3A5C", "#DDEEFF"
+        v_note = ("Đi ngang để nghỉ giữa xu hướng tăng, chưa có dấu hiệu bị phân phối. "
+                  "Nhịp chỉnh trong nền này thường được mua lại.")
+    elif phase == "markup":
+        verdict, v_fg, v_bg = "KHÔNG PHẢI NỀN — ĐANG ĐI LÊN", "#1A5C2B", "#C6EFCE"
+        v_note = "Đang trong xu hướng tăng, chưa hình thành nền đi ngang."
+    elif phase == "markdown":
+        verdict, v_fg, v_bg = "KHÔNG PHẢI NỀN — ĐANG ĐI XUỐNG", "#9C0006", "#FFC7CE"
+        v_note = ("Đang rơi, chưa tạo nền. Mua lúc này là bắt dao rơi — chờ giá đi "
+                  "ngang và có cú rũ bỏ trước.")
+    else:
+        verdict, v_fg, v_bg = "CHƯA XÁC ĐỊNH ĐƯỢC NỀN", "#64748B", "#F1F5F9"
+        v_note = "Cấu trúc chưa đủ rõ để kết luận."
+
     label, fg, bg = WYCKOFF[phase]
     return {
+        "verdict": verdict, "v_fg": v_fg, "v_bg": v_bg, "v_note": v_note,
+        "in_base": in_base,
         "phase": phase, "label": label, "fg": fg, "bg": bg,
         "confidence": round(min(max(conf, 0.2), 0.9), 2),
         "reasons": reasons,
@@ -221,57 +241,10 @@ def _wyckoff_advice(phase: str) -> str:
     }.get(phase, "")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Elliott — giả thuyết, không phải kết luận
-# ─────────────────────────────────────────────────────────────────────────────
-def elliott(h: pd.DataFrame) -> dict:
-    """Kiểm ba quy tắc cứng của sóng đẩy trên năm điểm xoay gần nhất."""
-    piv = zigzag(h["Close"], pct=6.0)
-    out = {"ok": False, "note": "", "alt": "", "points": len(piv)}
-    if len(piv) < 6:
-        out["note"] = "Chưa đủ điểm xoay để thử đếm sóng."
-        return out
-
-    pts = piv[-6:]
-    p = [float(x[1]) for x in pts]
-    up = p[-1] > p[0]
-
-    # Ba quy tắc không được vi phạm của một sóng đẩy
-    w1 = abs(p[1] - p[0]); w3 = abs(p[3] - p[2]); w5 = abs(p[5] - p[4])
-    r2 = abs(p[2] - p[1]) / w1 if w1 else 9
-    broken = []
-    if r2 > 1.0:
-        broken.append("sóng 2 đã hồi quá 100% sóng 1")
-    if w3 < w1 and w3 < w5:
-        broken.append("sóng 3 là sóng ngắn nhất")
-    overlap = (p[4] < p[1]) if up else (p[4] > p[1])
-    if overlap:
-        broken.append("sóng 4 chồng lấn vùng giá sóng 1")
-
-    out["rule_breaks"] = broken
-    out["retrace_w2"] = round(r2 * 100, 0) if r2 < 9 else None
-    out["direction"] = "tăng" if up else "giảm"
-    if broken:
-        out["ok"] = False
-        out["note"] = ("Năm đoạn gần nhất KHÔNG thoả quy tắc sóng đẩy ("
-                       + "; ".join(broken) + "), nhiều khả năng đây là một mô hình "
-                       "điều chỉnh chứ không phải sóng đẩy.")
-        out["alt"] = "Cách đếm thay thế: chuỗi a-b-c trong một đợt điều chỉnh lớn hơn."
-    else:
-        out["ok"] = True
-        out["note"] = (f"Năm đoạn gần nhất thoả cả ba quy tắc của sóng đẩy {out['direction']}, "
-                       f"tức có thể đang ở cuối sóng 5.")
-        out["alt"] = ("Cách đếm thay thế hợp lệ không kém: đây mới là sóng 3 của một cấp "
-                      "lớn hơn, hoặc toàn bộ chỉ là sóng b của một điều chỉnh.")
-    out["caveat"] = ("Đếm sóng tự động chỉ kiểm được quy tắc cứng, không thay được mắt "
-                     "người. Cùng một đồ thị luôn có nhiều cách đếm hợp lệ.")
-    return out
-
-
 def assess(market: str = "america") -> dict | None:
     h = fetch_ohlc(market)
     if h is None:
         return None
-    return {"wyckoff": wyckoff(h), "elliott": elliott(h),
+    return {"wyckoff": wyckoff(h),
             "index": YF_INDEX.get(market.lower(), ("", ""))[1],
             "bars": len(h)}
