@@ -68,3 +68,5 @@ ai_cache/
 snapshots/
 scan_cache.pkl
 fund_cache/
+backtest_cache.pkl
+_panel.pkl
