@@ -147,6 +147,7 @@ TABLE_COLS = [
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Từ đỉnh",    "% từ đỉnh",     66,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
@@ -188,6 +189,7 @@ REAL_COLS = [
     ("Tín hiệu",   "Signal",       150,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Định giá",   "Định giá",      84,  Qt.AlignCenter | Qt.AlignVCenter),
     ("Thay đổi",   "Thay đổi",     140,  Qt.AlignCenter | Qt.AlignVCenter),
+    ("Từ đỉnh",    "% từ đỉnh",     66,  Qt.AlignRight  | Qt.AlignVCenter),
     ("Cảnh báo",   "Cảnh báo",     140,  Qt.AlignCenter | Qt.AlignVCenter),
 ]
 
@@ -375,6 +377,8 @@ COL_TIPS = {
         "Chúng không nói mã tốt hay xấu, chỉ nói giá đang ở trạng thái nào.<br><br>"
         "<b>▼50</b> — giá thấp hơn đỉnh 52 tuần từ 50% trở lên. Mất hơn một nửa giá trị thường là "
         "đặt lại kỳ vọng về doanh nghiệp, không phải một nhịp điều chỉnh.<br>"
+        "<b>▼25</b> — thấp hơn đỉnh 25 đến 50%. Kiểm thử lùi đo được đây là vùng có lợi suất "
+        "vượt trội rõ nhất, nhưng kết quả đó có thiên lệch sống sót nặng.<br>"
         "<b>&lt;MA250</b> — giá nằm dưới trung bình 250 phiên, tức dưới mức trung bình một năm giao dịch. "
         "Ranh giới thường dùng để phân biệt nhịp điều chỉnh trong xu hướng tăng với đổi xu hướng.<br>"
         "<b>−10%</b> — giá sụt từ 10% trở lên ngay trong phiên. Thường là phản ứng với tin bất ngờ: "
@@ -385,7 +389,12 @@ COL_TIPS = {
     "% từ đỉnh":
         "<b>Khoảng cách tới đỉnh 52 tuần</b> = (Giá hiện tại / Đỉnh 52 tuần − 1) × 100.<br>"
         "Số âm càng lớn thì giá càng xa đỉnh.<br>"
-        "<i>Chỉ hiển thị — không chấm điểm.</i>",
+        "Kiểm thử lùi trên 588 quan sát cho thấy đây là tín hiệu mạnh nhất trong toàn bộ dữ liệu: "
+        "sụt 25–40% cho lợi suất vượt trung vị +16 điểm với 66% số lần thắng, sụt trên 40% cho "
+        "+39 điểm với 88%. Ô được tô xanh lá từ −40% và xanh dương từ −25%.<br>"
+        "<i>Vẫn không chấm điểm, vì kết quả đó chỉ đến từ giai đoạn hồi phục 2023–2025 và có "
+        "thiên lệch sống sót nặng — mã rơi sâu rồi phá sản không còn trong mẫu. Hãy đọc kèm "
+        "tín hiệu gấu/bò trên Dashboard.</i>",
     "Giá/MA250%":
         "<b>Khoảng cách tới trung bình 250 phiên</b> = (Giá hiện tại / MA250 − 1) × 100.<br>"
         "Dương nghĩa là giá đang trên mức trung bình một năm; âm là đang dưới.<br>"
@@ -3504,11 +3513,17 @@ class MainWindow(QMainWindow):
         self._chk_1y   = QCheckBox("💵  FCF ≥ lợi nhuận")
         self._chk_52w  = QCheckBox("🏰  Bền vững 5 năm")
         self._chk_val  = QCheckBox("💲  Giá Rẻ / Hợp lý")
+        self._chk_dd   = QCheckBox("▼  Giảm > 25% từ đỉnh")
+        self._chk_dd.setToolTip(
+            "Vùng mà kiểm thử lùi đo được lợi suất vượt trội rõ nhất: sụt 25–40% "
+            "cho +16 điểm với 66% số lần thắng, sụt trên 40% cho +39 điểm với 88%.\n"
+            "Lưu ý kết quả đó có thiên lệch sống sót nặng và chỉ đến từ giai đoạn "
+            "hồi phục 2023–2025 — đọc kèm tín hiệu gấu/bò trên Dashboard.")
         self._chk_val.setToolTip(
             "<b>Định giá Rẻ hoặc Hợp lý</b> (thị trường Mỹ).<br>Bật cùng 🟢 TỐT &amp; THỰC để ra "
             "mã vừa chất lượng vừa chưa bị giá đòi hỏi quá nhiều.")
         self._chip_checks = (self._chk_sb, self._chk_moat, self._chk_1y, self._chk_52w,
-                             self._chk_val)
+                             self._chk_val, self._chk_dd)
 
         for chk in self._chip_checks:
             chk.setStyleSheet(self._chip_style())
@@ -3790,6 +3805,18 @@ class MainWindow(QMainWindow):
                     cell = _implied_cell(val)
                 elif key == "Lợi suất%":
                     cell = _pct_cell(val, "{:.1f}%")
+                elif key == "% từ đỉnh":
+                    cell = NumItem(val, "pct")
+                    if isinstance(val, float) and val == val:
+                        # Thang màu theo vùng mà kiểm thử lùi đo được, không
+                        # phải theo "âm là xấu" — sụt sâu là vùng đáng xem.
+                        if val <= -40:
+                            cell.setForeground(QColor("#1A5C2B")); cell.setBackground(QColor("#C6EFCE"))
+                        elif val <= -25:
+                            cell.setForeground(QColor("#1B3A5C")); cell.setBackground(QColor("#DDEEFF"))
+                        else:
+                            cell.setForeground(QColor(TEXT2))
+
                 elif key == "Cảnh báo":
                     txt  = str(val) if val else ""
                     cell = QTableWidgetItem(txt if txt else "—")
@@ -3920,7 +3947,9 @@ class MainWindow(QMainWindow):
         only_1y   = self._chk_1y.isChecked()
         only_52w  = self._chk_52w.isChecked()
         only_val  = self._chk_val.isChecked()
-        any_chip  = only_sb or only_moat or only_1y or only_52w or only_val
+        only_dd   = self._chk_dd.isChecked()
+        any_chip  = (only_sb or only_moat or only_1y or only_52w
+                     or only_val or only_dd)
         qd        = getattr(self, "_qc_data", {})
 
         visible = 0
@@ -3950,6 +3979,10 @@ class MainWindow(QMainWindow):
                     show = False
                 if show and only_val and rd.get("Định giá") not in ("Rẻ", "Hợp lý"):
                     show = False
+                if show and only_dd:
+                    v = rd.get("% từ đỉnh")
+                    if v is None or (isinstance(v, float) and pd.isna(v)) or v > -25:
+                        show = False
             self._qc_table.setRowHidden(ri, not show)
             if show:
                 visible += 1
@@ -4501,6 +4534,18 @@ class MainWindow(QMainWindow):
                     cell = _implied_cell(val)
                 elif key == "Lợi suất%":
                     cell = _pct_cell(val, "{:.1f}%")
+
+                elif key == "% từ đỉnh":
+                    cell = NumItem(val, "pct")
+                    if isinstance(val, float) and val == val:
+                        # Thang màu theo vùng mà kiểm thử lùi đo được, không
+                        # phải theo "âm là xấu" — sụt sâu là vùng đáng xem.
+                        if val <= -40:
+                            cell.setForeground(QColor("#1A5C2B")); cell.setBackground(QColor("#C6EFCE"))
+                        elif val <= -25:
+                            cell.setForeground(QColor("#1B3A5C")); cell.setBackground(QColor("#DDEEFF"))
+                        else:
+                            cell.setForeground(QColor(TEXT2))
 
                 elif key == "Cảnh báo":
                     txt  = str(val) if val else ""
@@ -5081,7 +5126,9 @@ class MainWindow(QMainWindow):
         only_1y   = self._chk_1y.isChecked()
         only_52w  = self._chk_52w.isChecked()
         only_val  = self._chk_val.isChecked()
-        any_chip  = only_sb or only_moat or only_1y or only_52w or only_val
+        only_dd   = self._chk_dd.isChecked()
+        any_chip  = (only_sb or only_moat or only_1y or only_52w
+                     or only_val or only_dd)
         td        = getattr(self, "_ticker_data", {})
 
         visible = 0
@@ -5111,6 +5158,10 @@ class MainWindow(QMainWindow):
                     show = False
                 if show and only_val and rd.get("Định giá") not in ("Rẻ", "Hợp lý"):
                     show = False
+                if show and only_dd:
+                    v = rd.get("% từ đỉnh")
+                    if v is None or (isinstance(v, float) and pd.isna(v)) or v > -25:
+                        show = False
             self._table.setRowHidden(ri, not show)
             if show:
                 visible += 1

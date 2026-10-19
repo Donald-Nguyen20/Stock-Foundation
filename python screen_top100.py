@@ -813,8 +813,12 @@ def _derive_fields(df, moat_cache=None):
         fh = _num(r.get("% từ đỉnh"))
         mv = _num(r.get("Giá/MA250%"))
         ch = _num(r.get("Chg%"))
+        # Kiểm thử lùi cho thấy vùng sụt 25–40% có lợi suất vượt trội rõ rệt
+        # (+16 điểm, thắng 66%) nhưng trước đây không dấu nào bật ở đó.
         if fh is not None and fh <= -50:
             out.append("▼50")            # mất hơn một nửa giá trị từ đỉnh 52 tuần
+        elif fh is not None and fh <= -25:
+            out.append("▼25")            # vùng chiết khấu sâu nhưng chưa tới một nửa
         if mv is not None and mv < 0:
             out.append("<MA250")         # dưới đường trung bình 250 phiên
         if ch is not None and ch <= -10:
