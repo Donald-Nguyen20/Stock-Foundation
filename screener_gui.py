@@ -32,6 +32,7 @@ import ai_analysis
 import universe_charts
 import analysis_charts
 import market_regime
+import market_phase
 import analysis_report
 import fund_holders
 import fund_chart
@@ -4391,6 +4392,10 @@ class MainWindow(QMainWindow):
             self._regime = market_regime.assess(self._market.currentText(), df)
         except Exception:
             self._regime = None
+        try:
+            self._phase = market_phase.assess(self._market.currentText())
+        except Exception:
+            self._phase = None
 
     def _load_cache(self):
         import pickle
@@ -4724,6 +4729,54 @@ class MainWindow(QMainWindow):
                 f'{rg.get("advice","")}</span><br>'
                 f'<span style="color:{T3};font-size:10px;">Căn cứ: '
                 f'{"; ".join(rg.get("reasons", []))}</span>'
+                f'</td></tr></table>')
+
+        # ── Giai đoạn theo Wyckoff, kèm giả thuyết Elliott ────────────────
+        ph = getattr(self, "_phase", None)
+        if ph:
+            wy, el = ph["wyckoff"], ph["elliott"]
+            rsw = wy["range"]
+            bar = int(round(wy["confidence"] * 10))
+            conf_bar = ("█" * bar) + ("░" * (10 - bar))
+            facts = []
+            if rsw.get("width") is not None:
+                facts.append(f"vùng giá rộng {rsw['width']:.0f}%")
+            if rsw.get("pos") is not None:
+                facts.append(f"giá ở {rsw['pos']:.0f}% vùng")
+            if wy["volume"].get("up_dn_vol") is not None:
+                facts.append(f"KL phiên tăng/giảm {wy['volume']['up_dn_vol']:.2f}")
+            if wy["volume"].get("vol_trend") is not None:
+                facts.append(f"KL nửa sau/nửa đầu {wy['volume']['vol_trend']:.2f}")
+            ev = []
+            if wy["events"].get("spring"):
+                ev.append(f"rũ bỏ dưới đáy {wy['events']['spring']:+.1f}%")
+            if wy["events"].get("upthrust"):
+                ev.append(f"vượt đỉnh hụt {wy['events']['upthrust']:+.1f}%")
+
+            mk_html += (
+                f'<table width="100%" cellspacing="0" cellpadding="0" '
+                f'style="margin:0 0 14px 0;"><tr>'
+                f'<td width="150" valign="top" style="background:{wy["bg"]};'
+                f'padding:11px 14px;text-align:center;">'
+                f'<span style="color:{wy["fg"]};font-size:13px;font-weight:700;'
+                f'letter-spacing:1px;">{wy["label"]}</span><br>'
+                f'<span style="color:{wy["fg"]};font-size:9px;'
+                f'font-family:Consolas,monospace;">{conf_bar}</span><br>'
+                f'<span style="color:{wy["fg"]};font-size:9px;">Wyckoff · độ tin '
+                f'{wy["confidence"]:.0%}</span></td>'
+                f'<td valign="top" style="background:{CARD};border:1px solid {BRD};'
+                f'padding:10px 16px;">'
+                f'<span style="color:{T1};font-size:11px;font-weight:700;">'
+                f'{"  ·  ".join(facts)}</span>'
+                + (f'<br><span style="color:{A_};font-size:11px;font-weight:700;">'
+                   f'{"  ·  ".join(ev)}</span>' if ev else "")
+                + f'<br><span style="color:{T2};font-size:11px;line-height:160%;">'
+                f'{wy.get("advice","")}</span><br>'
+                f'<span style="color:{T3};font-size:10px;">Căn cứ: '
+                f'{"; ".join(wy.get("reasons", []))}</span>'
+                f'<br><span style="color:{T3};font-size:10px;line-height:155%;">'
+                f'<b>Elliott:</b> {el.get("note","")} {el.get("alt","")} '
+                f'<i>{el.get("caveat","")}</i></span>'
                 f'</td></tr></table>')
 
         def sec(title, sub, color):
