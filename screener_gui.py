@@ -2608,7 +2608,112 @@ class HelpDialog(QDialog):
   vẫn còn là nhiễu: các mã chụp cùng ngày chịu chung một nhịp thị trường nên không phải các phép thử độc
   lập. Mã đã hủy niêm yết không còn giá bị loại ra và được liệt kê cuối báo cáo.</p>
 
-<h2>⑩ CÁCH DÙNG</h2>
+<h2>⑩ GIAI ĐOẠN THỊ TRƯỜNG — gấu / bò và Wyckoff</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  Hai khối trên cùng Dashboard. Không tiêu chí nào trong đó cộng vào điểm — chúng giống nhau cho
+  mọi mã nên không phân biệt được mã nào với mã nào. Việc của chúng là cho biết <b>nên đọc tín hiệu
+  giảm sâu như thế nào</b>: giữa sóng tăng, một mã rơi mạnh thường là chuyện riêng của doanh nghiệp;
+  giữa sóng giảm, nó thường mới là chặng đầu.
+</p>
+<table>
+  <tr><th style="width:150px;">Khối</th><th style="width:230px;">Tính từ đâu</th><th>Ý nghĩa</th></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Gấu / Bò<br>5 mức</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Chỉ số của chính sàn đang quét: giá so
+      MA50 và MA200, mức sụt từ đỉnh một năm. Cộng thêm <b>độ rộng</b> — bao nhiêu phần trăm mã trong
+      lần quét đang trên MA250.</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Mỗi điều kiện một phiếu, cộng lại ra
+      trạng thái từ BÒ MẠNH tới GẤU SÂU. Cần độ rộng vì chỉ số có thể được vài mã vốn hóa lớn kéo lên
+      trong khi phần còn lại đã gãy từ lâu.</td>
+  </tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#16A34A;font-weight:700;font-size:12px;padding:8px 12px;">Wyckoff<br>loại nền</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">OHLCV của chỉ số qua bộ lọc zigzag 5%:
+      cấu trúc đỉnh đáy, vị trí giá trong vùng, khối lượng phiên tăng so với phiên giảm, xu hướng khối
+      lượng, cùng hai sự kiện <b>rũ bỏ dưới đáy rồi hồi</b> và <b>vượt đỉnh hụt</b>.</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Kết luận một câu: NỀN TÍCH LUỸ, NỀN
+      PHÂN PHỐI, NỀN TÁI TÍCH LUỸ, hoặc KHÔNG PHẢI NỀN kèm chiều xu hướng. Có kèm độ tin cậy vì đây
+      là cách đọc có căn cứ, không phải chân lý.</td>
+  </tr>
+</table>
+<p class="tip">Phân phối phải có bằng chứng mới được gọi — chỉ riêng việc giá đang ở nửa trên vùng thì
+  chưa đủ. Gọi nhầm phân phối giữa sóng tăng là sai đắt giá vì nó khuyên tránh mua đúng lúc nên mua.</p>
+
+<h2>⑪ NỀN GIÁ THEO CAN SLIM</h2>
+<p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
+  O'Neil mua khi giá bứt khỏi một nền lành mạnh, không mua giữa lúc đang rơi. Với lối mua khi giá giảm
+  thì phân biệt này còn quan trọng hơn: một mã đã mất 30% <b>nhưng đã tạo nền</b> khác hẳn một mã mất
+  30% <b>mà còn đang rơi</b> — trước đây bộ lọc không phân biệt được hai thứ đó.
+</p>
+<table>
+  <tr><th style="width:120px;">Số đo</th><th style="width:250px;">Công thức</th><th>Đọc thế nào</th></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Độ sâu nền</td>
+    <td style="color:#64748B;font-family:Consolas,monospace;font-size:11px;padding:8px 12px;">(1 − đáy 3 tháng / đỉnh 3 tháng) × 100</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">O'Neil coi nền 15–35% là lành. Sâu quá
+      45% thì cấu trúc đã hỏng, cần rất lâu mới lành lại.</td>
+  </tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Vị trí nền</td>
+    <td style="color:#64748B;font-family:Consolas,monospace;font-size:11px;padding:8px 12px;">(giá − đáy 3T) / (đỉnh 3T − đáy 3T) × 100</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">0 tại đáy nền, 100 tại đỉnh. Trên 60 là
+      sát điểm mua; dưới 35 nghĩa là còn đang rơi, chưa dừng.</td>
+  </tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Độ siết</td>
+    <td style="color:#64748B;font-family:Consolas,monospace;font-size:11px;padding:8px 12px;">biên độ 1 tháng / biên độ 3 tháng</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Dưới 1 nghĩa là giá dao động hẹp dần —
+      hàng đang được hấp thụ, nền sắp hoàn thiện. Minervini gọi đây là <b>co thắt biên độ</b>. Dưới
+      0,60 được tính là đang siết.</td>
+  </tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Cách đỉnh nền</td>
+    <td style="color:#64748B;font-family:Consolas,monospace;font-size:11px;padding:8px 12px;">(giá / đỉnh 3 tháng − 1) × 100</td>
+    <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Khoảng cách tới điểm mua. O'Neil khuyên
+      không đuổi khi giá đã vượt quá 5% trên điểm bứt phá.</td>
+  </tr>
+</table>
+<p style="color:#1A202C;font-size:12px;margin:12px 0 6px 0;font-weight:700;">Sáu trạng thái</p>
+<table>
+  <tr><th style="width:110px;">Trạng thái</th><th style="width:300px;">Điều kiện</th><th>Nghĩa</th></tr>
+  <tr style="background-color:#C6EFCE;">
+    <td style="color:#1A5C2B;font-weight:700;font-size:12px;padding:8px 12px;">Nền chặt</td>
+    <td style="color:#1A5C2B;font-size:12px;padding:8px 12px;">Vị trí ≥ 60 &nbsp;và&nbsp; độ siết ≤ 0,60 &nbsp;và&nbsp; giá trên MA50</td>
+    <td style="color:#1A5C2B;font-size:12px;padding:8px 12px;">Sát điểm mua nhất: gần đỉnh nền, biên độ đã co, xu hướng còn nguyên.</td>
+  </tr>
+  <tr style="background-color:#DCEDC8;">
+    <td style="color:#1B5E20;font-weight:700;font-size:12px;padding:8px 12px;">Nền tốt</td>
+    <td style="color:#1B5E20;font-size:12px;padding:8px 12px;">Vị trí ≥ 60 &nbsp;và&nbsp; giá trên MA50</td>
+    <td style="color:#1B5E20;font-size:12px;padding:8px 12px;">Ở nửa trên nền nhưng biên độ chưa siết lại.</td>
+  </tr>
+  <tr style="background-color:#DDEEFF;">
+    <td style="color:#1B3A5C;font-weight:700;font-size:12px;padding:8px 12px;">Đang siết</td>
+    <td style="color:#1B3A5C;font-size:12px;padding:8px 12px;">Độ siết ≤ 0,60 nhưng giá còn giữa nền</td>
+    <td style="color:#1B3A5C;font-size:12px;padding:8px 12px;">Biên độ đang co lại — nền có thể đang hình thành, cần thêm thời gian.</td>
+  </tr>
+  <tr style="background-color:#FFF2CC;">
+    <td style="color:#7D6608;font-weight:700;font-size:12px;padding:8px 12px;">Đang xây</td>
+    <td style="color:#7D6608;font-size:12px;padding:8px 12px;">Đã đi ngang nhưng chưa đạt điều kiện nào ở trên</td>
+    <td style="color:#7D6608;font-size:12px;padding:8px 12px;">Chưa có dấu hiệu hoàn thiện.</td>
+  </tr>
+  <tr style="background-color:#FFE0C2;">
+    <td style="color:#7A3E00;font-weight:700;font-size:12px;padding:8px 12px;">Đang rơi</td>
+    <td style="color:#7A3E00;font-size:12px;padding:8px 12px;">Vị trí &lt; 35</td>
+    <td style="color:#7A3E00;font-size:12px;padding:8px 12px;">Còn nằm ở một phần ba dưới của nền — chưa dừng rơi, mua lúc này là bắt dao.</td>
+  </tr>
+  <tr style="background-color:#FFC7CE;">
+    <td style="color:#9C0006;font-weight:700;font-size:12px;padding:8px 12px;">Hỏng</td>
+    <td style="color:#9C0006;font-size:12px;padding:8px 12px;">Độ sâu &gt; 45%</td>
+    <td style="color:#9C0006;font-size:12px;padding:8px 12px;">Sụt quá sâu. Nền kiểu này cần rất nhiều thời gian mới lành.</td>
+  </tr>
+</table>
+<p class="tip">Nền giá <b>không chấm điểm</b> — đây là cấu trúc giá, không phải chất lượng doanh nghiệp,
+  nên nó nằm ngoài cả hai nhóm. Cách dùng đúng là đọc cùng lúc hai thứ: cột <b>Từ đỉnh</b> cho biết mã
+  đã rẻ đi bao nhiêu, cột <b>Nền giá</b> cho biết nó đã ngừng rơi chưa, còn hai điểm Tài chính và Thực
+  cho biết doanh nghiệp bên dưới có đáng mua không. Mục 🏗️ NỀN GIÁ trên Dashboard xếp sẵn theo thứ tự
+  đó. Dữ liệu lấy từ High/Low 1 và 3 tháng của TradingView nên có cho mọi thị trường.</p>
+
+<h2>⑫ CÁCH DÙNG</h2>
 <ul>
   <li><b>SCAN</b> — lấy top N cổ phiếu theo vốn hóa từ TradingView và chấm cả hai nhóm.</li>
   <li><b>Tab Tài chính</b> — {N_FIN} tiêu chí nhóm A cùng số liệu gốc.</li>
