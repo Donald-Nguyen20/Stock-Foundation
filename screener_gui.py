@@ -5017,7 +5017,45 @@ class MainWindow(QMainWindow):
             ]),
             widths=["3%", "6%", "17%", "11%", "7%", "6%", "5%", "8%", "8%", "7%", "10%", "12%"])
 
-        # ── 4. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
+        # ── 4. Nền giá theo CAN SLIM ─────────────────────────────────────
+        # Tiếp nối mục cảnh báo: trong số mã đã bị đánh xuống, mã nào đã
+        # NGỪNG rơi và tạo được nền. Đó là khác biệt mà cột giá đơn thuần
+        # không nói được.
+        BASE_PAL = {
+            "Nền chặt":  G, "Nền tốt": G, "Đang siết": B,
+            "Đang xây":  A_, "Đang rơi": O, "Hỏng": R,
+        }
+        BASE_RANK = {"Nền chặt": 0, "Nền tốt": 1, "Đang siết": 2,
+                     "Đang xây": 3, "Đang rơi": 4, "Hỏng": 5}
+
+        base_col = df["Nền giá"] if "Nền giá" in df.columns else pd.Series([None] * n)
+        ready = df[base_col.isin(["Nền chặt", "Nền tốt", "Đang siết"])].copy()
+        if not ready.empty:
+            ready["_r"] = ready["Nền giá"].map(BASE_RANK)
+            ready = ready.sort_values(["_r", "% từ đỉnh"], ascending=[True, True])
+
+        n_base = {k: int((base_col == k).sum()) for k in BASE_RANK}
+        tally = "  ·  ".join(
+            f'<span style="color:{BASE_PAL[k]};font-weight:700;">{k} {v}</span>'
+            for k, v in n_base.items() if v)
+
+        def base_cell(v):
+            c = BASE_PAL.get(v, T3)
+            return cell(f'<span style="color:{c};font-weight:700;">{v or "—"}</span>')
+
+        base_tbl = table(
+            HDRS + ["Nền", "Sâu", "Vị trí", "Siết", "Từ đỉnh"],
+            rows_for(ready, lambda r: [
+                base_cell(r.get("Nền giá")),
+                num(r.get("Độ sâu nền"), "{:.0f}%"),
+                num(r.get("Vị trí nền"), "{:.0f}"),
+                num(r.get("Độ siết"), "{:.2f}", lambda v: v <= 0.6),
+                num(r.get("% từ đỉnh"), "{:+.1f}%"),
+            ]),
+            widths=["3%", "6%", "17%", "11%", "7%", "6%", "5%",
+                    "9%", "6%", "6%", "6%", "8%"])
+
+        # ── 5. Tỷ lệ đạt từng tiêu chí ───────────────────────────────────
         hit_rows = []
         for grp, keys, crit in (("A", FIN_KEYS, FIN_CRITERIA), ("B", REAL_KEYS, REAL_CRITERIA)):
             for k in keys:
@@ -5056,7 +5094,7 @@ class MainWindow(QMainWindow):
         hit_tbl = table(["Nhóm", "Tiêu chí", "Đạt", "Tỷ lệ", "Mức", "Nhận xét"], hit_rows,
                         widths=["8%", "17%", "9%", "7%", "14%", "45%"])
 
-        # ── 5. Theo ngành ────────────────────────────────────────────────
+        # ── 6. Theo ngành ────────────────────────────────────────────────
         sec_rows = []
         if "Sector" in df.columns:
             for name, g in df.groupby("Sector"):
@@ -5182,6 +5220,12 @@ class MainWindow(QMainWindow):
        f'{n_gw} mã trong số này vẫn đạt 🟢 TỐT &amp; THỰC — chất lượng còn nguyên nhưng giá đã bị đánh xuống. '
        f'Ba dấu này chỉ mô tả trạng thái giá, không tham gia chấm điểm và không dùng để lọc', A_)}
   {warn_tbl}
+
+  {sec(f'🏗️  NỀN GIÁ — {len(ready)} mã đã tạo nền',
+       'trong số mã bị đánh xuống, mã nào đã ngừng rơi và dựng được nền theo lối đọc '
+       'của CAN SLIM. Giảm sâu mà ĐÃ TẠO NỀN khác hẳn giảm sâu mà CÒN ĐANG RƠI', B)}
+  <div style="color:{T2};font-size:11px;margin:0 0 9px 0;">{tally}</div>
+  {base_tbl}
 
   {sec('📊  Tỷ lệ đạt của từng tiêu chí', 'tiêu chí quá lỏng hoặc quá chặt thì không phân loại được gì — dùng để hiệu chỉnh ngưỡng', B)}
   {hit_tbl}
