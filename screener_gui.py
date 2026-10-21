@@ -4245,6 +4245,8 @@ class MainWindow(QMainWindow):
         self._dash_browser.setOpenExternalLinks(False)
         self._dash_browser.setOpenLinks(False)       # tự xử lý thay vì mở trình duyệt
         self._dash_browser.anchorClicked.connect(self._on_dash_link)
+        self._dash_browser.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._dash_browser.customContextMenuRequested.connect(self._on_dash_menu)
         self._dash_browser.setStyleSheet(f"""
             QTextBrowser {{
                 background:{BG}; color:#DCE4EE;
@@ -5480,14 +5482,27 @@ class MainWindow(QMainWindow):
             return cell('<span style="color:%s;font-weight:700;'
                         'font-family:Consolas,monospace;">%s</span>' % (c, esc))
 
+        _watched = wl.tickers()
+
+        def tk_html(t):
+            """Link tới một mã, kèm dấu 👁 nếu đang theo dõi.
+
+            Dấu nằm TRONG thẻ a để cả phần đó bấm và chuột phải được; mã vẫn
+            là một từ riêng nên _dash_find bôi vàng vẫn khớp.
+            """
+            t = _html_escape(str(t or ""))
+            if not t:
+                return ""
+            eye = "  👁" if t.upper() in _watched else ""
+            return (f'<a href="tk:{t}" style="color:#4A9EFF;text-decoration:none;'
+                    f'font-weight:700;">{t}{eye}</a>')
+
         def rows_for(sub, extra_cols):
             out = []
             for i, (_, r) in enumerate(sub.iterrows(), 1):
                 _tk = str(r.get("Ticker", "") or "")
                 base = [cell(str(i), T3),
-                        cell(f'<a href="tk:{_tk}" style="color:#4A9EFF;'
-                             f'text-decoration:none;font-weight:700;">{_tk}</a>'
-                             if _tk else "", None, True),
+                        cell(tk_html(_tk), None, True),
                         cell(str(r.get("Tên Công Ty", ""))[:34], T1),
                         cell(str(r.get("Sector", ""))[:20], T2),
                         cell(money(r.get("Price ($)")), T1),
@@ -5590,10 +5605,7 @@ class MainWindow(QMainWindow):
             warn_df["_r"] = warn_df["Signal"].map(lambda x: _rank.get(x, 9))
             warn_df = warn_df.sort_values(["_r", "% từ đỉnh"], ascending=[True, True])
 
-        def tk_link(t):
-            t = _html_escape(str(t or ""))
-            return (f'<a href="tk:{t}" style="color:#4A9EFF;text-decoration:none;'
-                    f'font-weight:700;">{t}</a>') if t else ""
+        tk_link = tk_html
 
         def sig_cell(v):
             fg, bg = SIGNAL_COLORS.get(v, (T2, None))
@@ -6012,6 +6024,23 @@ class MainWindow(QMainWindow):
                     f"👁  Đã thêm {tk} vào Watchlist — "
                     f"{len(self._watchlist_panel._items)} mã đang theo dõi", GREEN)
             self._apply_filter()        # chip Watchlist phải đổi theo ngay
+            # Dashboard cần vẽ lại để dấu 👁 xuất hiện hoặc mất đi. setHtml
+            # đưa thanh cuộn về đầu, nên giữ lại vị trí — bấm một mã mà bị
+            # bật lên đầu trang đúng là thứ vừa sửa xong.
+            if (self._tabs_w.currentIndex() == 0
+                    and getattr(self, "_df", None) is not None
+                    and len(self._df) > 0):
+                # Mã đã vào danh sách và đã lưu xong rồi; vẽ lại chỉ để dấu
+                # 👁 hiện ra. Nên nếu dựng HTML có vấn đề thì bỏ qua phần
+                # trang trí, không để nó ném lỗi ngược lên cú chuột phải.
+                try:
+                    bar = self._dash_browser.verticalScrollBar()
+                    keep = bar.value()
+                    self._update_dashboard(self._df)
+                    bar.setValue(keep)
+                    self._dash_find(tk)
+                except Exception:
+                    pass
         elif key == "chart":
             self._select_ticker(tk)
         elif key == "copy":
@@ -6040,6 +6069,43 @@ class MainWindow(QMainWindow):
             else:
                 keys[menu.addAction(label)] = key
         act = menu.exec(table.viewport().mapToGlobal(pos))
+        if act in keys:
+            self._run_row_action(keys[act], tk)
+
+    def _dash_ticker_at(self, pos):
+        """Mã dưới con trỏ trên Dashboard, hoặc None nếu không phải chỗ có mã."""
+        href = self._dash_browser.anchorAt(pos)
+        if not href.startswith("tk:"):
+            return None
+        return href[3:].strip().upper() or None
+
+    def _on_dash_menu(self, pos):
+        """Chuột phải trên Dashboard: dùng chính menu của hai bảng kia.
+
+        Dashboard là HTML chứ không phải bảng, nên mã nằm dưới con trỏ đọc
+        qua anchorAt — mọi mã trên Dashboard đều là thẻ <a href="tk:...">.
+        Bấm chỗ không phải mã thì trả lại menu mặc định của khung chữ, chứ
+        không để hiện ra menu rỗng.
+        """
+        from PySide6.QtWidgets import QMenu
+        tk = self._dash_ticker_at(pos)
+        gpos = self._dash_browser.viewport().mapToGlobal(pos)
+
+        if not tk:
+            std = self._dash_browser.createStandardContextMenu(pos)
+            std.setStyleSheet(_MENU_STYLE())
+            std.exec(gpos)
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(_MENU_STYLE())
+        keys = {}
+        for key, label in self._row_menu_items(tk):
+            if key == "-":
+                menu.addSeparator()
+            else:
+                keys[menu.addAction(label)] = key
+        act = menu.exec(gpos)
         if act in keys:
             self._run_row_action(keys[act], tk)
 
