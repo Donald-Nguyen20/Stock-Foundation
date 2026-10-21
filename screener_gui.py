@@ -32,6 +32,7 @@ import ai_analysis
 import universe_charts
 import analysis_charts
 import market_regime
+import watchlist as wl
 import market_phase
 import analysis_report
 import fund_holders
@@ -2120,6 +2121,410 @@ class PortfolioPanel(QWidget):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Watchlist — những mã chưa mua mà đang chờ
+# ─────────────────────────────────────────────────────────────────────────────
+class WatchlistPanel(QWidget):
+    """Danh sách theo dõi, lưu vào watchlist.json.
+
+    Khác Portfolio ở chỗ Portfolio tính lãi lỗ trên hàng đã mua, còn ở đây
+    chưa mua gì nên không có lãi lỗ. Thứ cần biết là từ lúc để mắt tới giờ
+    giá đã rẻ đi bao nhiêu, và trong lúc chờ thì chất lượng doanh nghiệp có
+    xấu đi không. Nên mỗi mã lưu kèm mốc lúc thêm rồi đặt cạnh số hiện tại.
+
+    Hai cột đó phải đọc cùng nhau: giá rẻ đi mà điểm cũng tụt theo thì
+    thường là thị trường biết điều gì mà bộ lọc chưa thấy — xem mã APP.
+    """
+
+    pick = Signal(str)          # bấm một dòng → nạp biểu đồ ở ngoài
+
+    _COLS = [
+        ("#",          38, Qt.AlignCenter),
+        ("Ticker",     68, Qt.AlignCenter),
+        ("Company",   170, Qt.AlignLeft),
+        ("Ngày thêm",  88, Qt.AlignCenter),
+        ("Giá thêm",   82, Qt.AlignRight),
+        ("Giá nay",    82, Qt.AlignRight),
+        ("Δ giá",      76, Qt.AlignRight),
+        ("CS",         40, Qt.AlignCenter),
+        ("QC",         40, Qt.AlignCenter),
+        ("Signal",    120, Qt.AlignCenter),
+        ("Nền giá",    80, Qt.AlignCenter),
+        ("Từ đỉnh",    72, Qt.AlignRight),
+        ("Ghi chú",   160, Qt.AlignLeft),
+        ("",           34, Qt.AlignCenter),
+    ]
+    _COL_NOTE = 12
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._items   = []
+        self._scan_df = None
+        self._loading = False       # chặn itemChanged lúc đang dựng bảng
+        self.setStyleSheet(f"background:{BG};")
+        self._build_ui()
+        self.reload()
+
+    # ── Dữ liệu ───────────────────────────────────────────────────────────
+    def reload(self):
+        self._items = wl.load()
+        self._refresh_table()
+
+    def refresh_scan(self, df):
+        self._scan_df = df
+        self._refresh_table()
+
+    def _row_for(self, ticker):
+        if self._scan_df is None or self._scan_df.empty:
+            return {}
+        m = self._scan_df[self._scan_df["Ticker"] == ticker]
+        return m.iloc[0].to_dict() if not m.empty else {}
+
+    # ── Dựng giao diện ────────────────────────────────────────────────────
+    def _sep(self):
+        f = QFrame(); f.setFrameShape(QFrame.HLine); f.setFixedHeight(1)
+        f.setStyleSheet(f"background:{BORDER}; border:none;"); return f
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+
+        self._kpi_bar = QWidget(); self._kpi_bar.setFixedHeight(74)
+        self._kpi_bar.setStyleSheet(f"background:{SURFACE};")
+        self._kpi_hlay = QHBoxLayout(self._kpi_bar)
+        self._kpi_hlay.setContentsMargins(14, 6, 14, 6); self._kpi_hlay.setSpacing(6)
+        lay.addWidget(self._kpi_bar)
+        lay.addWidget(self._sep())
+
+        self._table = QTableWidget(0, len(self._COLS))
+        self._table.setHorizontalHeaderLabels([c[0] for c in self._COLS])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # Chỉ ô ghi chú sửa được, mở bằng bấm đôi — xem _refresh_table
+        self._table.setEditTriggers(QAbstractItemView.DoubleClicked)
+        self._table.setAlternatingRowColors(False)
+        self._table.horizontalHeader().setHighlightSections(False)
+        self._table.setStyleSheet(f"""
+            QTableWidget {{ background:{BG}; gridline-color:{BORDER}; outline:none;
+                            font-size:12px; }}
+            QTableWidget::item {{ padding:3px 6px; }}
+            QTableWidget::item:selected {{ background:{BORDER2}; color:{TEXT1}; }}
+            QHeaderView::section {{
+                background:{SURFACE}; color:{TEXT2}; font-size:9px;
+                font-weight:700; letter-spacing:1px;
+                padding:5px 6px; border:none; border-bottom:1px solid {BORDER};
+            }}
+        """)
+        for i, (_, w_px, _) in enumerate(self._COLS):
+            self._table.setColumnWidth(i, w_px)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self._table.itemChanged.connect(self._on_item_changed)
+        self._table.itemSelectionChanged.connect(self._on_row_selected)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_menu)
+        lay.addWidget(self._table, stretch=1)
+        lay.addWidget(self._sep())
+
+        # Thêm tay, để lập được watchlist cả khi chưa quét
+        form = QWidget(); form.setFixedHeight(44)
+        form.setStyleSheet(f"background:{SURFACE};")
+        fh = QHBoxLayout(form)
+        fh.setContentsMargins(14, 0, 14, 0); fh.setSpacing(6)
+        _is = (f"background:{INPUT_BG};color:{TEXT1};border:1px solid {BORDER};"
+               f"border-radius:3px;padding:0 8px;font-size:12px;")
+
+        def _lbl(t):
+            l = QLabel(t)
+            l.setStyleSheet(f"color:{TEXT3};font-size:9px;letter-spacing:1px;")
+            return l
+
+        self._inp_ticker = QLineEdit()
+        self._inp_ticker.setPlaceholderText("AAPL")
+        self._inp_ticker.setFixedSize(84, 28); self._inp_ticker.setMaxLength(12)
+        self._inp_ticker.setStyleSheet(_is)
+        self._inp_note = QLineEdit()
+        self._inp_note.setPlaceholderText("Ghi chú — ví dụ: chờ về 450, chờ tạo nền")
+        self._inp_note.setFixedHeight(28); self._inp_note.setStyleSheet(_is)
+
+        btn_add = QPushButton("＋  THEO DÕI")
+        btn_add.setFixedSize(104, 28); btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setStyleSheet(
+            f"QPushButton{{background:{BLUE};color:#FFF;border:none;border-radius:3px;"
+            f"font-size:9px;font-weight:700;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{BLUE_HV};}}")
+        btn_add.clicked.connect(self._add_typed)
+        self._inp_ticker.returnPressed.connect(self._add_typed)
+        self._inp_note.returnPressed.connect(self._add_typed)
+
+        fh.addWidget(_lbl("TICKER")); fh.addWidget(self._inp_ticker)
+        fh.addSpacing(6); fh.addWidget(self._inp_note, stretch=1)
+        fh.addWidget(btn_add)
+        lay.addWidget(form)
+
+    # ── Thao tác ──────────────────────────────────────────────────────────
+    def _add_typed(self):
+        tk = self._inp_ticker.text().strip().upper()
+        if not tk:
+            return
+        wl.add(tk, note=self._inp_note.text().strip(), row=self._row_for(tk))
+        self._inp_ticker.clear(); self._inp_note.clear()
+        self.reload()
+
+    def add_ticker(self, ticker, row=None) -> bool:
+        """Dùng từ menu chuột phải ở các tab khác."""
+        ok = wl.add(ticker, row=row if row is not None else self._row_for(ticker))
+        if ok:
+            self.reload()
+        return ok
+
+    def remove_ticker(self, ticker) -> bool:
+        ok = wl.remove(ticker)
+        if ok:
+            self.reload()
+        return ok
+
+    def _on_item_changed(self, item):
+        """Sửa ghi chú ngay trên bảng."""
+        if self._loading or item.column() != self._COL_NOTE:
+            return
+        tk_item = self._table.item(item.row(), 1)
+        if tk_item:
+            wl.set_note(tk_item.text(), item.text())
+            self._items = wl.load()
+
+    def _on_row_selected(self):
+        ri = self._table.currentRow()
+        it = self._table.item(ri, 1)
+        if it and it.text():
+            self.pick.emit(it.text())
+
+    def _menu_items(self, tk):
+        return [("chart", f"📈  Nạp biểu đồ {tk}"),
+                ("copy", f"📋  Sao chép {tk}"),
+                ("-", ""),
+                ("del", f"✕  Bỏ {tk} khỏi Watchlist")]
+
+    def _run_action(self, key, tk):
+        if key == "chart":
+            self.pick.emit(tk)
+        elif key == "copy":
+            QApplication.clipboard().setText(tk)
+        elif key == "del":
+            self.remove_ticker(tk)
+
+    def _on_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        ri = self._table.rowAt(pos.y())
+        if ri < 0:
+            return
+        it = self._table.item(ri, 1)
+        if not it or not it.text():
+            return
+        tk = it.text()
+        menu = QMenu(self)
+        menu.setStyleSheet(_MENU_STYLE())
+        keys = {}
+        for key, label in self._menu_items(tk):
+            if key == "-":
+                menu.addSeparator()
+            else:
+                keys[menu.addAction(label)] = key
+        act = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if act in keys:
+            self._run_action(keys[act], tk)
+
+    # ── Vẽ bảng ───────────────────────────────────────────────────────────
+    def _refresh_table(self):
+        self._loading = True
+        self._table.setRowCount(0)
+        _C = Qt.AlignVCenter | Qt.AlignCenter
+        _R = Qt.AlignVCenter | Qt.AlignRight
+        _L = Qt.AlignVCenter | Qt.AlignLeft
+        SIG_STYLE = {k: (bg.lstrip("#"), fg.lstrip("#"))
+                     for k, (fg, bg) in SIGNAL_COLORS.items()}
+
+        n_cheaper = n_worse = n_missing = 0
+        drops = []
+
+        for i, it in enumerate(self._items):
+            tk   = str(it.get("ticker", ""))
+            cur  = self._row_for(tk)
+            px0  = it.get("px")
+            px1  = cur.get("Price ($)")
+            try:    px1 = float(px1)
+            except (TypeError, ValueError): px1 = None
+            if px1 is not None and px1 != px1: px1 = None
+            if not cur: n_missing += 1
+
+            d_px = ((px1 - px0) / px0 * 100) if (px0 and px1) else None
+            if d_px is not None and d_px < 0:
+                n_cheaper += 1
+                drops.append((tk, d_px))
+
+            fin0, real0 = it.get("fin"), it.get("real")
+            fin1, real1 = cur.get("FIN_Score"), cur.get("REAL_Score")
+            sig0, sig1  = it.get("signal", ""), cur.get("Signal", "")
+            worse = ((fin0 is not None and fin1 is not None and fin1 < fin0)
+                     or (real0 is not None and real1 is not None and real1 < real0)
+                     or (sig0 and sig1 and sig0 != sig1
+                         and sig0 == "🟢 TỐT & THỰC"))
+            if worse: n_worse += 1
+
+            row_bg = "F0F4FA" if i % 2 == 0 else "FFFFFF"
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            self._table.setRowHeight(row, 26)
+
+            def _cell(txt, align=_R, color=TEXT1, bold=False, bg=None, tip=""):
+                item = QTableWidgetItem(str(txt))
+                item.setTextAlignment(align)
+                item.setForeground(QColor(f"#{color}"))
+                item.setBackground(QColor(f"#{bg}" if bg else f"#{row_bg}"))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if bold:
+                    fn = item.font(); fn.setBold(True); item.setFont(fn)
+                if tip:
+                    item.setToolTip(tip)
+                return item
+
+            def _score(v0, v1, col):
+                """Điểm hiện tại; tụt so với lúc thêm thì tô đỏ và nói rõ ở tooltip."""
+                if v1 is None or (isinstance(v1, float) and v1 != v1):
+                    return _cell("—", _C, TEXT3)
+                txt = f"{int(v1)}"
+                if v0 is not None and int(v1) < int(v0):
+                    return _cell(txt, _C, RED[1:], bold=True,
+                                 tip=f"Lúc thêm {int(v0)} → nay {int(v1)}")
+                if v0 is not None and int(v1) > int(v0):
+                    return _cell(txt, _C, GREEN[1:],
+                                 tip=f"Lúc thêm {int(v0)} → nay {int(v1)}")
+                return _cell(txt, _C, TEXT2)
+
+            self._table.setItem(row, 0, _cell(i + 1, _C, TEXT3))
+            self._table.setItem(row, 1, _cell(tk, _C, BLUE[1:], bold=True))
+            self._table.setItem(row, 2, _cell(
+                (cur.get("Tên Công Ty") or "—")[:30], _L))
+            self._table.setItem(row, 3, _cell(it.get("added", "—"), _C, TEXT2))
+            self._table.setItem(row, 4, _cell(
+                f"${px0:,.2f}" if px0 else "—", _R, TEXT2))
+            self._table.setItem(row, 5, _cell(
+                f"${px1:,.2f}" if px1 else "—", _R))
+
+            if d_px is None:
+                self._table.setItem(row, 6, _cell("—", _C, TEXT3))
+            else:
+                # Rẻ đi là điều đang chờ, nên giảm tô xanh
+                c = GREEN[1:] if d_px < 0 else RED[1:]
+                self._table.setItem(row, 6, _cell(
+                    f"{d_px:+.1f}%", _R, c, bold=True,
+                    tip="Thay đổi giá kể từ lúc thêm vào Watchlist"))
+
+            self._table.setItem(row, 7, _score(fin0, fin1, 7))
+            self._table.setItem(row, 8, _score(real0, real1, 8))
+
+            if sig1 in SIG_STYLE:
+                sbg, sfg = SIG_STYLE[sig1]
+                tip = f"Lúc thêm: {sig0}" if (sig0 and sig0 != sig1) else ""
+                self._table.setItem(row, 9, _cell(sig1, _C, sfg, bg=sbg, tip=tip))
+            else:
+                self._table.setItem(row, 9, _cell("—", _C, TEXT3))
+
+            base = cur.get("Nền giá") or ""
+            b_pal = {"Nền chặt": "1A5C2B", "Nền tốt": "1B5E20",
+                     "Đang siết": "1B3A5C", "Đang xây": "7D6608",
+                     "Đang rơi": "7A3E00", "Hỏng": "9C0006"}
+            if base in b_pal:
+                tip = f"Lúc thêm: {it.get('base')}" if (
+                    it.get("base") and it.get("base") != base) else ""
+                self._table.setItem(row, 10, _cell(
+                    base, _C, b_pal[base], bold=True, tip=tip))
+            else:
+                self._table.setItem(row, 10, _cell("—", _C, TEXT3))
+
+            dd = cur.get("% từ đỉnh")
+            try:    dd = float(dd)
+            except (TypeError, ValueError): dd = None
+            if dd is None or dd != dd:
+                self._table.setItem(row, 11, _cell("—", _C, TEXT3))
+            else:
+                c = GREEN[1:] if dd <= -25 else TEXT2
+                self._table.setItem(row, 11, _cell(f"{dd:+.1f}%", _R, c))
+
+            # Ô duy nhất sửa được: bấm đôi để ghi chú
+            note = QTableWidgetItem(str(it.get("note", "")))
+            note.setTextAlignment(_L)
+            note.setForeground(QColor(f"#{TEXT2}"))
+            note.setBackground(QColor(f"#{row_bg}"))
+            note.setToolTip("Bấm đôi để sửa ghi chú")
+            self._table.setItem(row, self._COL_NOTE, note)
+
+            btn_del = QPushButton("✕")
+            btn_del.setFixedSize(24, 22); btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.setStyleSheet(
+                f"QPushButton{{background:transparent;color:{TEXT3};border:none;"
+                f"font-size:10px;}}QPushButton:hover{{color:{RED};}}")
+            btn_del.clicked.connect(lambda _, t=tk: self.remove_ticker(t))
+            cw = QWidget(); cw.setStyleSheet(f"background:#{row_bg};")
+            cl = QHBoxLayout(cw); cl.setContentsMargins(4, 0, 4, 0); cl.addWidget(btn_del)
+            self._table.setCellWidget(row, 13, cw)
+
+        self._loading = False
+        self._refresh_kpi(n_cheaper, n_worse, n_missing, drops)
+
+    def _refresh_kpi(self, n_cheaper, n_worse, n_missing, drops):
+        while self._kpi_hlay.count():
+            x = self._kpi_hlay.takeAt(0)
+            if x.widget(): x.widget().deleteLater()
+
+        def _card(val, lbl, col=None, tip=""):
+            card = QWidget()
+            card.setStyleSheet(
+                f"background:{SURFACE};border:1px solid {BORDER};border-radius:4px;")
+            if tip: card.setToolTip(tip)
+            cv = QVBoxLayout(card); cv.setContentsMargins(10, 5, 10, 4); cv.setSpacing(1)
+            vl = QLabel(val)
+            vl.setStyleSheet(f"color:{col or TEXT1};font-size:17px;font-weight:700;")
+            vl.setAlignment(Qt.AlignCenter)
+            ll = QLabel(lbl)
+            ll.setStyleSheet(f"color:{TEXT3};font-size:9px;letter-spacing:1px;")
+            ll.setAlignment(Qt.AlignCenter)
+            cv.addWidget(vl); cv.addWidget(ll)
+            return card
+
+        self._kpi_hlay.addWidget(_card(str(len(self._items)), "# ĐANG THEO DÕI"))
+        self._kpi_hlay.addWidget(_card(
+            str(n_cheaper), "ĐÃ RẺ HƠN", GREEN if n_cheaper else None,
+            tip="Số mã có giá thấp hơn lúc thêm vào Watchlist"))
+        if drops:
+            best = min(drops, key=lambda x: x[1])
+            self._kpi_hlay.addWidget(_card(
+                f"{best[0]}  {best[1]:+.1f}%", "RẺ ĐI NHIỀU NHẤT", GREEN))
+        self._kpi_hlay.addWidget(_card(
+            str(n_worse), "ĐÃ XẤU ĐI", RED if n_worse else None,
+            tip="Điểm tụt hoặc mất tín hiệu TỐT & THỰC so với lúc thêm.\n"
+                "Giá rẻ đi mà điểm cũng tụt theo thì thường là thị trường "
+                "biết điều gì mà bộ lọc chưa thấy."))
+        if n_missing:
+            self._kpi_hlay.addWidget(_card(
+                str(n_missing), "KHÔNG CÓ TRONG LẦN QUÉT", AMBER,
+                tip="Mã không nằm trong top vốn hóa của lần quét hiện tại, "
+                    "nên chưa có số liệu để so."))
+        self._kpi_hlay.addStretch()
+
+    def apply_theme(self):
+        self.setStyleSheet(f"background:{BG};")
+        self._kpi_bar.setStyleSheet(f"background:{SURFACE};")
+        self._refresh_table()
+
+
+def _MENU_STYLE():
+    return (f"QMenu {{ background:{SURFACE}; color:{TEXT1}; border:1px solid {BORDER};"
+            f" padding:4px; font-size:12px; }}"
+            f"QMenu::item {{ padding:6px 18px; border-radius:3px; }}"
+            f"QMenu::item:selected {{ background:{BORDER2}; }}"
+            f"QMenu::separator {{ height:1px; background:{BORDER}; margin:4px 6px; }}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Help dialog — F1
 # ─────────────────────────────────────────────────────────────────────────────
 class HelpDialog(QDialog):
@@ -3709,6 +4114,9 @@ class MainWindow(QMainWindow):
         self._chk_52w  = QCheckBox("🏰  Bền vững 5 năm")
         self._chk_val  = QCheckBox("💲  Giá Rẻ / Hợp lý")
         self._chk_dd   = QCheckBox("▼  Giảm > 25% từ đỉnh")
+        self._chk_wl   = QCheckBox("👁  Watchlist")
+        self._chk_wl.setToolTip(
+            "Chỉ hiện những mã đang theo dõi.\nChuột phải một dòng để thêm hoặc bỏ.")
         self._chk_dd.setToolTip(
             "Vùng mà kiểm thử lùi đo được lợi suất vượt trội rõ nhất: sụt 25–40% "
             "cho +16 điểm với 66% số lần thắng, sụt trên 40% cho +39 điểm với 88%.\n"
@@ -3718,7 +4126,7 @@ class MainWindow(QMainWindow):
             "<b>Định giá Rẻ hoặc Hợp lý</b> (thị trường Mỹ).<br>Bật cùng 🟢 TỐT &amp; THỰC để ra "
             "mã vừa chất lượng vừa chưa bị giá đòi hỏi quá nhiều.")
         self._chip_checks = (self._chk_sb, self._chk_moat, self._chk_1y, self._chk_52w,
-                             self._chk_val, self._chk_dd)
+                             self._chk_val, self._chk_dd, self._chk_wl)
 
         for chk in self._chip_checks:
             chk.setStyleSheet(self._chip_style())
@@ -3773,6 +4181,9 @@ class MainWindow(QMainWindow):
         self._color_header_cols()
 
         self._table.itemSelectionChanged.connect(self._on_row_selected)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(
+            lambda pos: self._on_table_menu(self._table, pos))
         v.addWidget(self._table)
         return w
 
@@ -3817,6 +4228,11 @@ class MainWindow(QMainWindow):
         # Tab 3 — My Portfolio
         self._portfolio_panel = PortfolioPanel()
         tabs.addTab(self._portfolio_panel, "  💼 Portfolio  ")
+
+        # Tab 4 — Watchlist
+        self._watchlist_panel = WatchlistPanel()
+        self._watchlist_panel.pick.connect(self._select_ticker)
+        tabs.addTab(self._watchlist_panel, "  👁 Watchlist  ")
         self._ai_panel = AnalysisPanel()
         tabs.addTab(self._ai_panel, "  📑 Phân tích  ")
 
@@ -3918,6 +4334,9 @@ class MainWindow(QMainWindow):
             self._qc_table.setColumnWidth(i, w_px)
         self._color_qc_header_cols()
         self._qc_table.itemSelectionChanged.connect(self._on_qc_row_selected)
+        self._qc_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._qc_table.customContextMenuRequested.connect(
+            lambda pos: self._on_table_menu(self._qc_table, pos))
         v.addWidget(self._qc_table)
         return w
 
@@ -4159,8 +4578,10 @@ class MainWindow(QMainWindow):
         only_52w  = self._chk_52w.isChecked()
         only_val  = self._chk_val.isChecked()
         only_dd   = self._chk_dd.isChecked()
+        only_wl   = self._chk_wl.isChecked()
+        watched   = wl.tickers() if only_wl else set()
         any_chip  = (only_sb or only_moat or only_1y or only_52w
-                     or only_val or only_dd)
+                     or only_val or only_dd or only_wl)
         qd        = getattr(self, "_qc_data", {})
 
         visible = 0
@@ -4194,6 +4615,8 @@ class MainWindow(QMainWindow):
                     v = rd.get("% từ đỉnh")
                     if v is None or (isinstance(v, float) and pd.isna(v)) or v > -25:
                         show = False
+                if show and only_wl and ticker.upper() not in watched:
+                    show = False
             self._qc_table.setRowHidden(ri, not show)
             if show:
                 visible += 1
@@ -4373,6 +4796,8 @@ class MainWindow(QMainWindow):
         self._chart_panel.set_theme(dark)
         # ── Portfolio ──
         self._portfolio_panel.apply_theme()
+        # ── Watchlist ──
+        self._watchlist_panel.apply_theme()
         # ── Dashboard — regenerate HTML theo theme mới ──
         self._dash_browser.setStyleSheet(f"""
             QTextBrowser {{
@@ -4598,6 +5023,8 @@ class MainWindow(QMainWindow):
         self._df = df
         self._chart_panel.set_universe(df)
         self._ai_panel.set_universe(df)
+        if hasattr(self, "_watchlist_panel"):
+            self._watchlist_panel.refresh_scan(df)
         try:
             self._regime = market_regime.assess(self._market.currentText(), df)
         except Exception:
@@ -5447,8 +5874,10 @@ class MainWindow(QMainWindow):
         only_52w  = self._chk_52w.isChecked()
         only_val  = self._chk_val.isChecked()
         only_dd   = self._chk_dd.isChecked()
+        only_wl   = self._chk_wl.isChecked()
+        watched   = wl.tickers() if only_wl else set()
         any_chip  = (only_sb or only_moat or only_1y or only_52w
-                     or only_val or only_dd)
+                     or only_val or only_dd or only_wl)
         td        = getattr(self, "_ticker_data", {})
 
         visible = 0
@@ -5482,6 +5911,8 @@ class MainWindow(QMainWindow):
                     v = rd.get("% từ đỉnh")
                     if v is None or (isinstance(v, float) and pd.isna(v)) or v > -25:
                         show = False
+                if show and only_wl and ticker.upper() not in watched:
+                    show = False
             self._table.setRowHidden(ri, not show)
             if show:
                 visible += 1
@@ -5549,6 +5980,68 @@ class MainWindow(QMainWindow):
         self._ticker_wkr.done.connect(self._on_ticker_done)
         self._ticker_wkr.failed.connect(lambda m: self._set_status(f"✕  {m}", RED))
         self._ticker_wkr.start()
+
+    # ── Menu chuột phải trên một dòng ─────────────────────────────────────
+    # Phần dựng menu và phần chạy hành động tách làm hai: QMenu.exec chặn
+    # luồng nên không kiểm tự động được, còn hai hàm dưới thì kiểm được.
+
+    def _row_menu_items(self, tk):
+        """Các mục menu cho một mã. Nhãn Watchlist đổi theo trạng thái hiện
+        tại, nên không có hai mục để người dùng phải đoán mục nào ăn."""
+        return [
+            ("wl", f"✕  Bỏ {tk} khỏi Watchlist" if wl.has(tk)
+                   else f"👁  Thêm {tk} vào Watchlist"),
+            ("-", ""),
+            ("chart", f"📈  Nạp biểu đồ {tk}"),
+            ("copy", f"📋  Sao chép {tk}"),
+        ]
+
+    def _run_row_action(self, key, tk):
+        if key == "wl":
+            if wl.has(tk):
+                self._watchlist_panel.remove_ticker(tk)
+                self._set_status(f"👁  Đã bỏ {tk} khỏi Watchlist", TEXT3)
+            else:
+                row = {}
+                if self._df is not None:
+                    m = self._df[self._df["Ticker"] == tk]
+                    if not m.empty:
+                        row = m.iloc[0].to_dict()
+                self._watchlist_panel.add_ticker(tk, row=row)
+                self._set_status(
+                    f"👁  Đã thêm {tk} vào Watchlist — "
+                    f"{len(self._watchlist_panel._items)} mã đang theo dõi", GREEN)
+            self._apply_filter()        # chip Watchlist phải đổi theo ngay
+        elif key == "chart":
+            self._select_ticker(tk)
+        elif key == "copy":
+            QApplication.clipboard().setText(tk)
+            self._set_status(f"📋  Đã sao chép {tk}", BLUE)
+
+    def _ticker_at(self, table, pos):
+        """Mã nằm ở dòng dưới con trỏ, hoặc None nếu bấm vào chỗ trống."""
+        ri = table.rowAt(pos.y())
+        if ri < 0:
+            return None
+        it = table.item(ri, 1)          # cột 1 là Ticker ở cả hai bảng
+        return it.text() if it and it.text() else None
+
+    def _on_table_menu(self, table, pos):
+        from PySide6.QtWidgets import QMenu
+        tk = self._ticker_at(table, pos)
+        if not tk:
+            return
+        menu = QMenu(self)
+        menu.setStyleSheet(_MENU_STYLE())
+        keys = {}
+        for key, label in self._row_menu_items(tk):
+            if key == "-":
+                menu.addSeparator()
+            else:
+                keys[menu.addAction(label)] = key
+        act = menu.exec(table.viewport().mapToGlobal(pos))
+        if act in keys:
+            self._run_row_action(keys[act], tk)
 
     def _on_dash_link(self, url):
         """Bấm một mã trên Dashboard thì nạp biểu đồ và chi tiết cho mã đó.
