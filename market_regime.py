@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Trạng thái thị trường: gấu hay bò.
+"""Trạng thái thị trường: uptrend, sideways hay downtrend.
 
 Vì sao cần, với một bộ lọc mua khi giá giảm: kiểm thử lùi cho thấy mua mã
 đã sụt sâu cho kết quả rất tốt — nhưng toàn bộ mẫu rơi vào giai đoạn
-2023–2025, tức là mua vào đúng đợt hồi phục sau gấu 2022. Trong chữ V thì
-bắt đáy lúc nào cũng thắng. Biết thị trường đang ở pha nào là điều kiện để
-đọc tín hiệu "giảm sâu" cho đúng: giữa sóng tăng nó thường là nhịp điều
-chỉnh, giữa sóng giảm nó thường mới chỉ là chặng đầu.
+2023–2025, tức là mua vào đúng đợt hồi phục sau downtrend 2022. Trong chữ V
+thì bắt đáy lúc nào cũng thắng. Biết thị trường đang ở pha nào là điều kiện
+để đọc tín hiệu "giảm sâu" cho đúng: trong uptrend nó thường là nhịp điều
+chỉnh, trong downtrend nó thường mới chỉ là chặng đầu.
 
 Trạng thái tính từ hai nguồn độc lập:
   · Chỉ số: giá so với MA50, MA200 và mức sụt từ đỉnh một năm.
@@ -27,11 +27,12 @@ INDEX = {
 
 # nhãn, màu chữ, màu nền
 STATES = {
-    "bull_strong": ("🐂 BÒ MẠNH",   "#1A5C2B", "#C6EFCE"),
-    "bull":        ("🐂 BÒ",         "#1B5E20", "#DCEDC8"),
-    "neutral":     ("⚖️ TRUNG TÍNH", "#7D6608", "#FFF2CC"),
-    "bear":        ("🐻 GẤU",        "#9C0006", "#FFC7CE"),
-    "bear_deep":   ("🐻 GẤU SÂU",    "#FFFFFF", "#9C0006"),
+    "uptrend_strong":   ("📈 UPTREND MẠNH",   "#1A5C2B", "#C6EFCE"),
+    "uptrend":          ("📈 UPTREND",        "#1B5E20", "#DCEDC8"),
+    "sideways":         ("➡️ SIDEWAYS",       "#7D6608", "#FFF2CC"),
+    "downtrend":        ("📉 DOWNTREND",      "#9C0006", "#FFC7CE"),
+    "downtrend_strong": ("📉 DOWNTREND MẠNH", "#FFFFFF", "#9C0006"),
+    "unknown":          ("⚪ THIẾU DỮ LIỆU",   "#475569", "#F1F5F9"),
 }
 
 
@@ -76,8 +77,10 @@ def classify(idx: dict, breadth_pct: float | None = None) -> dict:
     res = {"breadth": breadth_pct, "reasons": []}
 
     if not close or not ma200:
-        res["state"] = "neutral"
+        res["state"] = "unknown"
         res["reasons"].append("thiếu dữ liệu chỉ số")
+        res["label"], res["fg"], res["bg"] = STATES["unknown"]
+        res["advice"] = _advice("unknown")
         return res
 
     dd = (close / high52 - 1) * 100 if high52 else None
@@ -109,11 +112,11 @@ def classify(idx: dict, breadth_pct: float | None = None) -> dict:
             score -= 1; res["reasons"].append(f"chỉ {breadth_pct:.0f}% số mã trên MA250")
 
     res["score"] = score
-    # Gấu sâu đòi hỏi cả hai đường trung bình gãy VÀ chỉ số sụt trên 20% —
-    # chỉ riêng việc nằm dưới MA200 thì mới là gấu thường.
-    res["state"] = ("bull_strong" if score >= 3 else "bull" if score >= 1
-                    else "neutral" if score == 0
-                    else "bear" if score >= -3 else "bear_deep")
+    # DOWNTREND MẠNH đòi hỏi cả hai đường trung bình gãy VÀ chỉ số sụt trên
+    # 20% — chỉ riêng việc nằm dưới MA200 thì mới là downtrend thường.
+    res["state"] = ("uptrend_strong" if score >= 3 else "uptrend" if score >= 1
+                    else "sideways" if score == 0
+                    else "downtrend" if score >= -3 else "downtrend_strong")
     res["label"], res["fg"], res["bg"] = STATES[res["state"]]
     res["advice"] = _advice(res["state"])
     return res
@@ -122,16 +125,21 @@ def classify(idx: dict, breadth_pct: float | None = None) -> dict:
 def _advice(state: str) -> str:
     """Tín hiệu này nên đọc ra sao khi đang săn mã giảm sâu."""
     return {
-        "bull_strong": "Mã giảm sâu giữa sóng tăng thường là vấn đề riêng của doanh "
-                       "nghiệp đó, không phải của thị trường — càng phải tìm hiểu kỹ lý do.",
-        "bull":        "Nhịp điều chỉnh trong xu hướng tăng. Đây là bối cảnh thuận lợi "
-                       "nhất cho việc mua khi giá giảm.",
-        "neutral":     "Chưa rõ xu hướng. Vào từng phần thay vì một lần.",
-        "bear":        "Giá giảm lúc này nhiều khả năng mới là chặng đầu. Giữ tiền mặt "
-                       "và chia nhỏ lệnh mua.",
-        "bear_deep":   "Thị trường đang trong pha giảm sâu. Mã rẻ còn rẻ nữa — toàn bộ "
-                       "kết quả kiểm thử lùi của bộ lọc đến từ một giai đoạn hồi phục, "
-                       "không áp dụng được cho pha này.",
+        "uptrend_strong":   "Mã giảm sâu giữa một uptrend mạnh thường là vấn đề riêng "
+                            "của doanh nghiệp đó, không phải của thị trường — càng phải "
+                            "tìm hiểu kỹ lý do.",
+        "uptrend":          "Nhịp điều chỉnh trong uptrend. Đây là bối cảnh thuận lợi nhất "
+                            "cho việc mua khi giá giảm.",
+        "sideways":         "Thị trường đi ngang, chưa rõ xu hướng. Vào từng phần thay vì "
+                            "một lần.",
+        "downtrend":        "Giá giảm lúc này nhiều khả năng mới là chặng đầu. Giữ tiền mặt "
+                            "và chia nhỏ lệnh mua.",
+        "downtrend_strong": "Downtrend đã lan rộng. Mã rẻ còn rẻ nữa — toàn bộ kết quả kiểm "
+                            "thử lùi của bộ lọc đến từ một giai đoạn hồi phục, không áp "
+                            "dụng được cho pha này.",
+        "unknown":          "Không lấy được số liệu chỉ số của sàn này — có thể do mạng. "
+                            "Không có bối cảnh thị trường thì tín hiệu giảm sâu của từng mã "
+                            "không đọc được là nhịp chỉnh hay chặng đầu của một đợt giảm.",
     }.get(state, "")
 
 

@@ -422,7 +422,7 @@ COL_TIPS = {
         "+39 điểm với 88%. Ô được tô xanh lá từ −40% và xanh dương từ −25%.<br>"
         "<i>Vẫn không chấm điểm, vì kết quả đó chỉ đến từ giai đoạn hồi phục 2023–2025 và có "
         "thiên lệch sống sót nặng — mã rơi sâu rồi phá sản không còn trong mẫu. Hãy đọc kèm "
-        "tín hiệu gấu/bò trên Dashboard.</i>",
+        "tín hiệu xu hướng thị trường trên Dashboard.</i>",
     "Giá/MA250%":
         "<b>Khoảng cách tới trung bình 250 phiên</b> = (Giá hiện tại / MA250 − 1) × 100.<br>"
         "Dương nghĩa là giá đang trên mức trung bình một năm; âm là đang dưới.<br>"
@@ -2608,23 +2608,23 @@ class HelpDialog(QDialog):
   vẫn còn là nhiễu: các mã chụp cùng ngày chịu chung một nhịp thị trường nên không phải các phép thử độc
   lập. Mã đã hủy niêm yết không còn giá bị loại ra và được liệt kê cuối báo cáo.</p>
 
-<h2>⑩ GIAI ĐOẠN THỊ TRƯỜNG — gấu / bò và Wyckoff</h2>
+<h2>⑩ GIAI ĐOẠN THỊ TRƯỜNG — xu hướng và Wyckoff</h2>
 <p style="color:#64748B;font-size:12px;margin:0 0 10px 0;">
   Hai khối trên cùng Dashboard. Không tiêu chí nào trong đó cộng vào điểm — chúng giống nhau cho
   mọi mã nên không phân biệt được mã nào với mã nào. Việc của chúng là cho biết <b>nên đọc tín hiệu
-  giảm sâu như thế nào</b>: giữa sóng tăng, một mã rơi mạnh thường là chuyện riêng của doanh nghiệp;
-  giữa sóng giảm, nó thường mới là chặng đầu.
+  giảm sâu như thế nào</b>: trong uptrend, một mã rơi mạnh thường là chuyện riêng của doanh nghiệp;
+  trong downtrend, nó thường mới là chặng đầu.
 </p>
 <table>
   <tr><th style="width:150px;">Khối</th><th style="width:230px;">Tính từ đâu</th><th>Ý nghĩa</th></tr>
   <tr style="background-color:#F0F4FA;">
-    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Gấu / Bò<br>5 mức</td>
+    <td style="color:#1E40AF;font-weight:700;font-size:12px;padding:8px 12px;">Xu hướng<br>5 mức</td>
     <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Chỉ số của chính sàn đang quét: giá so
       MA50 và MA200, mức sụt từ đỉnh một năm. Cộng thêm <b>độ rộng</b> — bao nhiêu phần trăm mã trong
       lần quét đang trên MA250.</td>
     <td style="color:#1A202C;font-size:12px;padding:8px 12px;">Mỗi điều kiện một phiếu, cộng lại ra
-      trạng thái từ BÒ MẠNH tới GẤU SÂU. Cần độ rộng vì chỉ số có thể được vài mã vốn hóa lớn kéo lên
-      trong khi phần còn lại đã gãy từ lâu.</td>
+      một trong năm trạng thái — xem bảng dưới. Cần độ rộng vì chỉ số có thể được vài mã vốn hóa lớn
+      kéo lên trong khi phần còn lại đã gãy từ lâu.</td>
   </tr>
   <tr style="background-color:#FFFFFF;">
     <td style="color:#16A34A;font-weight:700;font-size:12px;padding:8px 12px;">Wyckoff<br>loại nền</td>
@@ -2636,6 +2636,68 @@ class HelpDialog(QDialog):
       là cách đọc có căn cứ, không phải chân lý.</td>
   </tr>
 </table>
+<p style="color:#1A202C;font-size:12px;margin:12px 0 6px 0;font-weight:700;">Năm trạng thái xu hướng</p>
+<table>
+  <tr><th style="width:150px;">Trạng thái</th><th style="width:70px;">Điểm</th><th>Đọc thế nào</th></tr>
+  <tr style="background-color:#C6EFCE;">
+    <td style="color:#1A5C2B;font-weight:700;font-size:12px;padding:8px 12px;">📈 UPTREND MẠNH</td>
+    <td style="color:#1A5C2B;font-size:12px;padding:8px 12px;">≥ +3</td>
+    <td style="color:#1A5C2B;font-size:12px;padding:8px 12px;">Mã giảm sâu lúc này thường là vấn đề
+      riêng của doanh nghiệp, không phải của thị trường — càng phải tìm hiểu kỹ lý do.</td>
+  </tr>
+  <tr style="background-color:#DCEDC8;">
+    <td style="color:#1B5E20;font-weight:700;font-size:12px;padding:8px 12px;">📈 UPTREND</td>
+    <td style="color:#1B5E20;font-size:12px;padding:8px 12px;">+1 … +2</td>
+    <td style="color:#1B5E20;font-size:12px;padding:8px 12px;">Nhịp điều chỉnh trong uptrend. Bối cảnh
+      thuận lợi nhất cho lối mua khi giá giảm.</td>
+  </tr>
+  <tr style="background-color:#FFF2CC;">
+    <td style="color:#7D6608;font-weight:700;font-size:12px;padding:8px 12px;">➡️ SIDEWAYS</td>
+    <td style="color:#7D6608;font-size:12px;padding:8px 12px;">0</td>
+    <td style="color:#7D6608;font-size:12px;padding:8px 12px;">Đi ngang, chưa rõ xu hướng. Vào từng
+      phần thay vì một lần.</td>
+  </tr>
+  <tr style="background-color:#FFC7CE;">
+    <td style="color:#9C0006;font-weight:700;font-size:12px;padding:8px 12px;">📉 DOWNTREND</td>
+    <td style="color:#9C0006;font-size:12px;padding:8px 12px;">−1 … −3</td>
+    <td style="color:#9C0006;font-size:12px;padding:8px 12px;">Giá giảm nhiều khả năng mới là chặng
+      đầu. Giữ tiền mặt và chia nhỏ lệnh mua.</td>
+  </tr>
+  <tr style="background-color:#9C0006;">
+    <td style="color:#FFFFFF;font-weight:700;font-size:12px;padding:8px 12px;">📉 DOWNTREND MẠNH</td>
+    <td style="color:#FFFFFF;font-size:12px;padding:8px 12px;">≤ −4</td>
+    <td style="color:#FFFFFF;font-size:12px;padding:8px 12px;">Mã rẻ còn rẻ nữa. Toàn bộ kết quả kiểm
+      thử lùi của bộ lọc đến từ một giai đoạn hồi phục nên không áp dụng được cho pha này.</td>
+  </tr>
+</table>
+<p style="color:#1A202C;font-size:12px;margin:12px 0 6px 0;font-weight:700;">Bốn lá phiếu cộng ra điểm</p>
+<table>
+  <tr><th style="width:330px;">Điều kiện</th><th>Phiếu</th></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Chỉ số trên / dưới MA200</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">+1 / −1</td></tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">MA50 trên / dưới MA200</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">+1 / −1</td></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Chỉ số sát đỉnh — sụt dưới 5%</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">+1</td></tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Sụt 10–20% từ đỉnh một năm</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">−1</td></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Sụt trên 20% từ đỉnh một năm</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">−2</td></tr>
+  <tr style="background-color:#FFFFFF;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Độ rộng ≥ 60% số mã trên MA250</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">+1</td></tr>
+  <tr style="background-color:#F0F4FA;">
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">Độ rộng &lt; 35% số mã trên MA250</td>
+    <td style="color:#1A202C;font-size:12px;padding:7px 12px;">−1</td></tr>
+</table>
+<p class="tip">DOWNTREND MẠNH không thể chỉ do nằm dưới MA200 — muốn xuống −4 thì phải gãy cả hai đường
+  trung bình <b>và</b> chỉ số đã sụt trên 20% từ đỉnh, tức vừa gãy cấu trúc vừa mất giá thật.</p>
+
 <p class="tip">Phân phối phải có bằng chứng mới được gọi — chỉ riêng việc giá đang ở nửa trên vùng thì
   chưa đủ. Gọi nhầm phân phối giữa sóng tăng là sai đắt giá vì nó khuyên tránh mua đúng lúc nên mua.</p>
 
@@ -3651,7 +3713,7 @@ class MainWindow(QMainWindow):
             "Vùng mà kiểm thử lùi đo được lợi suất vượt trội rõ nhất: sụt 25–40% "
             "cho +16 điểm với 66% số lần thắng, sụt trên 40% cho +39 điểm với 88%.\n"
             "Lưu ý kết quả đó có thiên lệch sống sót nặng và chỉ đến từ giai đoạn "
-            "hồi phục 2023–2025 — đọc kèm tín hiệu gấu/bò trên Dashboard.")
+            "hồi phục 2023–2025 — đọc kèm tín hiệu xu hướng trên Dashboard.")
         self._chk_val.setToolTip(
             "<b>Định giá Rẻ hoặc Hợp lý</b> (thị trường Mỹ).<br>Bật cùng 🟢 TỐT &amp; THỰC để ra "
             "mã vừa chất lượng vừa chưa bị giá đòi hỏi quá nhiều.")
@@ -4864,7 +4926,7 @@ class MainWindow(QMainWindow):
                 + kpi(n_gw, "TỐT NHƯNG GIÁ GIẢM", O)
                 + '</tr></table>')
 
-        # ── Trạng thái thị trường: gấu hay bò ─────────────────────────────
+        # ── Xu hướng thị trường: uptrend, sideways hay downtrend ──────────
         # Không cộng vào điểm — nó giống nhau cho mọi mã nên không phân biệt
         # được mã nào. Nhưng nó quyết định cách ĐỌC tín hiệu giảm sâu.
         rg = getattr(self, "_regime", None)
@@ -4881,10 +4943,10 @@ class MainWindow(QMainWindow):
             mk_html = (
                 f'<table width="100%" cellspacing="0" cellpadding="0" '
                 f'style="margin:14px 0;"><tr>'
-                f'<td width="150" valign="top" style="background:{rg["bg"]};'
-                f'padding:11px 14px;text-align:center;">'
-                f'<span style="color:{rg["fg"]};font-size:14px;font-weight:700;'
-                f'letter-spacing:1px;">{rg["label"]}</span></td>'
+                f'<td width="200" valign="top" style="background:{rg["bg"]};'
+                f'padding:11px 12px;text-align:center;">'
+                f'<span style="color:{rg["fg"]};font-size:13px;font-weight:700;'
+                f'letter-spacing:0.5px;">{rg["label"]}</span></td>'
                 f'<td valign="top" style="background:{CARD};border:1px solid {BRD};'
                 f'padding:10px 16px;">'
                 f'<span style="color:{T1};font-size:11px;font-weight:700;">'
