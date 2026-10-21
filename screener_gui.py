@@ -5571,6 +5571,12 @@ class MainWindow(QMainWindow):
         """Nạp biểu đồ và chi tiết cho một mã."""
         self._dash_ticker = ticker
         self._ticker_inp.setText(ticker)
+        # setText vừa hẹn bộ tra mã sau 700ms. Trên Dashboard thì bộ đó chỉ
+        # làm đúng việc bôi vàng, nên làm luôn tại đây rồi huỷ hẹn — vừa thấy
+        # ngay, vừa không chạy hai lần.
+        if self._tabs_w.currentIndex() == 0:
+            self._lookup_tmr.stop()
+            self._dash_find(ticker)
         self._chart_panel.load_ticker(ticker, show_chart=show_chart)
         if self._df is not None:
             m = self._df[self._df["Ticker"] == ticker]
@@ -5582,8 +5588,13 @@ class MainWindow(QMainWindow):
         self._set_status(f"📈  {ticker}  ·  đã nạp biểu đồ", BLUE)
 
     def _dash_find(self, ticker: str):
-        """Scroll và highlight tất cả lần xuất hiện của ticker trong Dashboard."""
-        from PySide6.QtGui import QTextCharFormat, QTextCursor
+        """Bôi vàng mọi lần xuất hiện của một mã trên Dashboard.
+
+        KHÔNG kéo khung nhìn đi đâu. Đang đọc mục Nền giá ở dưới mà bấm một
+        mã thì phải vẫn ở Nền giá — bị nhảy về mục đầu tiên có mã đó là mất
+        chỗ đang đọc. Bôi vàng là đủ để thấy mã nằm ở những mục nào.
+        """
+        from PySide6.QtGui import QTextCharFormat, QTextCursor, QTextDocument
         from PySide6.QtWidgets import QTextEdit
 
         # Xoá highlight cũ
@@ -5592,8 +5603,14 @@ class MainWindow(QMainWindow):
         if not ticker:
             return
 
-        # Tìm tất cả vị trí xuất hiện và tạo highlight vàng
+        # Giữ nguyên vị trí cuộn qua suốt quá trình tìm
+        bar = self._dash_browser.verticalScrollBar()
+        keep = bar.value()
+
+        # Khớp cả từ và đúng chữ hoa: mã một chữ như C hay F mà khớp lỏng thì
+        # bôi vàng khắp cả phần chữ tiếng Việt, highlight thành vô dụng.
         doc = self._dash_browser.document()
+        flags = QTextDocument.FindWholeWords | QTextDocument.FindCaseSensitively
         fmt = QTextCharFormat()
         fmt.setBackground(QColor("#FFD700"))
         fmt.setForeground(QColor("#000000"))
@@ -5601,7 +5618,7 @@ class MainWindow(QMainWindow):
         highlights = []
         cur = QTextCursor(doc)
         while True:
-            cur = doc.find(ticker, cur)
+            cur = doc.find(ticker, cur, flags)
             if cur.isNull():
                 break
             sel = QTextEdit.ExtraSelection()
@@ -5609,12 +5626,12 @@ class MainWindow(QMainWindow):
             sel.cursor = cur
             highlights.append(sel)
 
+        self._dash_browser.setExtraSelections(highlights)
+        bar.setValue(keep)
+
         if highlights:
-            self._dash_browser.setExtraSelections(highlights)
-            # Scroll đến lần đầu tiên
-            self._dash_browser.setTextCursor(highlights[0].cursor)
             self._set_status(
-                f"📍  {ticker} — {len(highlights)} vị trí trong Dashboard", GREEN)
+                f"📍  {ticker} — bôi vàng {len(highlights)} vị trí trên Dashboard", GREEN)
         else:
             self._set_status(
                 f"✕  {ticker} không có trong Dashboard hiện tại", TEXT3)
